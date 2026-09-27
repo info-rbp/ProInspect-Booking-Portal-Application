@@ -1,0 +1,6 @@
+{
+  "name": "ProInspect Booking Hub",
+  "description": "Professional property inspection booking hub with real-time Google Calendar scheduling, detailed property and access intake, and administrative work order management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
