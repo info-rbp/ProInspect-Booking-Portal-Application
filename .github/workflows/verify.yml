@@ -3,6 +3,7 @@ name: Verify booking portal
 on:
   push:
     branches:
+      - main
       - production-hardening-v2
   pull_request:
     branches:
