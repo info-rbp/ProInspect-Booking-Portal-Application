@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { fetchBookingByToken } from '../../services/api';
+import type { PublicBookingSummary } from '../../types/booking';
 import { Search, X, Calendar, MapPin, KeyRound, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface PublicBookingManageModalProps {
@@ -14,7 +15,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
   const [tokenOrRef, setTokenOrRef] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [booking, setBooking] = useState<any | null>(null);
+  const [booking, setBooking] = useState<PublicBookingSummary | null>(null);
 
   if (!isOpen) return null;
 
