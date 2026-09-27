@@ -7,6 +7,19 @@ function stringBinding(name: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+const REQUIRED_RUNTIME_BINDINGS = [
+  'FIREBASE_PROJECT_ID',
+  'FIRESTORE_DATABASE_ID',
+  'FIREBASE_SERVICE_ACCOUNT_JSON',
+  'ADMIN_EMAILS',
+  'GOOGLE_CALENDAR_ID',
+  'GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON',
+] as const;
+
+function missingRuntimeBindings(): string[] {
+  return REQUIRED_RUNTIME_BINDINGS.filter((name) => !stringBinding(name));
+}
+
 export class ProInspectContainer extends Container {
   defaultPort = 8080;
   sleepAfter = '10m';
@@ -29,6 +42,18 @@ export class ProInspectContainer extends Container {
 
 export default {
   async fetch(request: Request, workerEnv: Env): Promise<Response> {
+    const missing = missingRuntimeBindings();
+    if (missing.length > 0) {
+      console.error('Cloudflare runtime configuration is incomplete:', missing);
+      return Response.json(
+        {
+          error: 'Deployment configuration is incomplete.',
+          missing,
+        },
+        { status: 503 }
+      );
+    }
+
     const container = getContainer(
       workerEnv.PROINSPECT_CONTAINER,
       'proinspect-production'
