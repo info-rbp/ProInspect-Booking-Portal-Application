@@ -9,6 +9,10 @@ import {
   Users,
   ShieldCheck,
   HelpCircle,
+  KeyRound,
+  CalendarClock,
+  Home,
+  BriefcaseBusiness,
   Clock,
   ArrowRight,
   Check,
@@ -31,6 +35,10 @@ const iconMap: Record<string, React.ElementType> = {
   Users,
   ShieldCheck,
   HelpCircle,
+  KeyRound,
+  CalendarClock,
+  Home,
+  BriefcaseBusiness,
 };
 
 export const Step1Service: React.FC<Step1ServiceProps> = ({
