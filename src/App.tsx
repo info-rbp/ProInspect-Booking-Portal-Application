@@ -18,7 +18,7 @@ import {
   AppointmentSlot,
   BookingRecord,
 } from './types/booking';
-import { fetchServices, submitBooking } from './services/api';
+import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin } from './services/firebase';
 import { User } from 'firebase/auth';
 import { Search, ShieldAlert, CalendarClock } from 'lucide-react';
@@ -94,7 +94,12 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = initAuthListener(
       (user) => {
-        setCurrentUser(user);
+        verifyAdminSession()
+          .then(() => setCurrentUser(user))
+          .catch(async () => {
+            setCurrentUser(null);
+            await logoutAdmin();
+          });
       },
       () => {
         setCurrentUser(null);
