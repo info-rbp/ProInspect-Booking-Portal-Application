@@ -875,6 +875,10 @@ app.get('/api/bookings/manage/:token', manageRateLimit, async (req, res) => {
   }
 });
 
+app.get('/api/admin/session', requireAdmin, (_req, res) => {
+  return res.json({ authorised: true });
+});
+
 app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   try {
     const bookings = await listBookings();
