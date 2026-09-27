@@ -135,6 +135,15 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
         })}
       </div>
 
+      {services.length === 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          <strong className="block">Online booking is temporarily unavailable.</strong>
+          <span className="text-xs">
+            No services are currently enabled for public booking. Contact ProInspect if you need to arrange an attendance.
+          </span>
+        </div>
+      )}
+
       {/* Navigation Bar */}
       <div className="pt-4 flex items-center justify-between border-t border-slate-200">
         <div className="text-xs text-slate-500">
