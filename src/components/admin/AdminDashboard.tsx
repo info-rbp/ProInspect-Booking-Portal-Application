@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookingRecord, BookingStatus, InspectionService, BusinessSettings } from '../../types/booking';
-import { fetchAdminBookings, updateAdminBooking, fetchServices, fetchSettings } from '../../services/api';
-import { logoutAdmin, getCachedAccessToken } from '../../services/firebase';
+import { fetchAdminBookings, updateAdminBooking, fetchAdminServices, fetchAdminSettings } from '../../services/api';
+import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
@@ -56,8 +56,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const [bkList, srvList, stData] = await Promise.all([
         fetchAdminBookings(),
-        fetchServices(),
-        fetchSettings(),
+        fetchAdminServices(),
+        fetchAdminSettings(),
       ]);
       setBookings(bkList);
       setServices(srvList);
@@ -394,7 +394,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-base text-[#0A2540]">Active Inspection Services</h3>
             <span className="text-xs text-slate-500">
-              Stored in Firestore &bull; Synchronized across booking flow
+              Stored in Firestore &bull; Used by the public booking flow
             </span>
           </div>
 
