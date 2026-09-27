@@ -3,6 +3,7 @@ name: Verify booking portal
 on:
   push:
     branches:
+      - main
       - production-hardening-v2
   pull_request:
     branches:
@@ -24,3 +25,5 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: Build Cloudflare container image
+        run: docker build -t proinspect-booking-portal:verify .

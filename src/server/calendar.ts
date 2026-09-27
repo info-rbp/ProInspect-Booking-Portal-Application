@@ -6,6 +6,15 @@ export interface BusyInterval {
   end: string;
 }
 
+type FreeBusyResponse = {
+  calendars?: Record<string, { busy?: BusyInterval[] }>;
+};
+
+type CalendarEventResponse = {
+  id?: string;
+  htmlLink?: string;
+};
+
 let authClientPromise: Promise<any> | null = null;
 
 function configuredCalendarId(serviceCalendarId?: string): string {
@@ -81,7 +90,7 @@ export async function freeBusy(params: {
     throw new Error(`Google Calendar availability request failed with status ${response.status}.`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as FreeBusyResponse;
   return data.calendars?.[calendarId]?.busy || [];
 }
 
@@ -151,7 +160,7 @@ export async function createEvent(
     throw new Error(`Google Calendar event creation failed with status ${response.status}.`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as CalendarEventResponse;
   if (!data.id) throw new Error('Google Calendar did not return an event ID.');
 
   return { eventId: data.id, htmlLink: data.htmlLink };
