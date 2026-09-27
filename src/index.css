@@ -1,1 +1,21 @@
 @import "tailwindcss";
+
+:root {
+  --proinspect-navy: #1A2B4A;
+  --proinspect-teal: #00B5B8;
+  --proinspect-teal-dark: #008B8E;
+}
+
+html,
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
