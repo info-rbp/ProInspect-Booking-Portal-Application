@@ -148,6 +148,7 @@ export interface BookingRecord {
   managementToken: string;  // secure random token for self-service or direct access
   serviceId: string;
   serviceName: string;
+  serviceCategory?: ServiceCategory; // New bookings retain the customer-selected category; older records may not have it.
   calendarId?: string;
   calendarEventId?: string;
   calendarHtmlLink?: string;
@@ -182,6 +183,7 @@ export interface PublicBookingSummary {
   managementToken?: string;
   managementUrl?: string;
   serviceName: string;
+  serviceCategory?: ServiceCategory;
   status: BookingStatus;
   readinessStatus: BookingReadinessStatus;
   confirmationEmailStatus?: ConfirmationEmailStatus;
