@@ -77,6 +77,13 @@ async function adminFetch(
   });
 }
 
+export async function verifyAdminSession(): Promise<void> {
+  const res = await adminFetch('/api/admin/session');
+  if (!res.ok) {
+    throw new Error('This Google account is not authorised for ProInspect administration.');
+  }
+}
+
 export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   const res = await adminFetch('/api/admin/bookings');
   if (!res.ok) throw new Error('Failed to load bookings.');
