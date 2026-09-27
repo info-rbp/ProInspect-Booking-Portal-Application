@@ -3,6 +3,7 @@ import type {
   BusinessSettings,
   AppointmentSlot,
   BookingRecord,
+  PublicBookingSummary,
 } from '../types/booking';
 import { getAdminIdToken } from './firebase';
 
@@ -40,7 +41,7 @@ export async function submitBooking(payload: {
   property: unknown;
   access: unknown;
   appointment: { start: string };
-}): Promise<{ success: boolean; booking: BookingRecord; message?: string }> {
+}): Promise<{ success: boolean; booking: PublicBookingSummary; message?: string }> {
   const res = await fetch('/api/bookings/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -124,7 +125,7 @@ export async function updateAdminBooking(
   return data.booking;
 }
 
-export async function fetchBookingByToken(token: string): Promise<any> {
+export async function fetchBookingByToken(token: string): Promise<PublicBookingSummary> {
   const res = await fetch(`/api/bookings/manage/${encodeURIComponent(token)}`);
   const data = await res.json();
 
