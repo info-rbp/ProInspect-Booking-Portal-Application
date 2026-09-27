@@ -95,6 +95,10 @@
           "type": "string",
           "maxLength": 100
         },
+        "serviceCategory": {
+          "type": "string",
+          "enum": ["residential", "commercial", "strata-building"]
+        },
         "calendarEventId": {
           "type": "string",
           "maxLength": 256
@@ -150,6 +154,7 @@
         "managementToken",
         "serviceId",
         "serviceName",
+        "serviceCategory",
         "property",
         "access",
         "appointment",
