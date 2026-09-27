@@ -1052,9 +1052,15 @@ app.post('/api/admin/services', requireAdmin, async (req, res) => {
     const existingServices = await listServices(false);
     const nextOrder =
       existingServices.reduce((highest, service) => Math.max(highest, service.order || 0), 0) + 1;
-    const parsed = sanitizeServiceConfiguration(req.body, {
-      fallbackOrder: nextOrder,
-    });
+    const parsed = sanitizeServiceConfiguration(
+      {
+        ...(req.body || {}),
+        order: nextOrder,
+      },
+      {
+        fallbackOrder: nextOrder,
+      }
+    );
 
     if (!parsed.service) {
       return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
@@ -1088,6 +1094,7 @@ app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
         ...existing,
         ...(req.body || {}),
         id: existing.id,
+        order: existing.order,
       },
       {
         existingId: existing.id,
