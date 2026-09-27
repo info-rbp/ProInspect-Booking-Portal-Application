@@ -79,18 +79,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Metrics calculations
   const todayKey = getPerthDateKey(new Date());
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowKey = getPerthDateKey(tomorrow);
+  const tomorrowKey = getPerthDateKey(new Date(Date.now() + 24 * 60 * 60_000));
 
   const todaysBookings = bookings.filter(
-    (b) => b.appointment.start.startsWith(todayKey) && b.status !== 'cancelled'
+    (b) => b.appointment.dateKey === todayKey && b.status !== 'cancelled'
   );
   const tomorrowsBookings = bookings.filter(
-    (b) => b.appointment.start.startsWith(tomorrowKey) && b.status !== 'cancelled'
+    (b) => b.appointment.dateKey === tomorrowKey && b.status !== 'cancelled'
   );
   const upcomingBookings = bookings.filter(
-    (b) => b.appointment.start >= todayKey && b.status === 'confirmed'
+    (b) => b.appointment.dateKey >= todayKey && b.status === 'confirmed'
   );
   const cancelledBookings = bookings.filter((b) => b.status === 'cancelled');
 
@@ -477,31 +475,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
                 Operating Hours
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#1A2B4A] block">Monday</span>
-                  <span className="text-slate-600">
-                    {settings?.operatingHours.monday.active
-                      ? `${settings.operatingHours.monday.open} - ${settings.operatingHours.monday.close}`
-                      : 'Unavailable / Off'}
-                  </span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#1A2B4A] block">Tuesday to Friday</span>
-                  <span className="text-slate-600">
-                    {settings?.operatingHours.tuesday.active
-                      ? `${settings.operatingHours.tuesday.open} - ${settings.operatingHours.tuesday.close}`
-                      : 'Unavailable / Off'}
-                  </span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#1A2B4A] block">Saturday &amp; Sunday</span>
-                  <span className="text-slate-400">
-                    {settings?.operatingHours.saturday.active || settings?.operatingHours.sunday.active
-                      ? 'See current configured hours'
-                      : 'Unavailable / Off'}
-                  </span>
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {([
+                  ['monday', 'Monday'],
+                  ['tuesday', 'Tuesday'],
+                  ['wednesday', 'Wednesday'],
+                  ['thursday', 'Thursday'],
+                  ['friday', 'Friday'],
+                  ['saturday', 'Saturday'],
+                  ['sunday', 'Sunday'],
+                ] as const).map(([dayKey, label]) => {
+                  const day = settings?.operatingHours[dayKey];
+                  return (
+                    <div key={dayKey} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <span className="font-bold text-[#1A2B4A] block">{label}</span>
+                      <span className={day?.active ? 'text-slate-600' : 'text-slate-400'}>
+                        {day?.active ? `${day.open} - ${day.close}` : 'Unavailable / Off'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
