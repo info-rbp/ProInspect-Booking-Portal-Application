@@ -7,15 +7,15 @@
 export const theme = {
   colors: {
     // Brand Primaries
-    brandNavy: '#0A2540',
-    brandNavyDark: '#071A2E',
-    brandNavyLight: '#13355C',
+    brandNavy: '#1A2B4A',
+    brandNavyDark: '#13213A',
+    brandNavyLight: '#263E68',
     
     // Brand Accent & Actions
-    accentBlue: '#0284C7',
-    accentBlueHover: '#0369A1',
-    accentBlueLight: '#E0F2FE',
-    accentBlueSubtle: '#F0F9FF',
+    accentBlue: '#00B5B8',
+    accentBlueHover: '#008B8E',
+    accentBlueLight: '#E6F8F8',
+    accentBlueSubtle: '#F0FBFB',
     
     // Neutrals & Surfaces
     pageBackground: '#F8FAFC',
@@ -31,7 +31,7 @@ export const theme = {
     // Borders
     borderSubtle: '#E2E8F0',
     borderMedium: '#CBD5E1',
-    borderFocus: '#0284C7',
+    borderFocus: '#00B5B8',
     
     // Feedback & Badges
     success: '#059669',
@@ -42,7 +42,7 @@ export const theme = {
     dangerLight: '#FEF2F2',
   },
   typography: {
-    fontSans: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontSans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     fontMono: "'JetBrains Mono', ui-monospace, SFMono-Regular, monospace",
   },
   borderRadius: {
