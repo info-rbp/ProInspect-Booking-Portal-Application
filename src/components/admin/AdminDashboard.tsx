@@ -282,7 +282,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>Inspection Services ({services.length})</span>
+          <span>Booking Services ({services.length})</span>
         </button>
 
         <button
