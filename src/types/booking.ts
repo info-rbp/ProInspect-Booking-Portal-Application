@@ -132,6 +132,8 @@ export interface BookingRecord {
     dateString: string;
     timeString: string;
     durationMinutes: number;
+    bufferBeforeMinutes?: number;
+    bufferAfterMinutes?: number;
     timezone: string;
   };
   status: BookingStatus;
