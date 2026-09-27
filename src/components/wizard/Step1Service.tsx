@@ -12,7 +12,7 @@ import {
   KeyRound,
   CalendarClock,
   Home,
-  BriefcaseBusiness,
+  Briefcase,
   Clock,
   ArrowRight,
   Check,
@@ -38,7 +38,7 @@ const iconMap: Record<string, React.ElementType> = {
   KeyRound,
   CalendarClock,
   Home,
-  BriefcaseBusiness,
+  Briefcase,
 };
 
 export const Step1Service: React.FC<Step1ServiceProps> = ({
