@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { AccessDetails, AccessMethod } from '../../types/booking';
-import { isValidAustralianPhone } from '../../utils/australianValidation';
+import {
+  isValidAustralianPhone,
+  isValidEmail,
+} from '../../utils/australianValidation';
 import {
   KeyRound,
   UserCheck,
@@ -145,6 +148,12 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         errs.tenantPhone = 'Tenant mobile number is required.';
       } else if (!isValidAustralianPhone(tenant.tenantPhone)) {
         errs.tenantPhone = 'Enter a valid Australian mobile number.';
+      }
+      if (tenant.tenantEmail.trim() && !isValidEmail(tenant.tenantEmail)) {
+        errs.tenantEmail = 'Enter a valid tenant email address.';
+      }
+      if (tenant.noticeIssued === 'yes' && !tenant.noticeDate) {
+        errs.noticeDate = 'Enter the date the tenant entry notice was issued.';
       }
     } else if (method === 'meet_onsite') {
       if (!meetOnsite.contactName.trim()) errs.meetName = 'Contact name is required.';
@@ -309,13 +318,19 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   onChange={(e) => setTenant({ ...tenant, tenantEmail: e.target.value })}
                   className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
+                {errors.tenantEmail && (
+                  <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.tenantEmail}
+                  </p>
+                )}
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Has Entry Notice Been Issued? <span className="text-rose-500">*</span>
                 </label>
-                <div className="flex items-center gap-4 mt-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mt-2">
                   <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
                     <input
                       type="radio"
@@ -331,12 +346,23 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                     <input
                       type="radio"
                       name="noticeIssued"
-                      value="no"
-                      checked={tenant.noticeIssued === 'no'}
-                      onChange={() => setTenant({ ...tenant, noticeIssued: 'no' })}
+                      value="pending"
+                      checked={tenant.noticeIssued === 'pending'}
+                      onChange={() => setTenant({ ...tenant, noticeIssued: 'pending', noticeDate: '' })}
                       className="text-[#006D70] focus:ring-[#00B5B8]"
                     />
-                    <span>No / Pending</span>
+                    <span>Notice pending</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
+                    <input
+                      type="radio"
+                      name="noticeIssued"
+                      value="no"
+                      checked={tenant.noticeIssued === 'no'}
+                      onChange={() => setTenant({ ...tenant, noticeIssued: 'no', noticeDate: '' })}
+                      className="text-[#006D70] focus:ring-[#00B5B8]"
+                    />
+                    <span>No notice issued</span>
                   </label>
                 </div>
               </div>
@@ -345,7 +371,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
             {tenant.noticeIssued === 'yes' && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Date Entry Notice Was Issued <span className="text-slate-400 font-normal lowercase">(optional)</span>
+                  Date Entry Notice Was Issued <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -353,6 +379,26 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   onChange={(e) => setTenant({ ...tenant, noticeDate: e.target.value })}
                   className="w-full sm:w-64 h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
+                {errors.noticeDate && (
+                  <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    {errors.noticeDate}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {tenant.noticeIssued !== 'yes' && (
+              <div
+                className={`p-3 rounded-lg border text-xs font-medium ${
+                  tenant.noticeIssued === 'pending'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}
+              >
+                {tenant.noticeIssued === 'pending'
+                  ? 'The appointment can be reserved, but it will be flagged as Pending Tenant Notice until the notice is issued.'
+                  : 'The appointment can be reserved, but it will be flagged Access Action Required before attendance.'}
               </div>
             )}
 
