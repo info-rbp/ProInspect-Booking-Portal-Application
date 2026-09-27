@@ -122,6 +122,17 @@
         "updatedAt": {
           "type": "string",
           "maxLength": 50
+        },
+        "readinessStatus": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "pending_notice",
+            "access_action_required"
+          ]
+        },
+        "confirmationEmail": {
+          "type": "object"
         }
       },
       "required": [
@@ -133,6 +144,7 @@
         "property",
         "access",
         "appointment",
+        "readinessStatus",
         "status",
         "createdAt",
         "updatedAt"
@@ -222,6 +234,56 @@
         "expiresAt",
         "updatedAt"
       ]
+    },
+    "BookingAccessSecret": {
+      "title": "BookingAccessSecret",
+      "description": "AES-256-GCM encrypted lockbox/alarm payload stored separately from the normal booking record. Server-only and decrypted only for authenticated staff responses.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number"
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "aes-256-gcm"
+          ]
+        },
+        "keyId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "iv": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "authTag": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "ciphertext": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "version",
+        "algorithm",
+        "keyId",
+        "iv",
+        "authTag",
+        "ciphertext",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -244,11 +306,16 @@
     "/scheduleLocks/{lockId}": {
       "schema": "ScheduleLock",
       "description": "Internal transient concurrency locks. Server-only; never exposed to the browser."
+    },
+    "/bookingAccessSecrets/{bookingId}": {
+      "schema": "BookingAccessSecret",
+      "description": "Encrypted sensitive property-access credentials. Server-only; never exposed through public booking APIs or Google Calendar."
     }
   },
   "security": {
     "clientFirestoreAccess": "denied",
     "trustedServerAccess": "Firebase Admin SDK",
-    "adminAuthentication": "Firebase Authentication ID token verified by Express server"
+    "adminAuthentication": "Firebase Authentication ID token verified by Express server",
+    "sensitiveAccessStorage": "AES-256-GCM encrypted bookingAccessSecrets collection; authenticated staff API only"
   }
 }
