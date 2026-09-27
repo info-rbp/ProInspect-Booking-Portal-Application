@@ -1116,10 +1116,18 @@ app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
 
 app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
   try {
-    const serviceIds = Array.isArray(req.body?.serviceIds)
-      ? req.body.serviceIds.filter((id: unknown): id is string => typeof id === 'string')
-      : [];
+    const rawServiceIds: unknown = req.body?.serviceIds;
 
+    if (
+      !Array.isArray(rawServiceIds) ||
+      rawServiceIds.some((id: unknown) => typeof id !== 'string')
+    ) {
+      return res.status(400).json({
+        error: 'Service order must be supplied as a list of service IDs.',
+      });
+    }
+
+    const serviceIds = rawServiceIds as string[];
     const currentServices = await listServices(false);
     const currentIds = new Set(currentServices.map((service) => service.id));
     const suppliedIds = new Set(serviceIds);
