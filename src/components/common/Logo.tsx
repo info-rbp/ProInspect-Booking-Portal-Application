@@ -7,6 +7,23 @@ interface LogoProps {
 
 export const Logo: React.FC<LogoProps> = ({ variant = 'dark', size = 'md' }) => {
   const isLight = variant === 'light';
+  const configuredLogoUrl = import.meta.env.VITE_PROINSPECT_LOGO_URL as string | undefined;
+
+  if (configuredLogoUrl) {
+    const imageHeights = {
+      sm: 'h-7',
+      md: 'h-9',
+      lg: 'h-11',
+    };
+
+    return (
+      <img
+        src={configuredLogoUrl}
+        alt="ProInspect"
+        className={`${imageHeights[size]} w-auto object-contain`}
+      />
+    );
+  }
 
   const iconSizes = {
     sm: 'w-7 h-7',
@@ -28,7 +45,7 @@ export const Logo: React.FC<LogoProps> = ({ variant = 'dark', size = 'md' }) => 
 
   return (
     <div className="flex items-center gap-2.5 select-none group">
-      {/* Brand Hexagon / House Architectural Emblem */}
+      {/* Fallback mark used only when VITE_PROINSPECT_LOGO_URL is not configured. */}
       <div
         className={`${iconSizes[size]} bg-gradient-to-br from-[#0A2540] to-[#0284C7] rounded-lg p-1.5 flex items-center justify-center shadow-sm transition-transform duration-200 group-hover:scale-105`}
       >
