@@ -221,6 +221,12 @@ function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+const SERVICE_CATEGORIES = new Set([
+  'residential',
+  'commercial',
+  'strata-building',
+]);
+
 const SERVICE_ICON_NAMES = new Set([
   'ClipboardCheck',
   'FileSpreadsheet',
@@ -268,6 +274,16 @@ function sanitizeServiceConfiguration(
   const value = input as Record<string, unknown>;
   const name = normalizeText(value.name, 100);
   const publicDescription = normalizeText(value.publicDescription, 500);
+  const categories = Array.isArray(value.categories)
+    ? Array.from(
+        new Set(
+          value.categories.filter(
+            (category): category is string =>
+              typeof category === 'string' && SERVICE_CATEGORIES.has(category)
+          )
+        )
+      )
+    : [];
   const requestedId = normalizeText(value.id, 64);
   const id = options.existingId || slugifyServiceId(requestedId || name);
 
@@ -283,6 +299,12 @@ function sanitizeServiceConfiguration(
 
   if (publicDescription.length < 10) {
     return { error: 'Service description must contain at least 10 characters.' };
+  }
+
+  if (categories.length === 0) {
+    return {
+      error: 'Select at least one service category: Residential, Commercial or Strata / Building.',
+    };
   }
 
   const duration = integerInRange(value.duration, 15, 480);
@@ -331,6 +353,7 @@ function sanitizeServiceConfiguration(
       id,
       name,
       publicDescription,
+      categories,
       duration,
       bufferBefore,
       bufferAfter,
