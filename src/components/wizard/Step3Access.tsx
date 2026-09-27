@@ -190,7 +190,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
     <div className="space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
           Property access
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
@@ -213,7 +213,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 onClick={() => setMethod(opt.id)}
                 className={`p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col justify-between group ${
                   isSelected
-                    ? 'border-[#0284C7] bg-[#F0F9FF] shadow-xs ring-1 ring-[#0284C7]/20'
+                    ? 'border-[#00B5B8] bg-[#F0F9FF] shadow-xs ring-1 ring-[#00B5B8]/20'
                     : 'border-slate-200 bg-white hover:border-slate-300'
                 }`}
               >
@@ -221,7 +221,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   <div
                     className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                       isSelected
-                        ? 'bg-[#0284C7] text-white'
+                        ? 'bg-[#00B5B8] text-white'
                         : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
                     }`}
                   >
@@ -230,7 +230,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   <div
                     className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                       isSelected
-                        ? 'border-[#0284C7] bg-[#0284C7] text-white'
+                        ? 'border-[#00B5B8] bg-[#00B5B8] text-white'
                         : 'border-slate-300 bg-white'
                     }`}
                   >
@@ -238,7 +238,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   </div>
                 </div>
                 <div>
-                  <h4 className="font-bold text-sm text-[#0A2540]">{opt.title}</h4>
+                  <h4 className="font-bold text-sm text-[#1A2B4A]">{opt.title}</h4>
                   <p className="text-xs text-slate-500 mt-1 leading-normal">{opt.description}</p>
                 </div>
               </div>
@@ -253,7 +253,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'tenant' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Tenant Contact &amp; Notice Details</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Tenant Contact &amp; Notice Details</h3>
               <p className="text-xs text-slate-500">Provide tenant details for entry notification</p>
             </div>
 
@@ -267,7 +267,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. John Smith"
                   value={tenant.tenantName}
                   onChange={(e) => setTenant({ ...tenant, tenantName: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.tenantName && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -286,7 +286,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. 0411 111 111"
                   value={tenant.tenantPhone}
                   onChange={(e) => setTenant({ ...tenant, tenantPhone: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.tenantPhone && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -307,7 +307,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. john@example.com"
                   value={tenant.tenantEmail}
                   onChange={(e) => setTenant({ ...tenant, tenantEmail: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
 
@@ -323,7 +323,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                       value="yes"
                       checked={tenant.noticeIssued === 'yes'}
                       onChange={() => setTenant({ ...tenant, noticeIssued: 'yes' })}
-                      className="text-[#0284C7] focus:ring-[#0284C7]"
+                      className="text-[#00B5B8] focus:ring-[#00B5B8]"
                     />
                     <span>Yes, notice issued</span>
                   </label>
@@ -334,7 +334,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                       value="no"
                       checked={tenant.noticeIssued === 'no'}
                       onChange={() => setTenant({ ...tenant, noticeIssued: 'no' })}
-                      className="text-[#0284C7] focus:ring-[#0284C7]"
+                      className="text-[#00B5B8] focus:ring-[#00B5B8]"
                     />
                     <span>No / Pending</span>
                   </label>
@@ -351,7 +351,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   type="date"
                   value={tenant.noticeDate}
                   onChange={(e) => setTenant({ ...tenant, noticeDate: e.target.value })}
-                  className="w-full sm:w-64 h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full sm:w-64 h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
             )}
@@ -365,7 +365,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. Shift worker sleeping in morning, call 10 mins prior to arrival"
                 value={tenant.accessRestrictions}
                 onChange={(e) => setTenant({ ...tenant, accessRestrictions: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
             </div>
           </div>
@@ -375,7 +375,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'meet_onsite' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Onsite Contact Person</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Onsite Contact Person</h3>
               <p className="text-xs text-slate-500">Who will be meeting the inspector at the property?</p>
             </div>
 
@@ -389,7 +389,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. David Miller"
                   value={meetOnsite.contactName}
                   onChange={(e) => setMeetOnsite({ ...meetOnsite, contactName: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.meetName && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -408,7 +408,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. 0422 333 444"
                   value={meetOnsite.contactPhone}
                   onChange={(e) => setMeetOnsite({ ...meetOnsite, contactPhone: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.meetPhone && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -425,7 +425,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 <select
                   value={meetOnsite.relationship}
                   onChange={(e) => setMeetOnsite({ ...meetOnsite, relationship: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all font-medium"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all font-medium"
                 >
                   <option value="Property Manager">Property Manager</option>
                   <option value="Owner / Landlord">Owner / Landlord</option>
@@ -445,7 +445,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. Meet in front driveway or main foyer"
                 value={meetOnsite.specialInstructions}
                 onChange={(e) => setMeetOnsite({ ...meetOnsite, specialInstructions: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
             </div>
           </div>
@@ -455,7 +455,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'keys_agency' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Agency Key Collection</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Agency Key Collection</h3>
               <p className="text-xs text-slate-500">Provide the agency office location where keys will be collected</p>
             </div>
 
@@ -469,7 +469,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Ray White Victoria Park"
                   value={agencyKeys.agencyName}
                   onChange={(e) => setAgencyKeys({ ...agencyKeys, agencyName: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.agencyName && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -488,7 +488,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Tag #104 or Key Safe Box 3"
                   value={agencyKeys.keyReference}
                   onChange={(e) => setAgencyKeys({ ...agencyKeys, keyReference: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
             </div>
@@ -502,7 +502,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. 340 Albany Highway, Victoria Park WA 6100"
                 value={agencyKeys.collectionAddress}
                 onChange={(e) => setAgencyKeys({ ...agencyKeys, collectionAddress: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
               {errors.collectionAddress && (
                 <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -522,7 +522,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Ask for receptionist or property manager"
                   value={agencyKeys.keyInstructions}
                   onChange={(e) => setAgencyKeys({ ...agencyKeys, keyInstructions: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
 
@@ -535,7 +535,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Return to agency letterbox before 5pm"
                   value={agencyKeys.returnInstructions}
                   onChange={(e) => setAgencyKeys({ ...agencyKeys, returnInstructions: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
             </div>
@@ -546,7 +546,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'keys_proinspect' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Keys Held by ProInspect</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Keys Held by ProInspect</h3>
               <p className="text-xs text-slate-500">Inspector will bring keys from the ProInspect secure key register</p>
             </div>
 
@@ -560,7 +560,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. PI-KEY-408"
                   value={proInspectKeys.keyReference}
                   onChange={(e) => setProInspectKeys({ ...proInspectKeys, keyReference: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
               <div>
@@ -572,7 +572,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Master fob includes basement garage access"
                   value={proInspectKeys.additionalInstructions}
                   onChange={(e) => setProInspectKeys({ ...proInspectKeys, additionalInstructions: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
               </div>
             </div>
@@ -583,7 +583,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'lockbox' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Onsite Lockbox</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Onsite Lockbox</h3>
               <p className="text-xs text-slate-500">
                 Lockbox codes are encrypted and restricted to operational inspector access only.
               </p>
@@ -599,7 +599,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   placeholder="e.g. Attached to gas meter box on left side of house"
                   value={lockbox.location}
                   onChange={(e) => setLockbox({ ...lockbox, location: e.target.value })}
-                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                  className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
                 />
                 {errors.lockboxLocation && (
                   <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -619,7 +619,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                     placeholder="e.g. 4821 or 1234"
                     value={lockbox.code}
                     onChange={(e) => setLockbox({ ...lockbox, code: e.target.value })}
-                    className="w-full h-11 pl-3.5 pr-11 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none font-mono transition-all"
+                    className="w-full h-11 pl-3.5 pr-11 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none font-mono transition-all"
                   />
                   <button
                     type="button"
@@ -648,7 +648,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. Scramble dials after replacing keys in safe"
                 value={lockbox.instructions}
                 onChange={(e) => setLockbox({ ...lockbox, instructions: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
             </div>
           </div>
@@ -658,7 +658,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'vacant' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Vacant / Open Property</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Vacant / Open Property</h3>
               <p className="text-xs text-slate-500">Unrestricted or open perimeter access instructions</p>
             </div>
 
@@ -671,7 +671,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. Side gate unlocked, rear sliding door unlocked"
                 value={vacant.accessInstructions}
                 onChange={(e) => setVacant({ ...vacant, accessInstructions: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
             </div>
 
@@ -684,7 +684,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="e.g. Alarm disarmed, or code 9988 upon entry"
                 value={vacant.securityAlarm}
                 onChange={(e) => setVacant({ ...vacant, securityAlarm: e.target.value })}
-                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
             </div>
           </div>
@@ -694,7 +694,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         {method === 'other' && (
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
-              <h3 className="font-bold text-base text-[#0A2540]">Custom Access Arrangement</h3>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Custom Access Arrangement</h3>
               <p className="text-xs text-slate-500">Specify details for this custom access arrangement</p>
             </div>
 
@@ -707,7 +707,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                 placeholder="Explain the access procedure for the inspector..."
                 value={other.instructions}
                 onChange={(e) => setOther({ instructions: e.target.value })}
-                className="w-full p-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+                className="w-full p-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
               />
               {errors.otherInstructions && (
                 <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
@@ -732,7 +732,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
             placeholder="e.g. Dog secured in rear laundry. Visitor parking in driveway. Call tenant when arriving."
             value={specialInstructions}
             onChange={(e) => setSpecialInstructions(e.target.value)}
-            className="w-full p-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+            className="w-full p-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
           />
         </div>
       </div>
@@ -742,7 +742,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#0A2540] hover:bg-slate-100 rounded-lg transition-colors"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#1A2B4A] hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Property Details</span>
@@ -751,7 +751,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         <button
           type="button"
           onClick={handleSaveAndProceed}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#0284C7] hover:bg-[#0369A1] text-white shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs transition-colors cursor-pointer"
         >
           <span>Continue to Choose Appointment</span>
           <ArrowRight className="w-4 h-4" />
