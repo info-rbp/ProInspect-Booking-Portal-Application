@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check } from 'lucide-react';
 
-export type WizardStepId = 'service' | 'property' | 'access' | 'appointment' | 'confirm';
+export type WizardStepId = 'service-type' | 'service' | 'property' | 'access' | 'appointment' | 'confirm';
 
 interface WizardProgressProps {
   currentStep: WizardStepId;
@@ -16,11 +16,12 @@ interface StepItem {
 }
 
 const STEPS: StepItem[] = [
-  { id: 'service', title: 'Service', stepNumber: 1 },
-  { id: 'property', title: 'Property', stepNumber: 2 },
-  { id: 'access', title: 'Access', stepNumber: 3 },
-  { id: 'appointment', title: 'Appointment', stepNumber: 4 },
-  { id: 'confirm', title: 'Confirm', stepNumber: 5 },
+  { id: 'service-type', title: 'Type', stepNumber: 1 },
+  { id: 'service', title: 'Service', stepNumber: 2 },
+  { id: 'property', title: 'Property', stepNumber: 3 },
+  { id: 'access', title: 'Access', stepNumber: 4 },
+  { id: 'appointment', title: 'Appointment', stepNumber: 5 },
+  { id: 'confirm', title: 'Confirm', stepNumber: 6 },
 ];
 
 export const WizardProgress: React.FC<WizardProgressProps> = ({

@@ -30,6 +30,17 @@ export async function ensureSeedData() {
         if (!doc.exists) {
           batch.set(refs[index], DEFAULT_SERVICES[index]);
           hasWrites = true;
+          return;
+        }
+
+        const existing = doc.data() as Partial<InspectionService>;
+        if (!Array.isArray(existing.categories) || existing.categories.length === 0) {
+          batch.set(
+            refs[index],
+            { categories: DEFAULT_SERVICES[index].categories },
+            { merge: true }
+          );
+          hasWrites = true;
         }
       });
 
@@ -42,17 +53,36 @@ export async function ensureSeedData() {
   return seeded;
 }
 
+function serviceFromDocument(
+  data: Partial<InspectionService>,
+  id: string
+): InspectionService {
+  const service = data as InspectionService;
+  return {
+    ...service,
+    id,
+    categories: Array.isArray(service.categories) ? service.categories : [],
+  };
+}
+
 export async function listServices(publicOnly = false): Promise<InspectionService[]> {
   await ensureSeedData();
   const snapshot = await adminDb.collection('services').orderBy('order', 'asc').get();
-  const services = snapshot.docs.map((doc) => ({ ...(doc.data() as InspectionService), id: doc.id }));
+  const services = snapshot.docs.map((doc) =>
+    serviceFromDocument(doc.data() as Partial<InspectionService>, doc.id)
+  );
   return publicOnly ? services.filter((service) => service.active && service.publiclyBookable) : services;
 }
 
 export async function getService(serviceId: string): Promise<InspectionService | null> {
   await ensureSeedData();
   const snapshot = await adminDb.collection('services').doc(serviceId).get();
-  return snapshot.exists ? ({ ...(snapshot.data() as InspectionService), id: snapshot.id }) : null;
+  return snapshot.exists
+    ? serviceFromDocument(
+        (snapshot.data() || {}) as Partial<InspectionService>,
+        snapshot.id
+      )
+    : null;
 }
 
 export async function createService(service: InspectionService): Promise<InspectionService> {

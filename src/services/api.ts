@@ -8,6 +8,7 @@ import type {
   AddressSuggestion,
   AddressValidationResult,
   PropertyDetails,
+  ServiceCategory,
 } from '../types/booking';
 import { getAdminIdToken } from './firebase';
 
@@ -97,6 +98,7 @@ export async function fetchAvailability(
 
 export async function submitBooking(payload: {
   serviceId: string;
+  serviceCategory: ServiceCategory;
   property: unknown;
   access: unknown;
   appointment: { start: string };

@@ -22,6 +22,7 @@ interface Step1ServiceProps {
   services: InspectionService[];
   selectedServiceId: string | null;
   onSelectService: (service: InspectionService) => void;
+  onBack: () => void;
   onNext: () => void;
 }
 
@@ -45,6 +46,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
   services,
   selectedServiceId,
   onSelectService,
+  onBack,
   onNext,
 }) => {
   const selectedService = services.find((s) => s.id === selectedServiceId);
@@ -139,14 +141,22 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           <strong className="block">Online booking is temporarily unavailable.</strong>
           <span className="text-xs">
-            No services are currently enabled for public booking. Contact ProInspect if you need to arrange an attendance.
+            No services are currently enabled for this property category. Choose another service type or contact ProInspect to arrange an attendance.
           </span>
         </div>
       )}
 
       {/* Navigation Bar */}
-      <div className="pt-4 flex items-center justify-between border-t border-slate-200">
-        <div className="text-xs text-slate-500">
+      <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-4 py-3 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            &larr; Change Service Type
+          </button>
+          <div className="text-xs text-slate-500">
           {selectedService ? (
             <span>
               Selected: <strong className="text-[#1A2B4A]">{selectedService.name}</strong> ({selectedService.duration} min)
@@ -154,6 +164,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
           ) : (
             <span>Please select an inspection service to proceed</span>
           )}
+          </div>
         </div>
 
         <button

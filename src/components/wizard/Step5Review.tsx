@@ -4,6 +4,7 @@ import {
   PropertyDetails,
   AccessDetails,
   AppointmentSlot,
+  ServiceCategory,
 } from '../../types/booking';
 import { WizardStepId } from './WizardProgress';
 import {
@@ -22,6 +23,7 @@ import {
 
 interface Step5ReviewProps {
   service: InspectionService;
+  serviceCategory: ServiceCategory;
   property: PropertyDetails;
   access: AccessDetails;
   appointment: AppointmentSlot;
@@ -33,6 +35,7 @@ interface Step5ReviewProps {
 
 export const Step5Review: React.FC<Step5ReviewProps> = ({
   service,
+  serviceCategory,
   property,
   access,
   appointment,
@@ -42,6 +45,11 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
   conflictError,
 }) => {
   const [isAcknowledged, setIsAcknowledged] = useState(false);
+
+  const serviceCategoryLabel =
+    serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : serviceCategory.charAt(0).toUpperCase() + serviceCategory.slice(1);
 
   const formatAccessMethod = (m: string): string => {
     switch (m) {
@@ -125,6 +133,9 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
                 Scheduled Inspection
               </span>
               <h2 className="text-xl sm:text-2xl font-black text-white">{service.name}</h2>
+              <div className="text-xs font-semibold text-slate-300 mt-1">
+                {serviceCategoryLabel}
+              </div>
               <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-slate-300 pt-2">
                 <span className="flex items-center gap-1.5 font-medium">
                   <Calendar className="w-4 h-4 text-[#006D70]" />

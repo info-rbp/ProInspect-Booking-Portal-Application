@@ -17,6 +17,14 @@
           "type": "string",
           "maxLength": 500
         },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["residential", "commercial", "strata-building"]
+          },
+          "minItems": 1
+        },
         "duration": {
           "type": "number"
         },
@@ -56,6 +64,7 @@
       },
       "required": [
         "name",
+        "categories",
         "duration",
         "active",
         "publiclyBookable"
@@ -85,6 +94,10 @@
         "serviceName": {
           "type": "string",
           "maxLength": 100
+        },
+        "serviceCategory": {
+          "type": "string",
+          "enum": ["residential", "commercial", "strata-building"]
         },
         "calendarEventId": {
           "type": "string",
@@ -141,6 +154,7 @@
         "managementToken",
         "serviceId",
         "serviceName",
+        "serviceCategory",
         "property",
         "access",
         "appointment",

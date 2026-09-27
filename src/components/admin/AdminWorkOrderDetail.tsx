@@ -56,6 +56,12 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
 
   const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
   const fullAddress = `${unitPrefix}${booking.property.streetAddress}, ${booking.property.suburb} ${booking.property.state} ${booking.property.postcode}`;
+  const serviceCategoryLabel =
+    booking.serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : booking.serviceCategory
+        ? booking.serviceCategory.charAt(0).toUpperCase() + booking.serviceCategory.slice(1)
+        : 'Legacy / uncategorised';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
@@ -100,6 +106,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
               Inspection Attendance
             </span>
             <div className="font-bold text-[#1A2B4A] text-base">{booking.serviceName}</div>
+            <div className="text-xs font-semibold text-slate-500">{serviceCategoryLabel}</div>
             <div className="flex items-center gap-2 text-slate-700 font-medium">
               <Calendar className="w-4 h-4 text-[#006D70]" />
               <span>{booking.appointment.dateString}</span>

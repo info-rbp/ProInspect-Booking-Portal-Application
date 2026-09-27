@@ -4,6 +4,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'routine-inspection',
     name: 'Routine Inspection',
+    categories: ['residential'],
     publicDescription: 'Comprehensive periodic inspection of residential rental property with photo documentation, maintenance checks and compliance overview.',
     duration: 45,
     bufferBefore: 15,
@@ -19,6 +20,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'property-condition-report',
     name: 'Property Condition Report (PCR)',
+    categories: ['residential'],
     publicDescription: 'Detailed photographic incoming condition report for new tenancies compliant with Western Australian residential tenancies legislation.',
     duration: 90,
     bufferBefore: 15,
@@ -34,6 +36,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'final-exit-inspection',
     name: 'Final / Exit Inspection',
+    categories: ['residential'],
     publicDescription: 'End-of-lease outgoing comparison inspection comparing current condition against the original Property Condition Report.',
     duration: 60,
     bufferBefore: 15,
@@ -48,6 +51,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'commercial-property-inspection',
     name: 'Commercial Property Inspection',
+    categories: ['commercial'],
     publicDescription: 'Specialist commercial, retail or office property condition and compliance inspection tailored for asset and property managers.',
     duration: 120,
     bufferBefore: 20,
@@ -63,6 +67,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'maintenance-attendance',
     name: 'Maintenance Attendance',
+    categories: ['residential', 'commercial', 'strata-building'],
     publicDescription: 'On-site attendance to assess specific maintenance issues, verify trade completion, or scope urgent repair works.',
     duration: 45,
     bufferBefore: 15,
@@ -77,6 +82,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'property-meeting',
     name: 'Property Meeting',
+    categories: ['residential', 'commercial', 'strata-building'],
     publicDescription: 'Onsite consultation with owner, property manager, strata representative or contractor to inspect specific property matters.',
     duration: 30,
     bufferBefore: 15,
@@ -91,6 +97,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'building-management-attendance',
     name: 'Building Management Attendance',
+    categories: ['strata-building'],
     publicDescription: 'Routine or scheduled attendance for common areas, strata complexes, plant room access, or facility inspections.',
     duration: 60,
     bufferBefore: 15,
@@ -105,6 +112,7 @@ export const DEFAULT_SERVICES: InspectionService[] = [
   {
     id: 'other-custom-appointment',
     name: 'Other / Custom Appointment',
+    categories: ['residential', 'commercial', 'strata-building'],
     publicDescription: 'Custom attendance, special scoping visits, key handovers or unique property operational requirements.',
     duration: 60,
     bufferBefore: 15,

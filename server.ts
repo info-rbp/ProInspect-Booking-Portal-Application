@@ -8,7 +8,12 @@ import {
   formatAustralianTime,
   getPerthDateKey,
 } from './src/utils/dateTime.js';
-import type { BookingRecord, BusinessSettings, InspectionService } from './src/types/booking.js';
+import type {
+  BookingRecord,
+  BusinessSettings,
+  InspectionService,
+  ServiceCategory,
+} from './src/types/booking.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -221,6 +226,19 @@ function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+const SERVICE_CATEGORIES = new Set<ServiceCategory>([
+  'residential',
+  'commercial',
+  'strata-building',
+]);
+
+function isServiceCategory(value: unknown): value is ServiceCategory {
+  return (
+    typeof value === 'string' &&
+    SERVICE_CATEGORIES.has(value as ServiceCategory)
+  );
+}
+
 const SERVICE_ICON_NAMES = new Set([
   'ClipboardCheck',
   'FileSpreadsheet',
@@ -268,6 +286,13 @@ function sanitizeServiceConfiguration(
   const value = input as Record<string, unknown>;
   const name = normalizeText(value.name, 100);
   const publicDescription = normalizeText(value.publicDescription, 500);
+  const categories = Array.isArray(value.categories)
+    ? Array.from(
+        new Set(
+          value.categories.filter(isServiceCategory)
+        )
+      )
+    : [];
   const requestedId = normalizeText(value.id, 64);
   const id = options.existingId || slugifyServiceId(requestedId || name);
 
@@ -283,6 +308,12 @@ function sanitizeServiceConfiguration(
 
   if (publicDescription.length < 10) {
     return { error: 'Service description must contain at least 10 characters.' };
+  }
+
+  if (categories.length === 0) {
+    return {
+      error: 'Select at least one service category: Residential, Commercial or Strata / Building.',
+    };
   }
 
   const duration = integerInRange(value.duration, 15, 480);
@@ -331,6 +362,7 @@ function sanitizeServiceConfiguration(
       id,
       name,
       publicDescription,
+      categories,
       duration,
       bufferBefore,
       bufferAfter,
@@ -485,6 +517,7 @@ function publicBookingView(
     ...(includeManagementToken ? { managementToken: booking.managementToken } : {}),
     ...(managementUrl ? { managementUrl } : {}),
     serviceName: booking.serviceName,
+    ...(booking.serviceCategory ? { serviceCategory: booking.serviceCategory } : {}),
     status: booking.status,
     readinessStatus: booking.readinessStatus || 'ready',
     confirmationEmailStatus: booking.confirmationEmail?.status,
@@ -732,10 +765,14 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
   let lockedBookingId: string | null = null;
 
   try {
-    const { serviceId, property, access, appointment } = req.body || {};
+    const { serviceId, serviceCategory, property, access, appointment } = req.body || {};
 
-    if (!serviceId || !property || !access || !appointment?.start) {
+    if (!serviceId || !serviceCategory || !property || !access || !appointment?.start) {
       return res.status(400).json({ error: 'Missing mandatory booking information.' });
+    }
+
+    if (!isServiceCategory(serviceCategory)) {
+      return res.status(400).json({ error: 'Invalid service category.' });
     }
 
     const propertyValidation = sanitizeBookingProperty(property);
@@ -832,6 +869,12 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     if (!service || !service.active || !service.publiclyBookable) {
       return res.status(400).json({ error: 'The selected service is not available for public booking.' });
+    }
+
+    if (!service.categories.includes(serviceCategory)) {
+      return res.status(400).json({
+        error: 'The selected service is not available for that property category.',
+      });
     }
 
     if (!calendarIsConfigured()) {
@@ -960,6 +1003,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       managementToken: generateManagementToken(),
       serviceId: service.id,
       serviceName: service.name,
+      serviceCategory,
       calendarId: resolvedCalendarId,
       property: validatedProperty,
       access: accessValidation.access,
