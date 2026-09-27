@@ -109,6 +109,10 @@ export default function App() {
   };
 
   const handleSelectService = (service: InspectionService) => {
+    if (service.id !== selectedServiceId) {
+      setSelectedSlot(null);
+      setConflictError(null);
+    }
     setSelectedServiceId(service.id);
   };
 
@@ -152,11 +156,6 @@ export default function App() {
         access: accessData,
         appointment: {
           start: selectedSlot.start,
-          end: selectedSlot.end,
-          dateString: selectedSlot.displayDate,
-          timeString: selectedSlot.displayTime,
-          durationMinutes: selectedService.duration,
-          timezone: 'Australia/Perth',
         },
       };
 
@@ -189,6 +188,28 @@ export default function App() {
     setConflictError(null);
     setCompletedSteps([]);
     setCurrentStep('service');
+    setSelectedServiceId(services[0]?.id || null);
+    setPropertyData({
+      streetAddress: '',
+      unit: '',
+      suburb: '',
+      state: 'WA',
+      postcode: '',
+      propertyType: 'House',
+      clientName: '',
+      clientReference: '',
+      customerName: '',
+      customerEmail: '',
+      customerPhone: '',
+    });
+    setAccessData({
+      method: 'tenant',
+      tenant: {
+        tenantName: '',
+        tenantPhone: '',
+        noticeIssued: 'yes',
+      },
+    });
   };
 
   const handleAdminLogout = async () => {
