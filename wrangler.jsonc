@@ -1,9 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "proinspect-booking-portal",
+  "account_id": "8ca23ac6d2cc906d4dd13b8da5ea2b25",
   "main": "src/cloudflare.ts",
   "compatibility_date": "2026-09-27",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": true,
   "keep_vars": true,
   "observability": {
@@ -28,7 +31,9 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["ProInspectContainer"]
+      "new_sqlite_classes": [
+        "ProInspectContainer"
+      ]
     }
   ]
 }
