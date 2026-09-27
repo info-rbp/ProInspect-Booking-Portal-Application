@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { signInWithGoogle, getCachedAccessToken } from '../../services/firebase';
-import { syncServerOAuthToken } from '../../services/api';
+import { signInWithGoogle } from '../../services/firebase';
 import { Shield, X, AlertCircle, Loader2 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -25,9 +24,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setError(null);
     try {
       const result = await signInWithGoogle();
-      if (result.accessToken) {
-        await syncServerOAuthToken(result.accessToken);
-      }
       onLoginSuccess(result.user);
       onClose();
     } catch (err: any) {
