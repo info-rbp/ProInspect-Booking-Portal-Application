@@ -64,6 +64,20 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
 
   const unitPrefix = property.unit ? `${property.unit}, ` : '';
   const fullAddress = `${unitPrefix}${property.streetAddress}, ${property.suburb} ${property.state} ${property.postcode}`;
+  const readinessStatus =
+    access.method === 'tenant' && access.tenant
+      ? access.tenant.noticeIssued === 'yes'
+        ? 'ready'
+        : access.tenant.noticeIssued === 'pending'
+          ? 'pending_notice'
+          : 'access_action_required'
+      : 'ready';
+  const readinessMessage =
+    readinessStatus === 'pending_notice'
+      ? 'The appointment will be reserved, but the tenant entry notice is still pending and must be completed before attendance.'
+      : readinessStatus === 'access_action_required'
+        ? 'The appointment will be reserved, but access action is required before ProInspect can attend.'
+        : 'The supplied access information is marked ready for attendance.';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +216,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
               <span className="font-semibold text-[#1A2B4A]">{property.customerName}</span>
             </div>
             <div>
-              <span className="text-xs text-slate-400 font-medium block">Email (Invitee):</span>
+              <span className="text-xs text-slate-400 font-medium block">Confirmation Email:</span>
               <span className="font-medium text-slate-800">{property.customerEmail}</span>
             </div>
             <div>
@@ -237,6 +251,25 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
               <span className="font-bold text-[#1A2B4A]">{formatAccessMethod(access.method)}</span>
             </div>
 
+            <div
+              className={`p-3 rounded-lg border text-xs ${
+                readinessStatus === 'ready'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : readinessStatus === 'pending_notice'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              <strong className="block mb-0.5">
+                {readinessStatus === 'ready'
+                  ? 'Ready for attendance'
+                  : readinessStatus === 'pending_notice'
+                    ? 'Pending tenant notice'
+                    : 'Access action required'}
+              </strong>
+              <span>{readinessMessage}</span>
+            </div>
+
             {/* Method Specific Details */}
             {access.method === 'tenant' && access.tenant && (
               <div className="pt-2 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -249,7 +282,11 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
                 <div>
                   <span className="text-slate-400 font-medium">Entry Notice: </span>
                   <span className="font-semibold text-slate-800">
-                    {access.tenant.noticeIssued === 'yes' ? 'Issued' : 'Pending'}
+                    {access.tenant.noticeIssued === 'yes'
+                      ? 'Issued'
+                      : access.tenant.noticeIssued === 'pending'
+                        ? 'Pending'
+                        : 'Not issued'}
                     {access.tenant.noticeDate ? ` (${access.tenant.noticeDate})` : ''}
                   </span>
                 </div>
@@ -335,7 +372,10 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
             className="w-5 h-5 mt-0.5 rounded text-[#006D70] focus:ring-[#00B5B8] border-slate-300"
           />
           <span className="text-xs sm:text-sm text-slate-700 font-medium leading-snug">
-            I confirm that the information provided is correct and that appropriate access arrangements have been made for the appointment.
+            I confirm that the information provided is correct
+            {readinessStatus === 'ready'
+              ? ' and that appropriate access arrangements have been made for the appointment.'
+              : ' and understand that the outstanding notice or access action must be completed before ProInspect attends.'}
           </span>
         </label>
       </div>
