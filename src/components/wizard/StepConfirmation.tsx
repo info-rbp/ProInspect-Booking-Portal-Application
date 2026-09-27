@@ -32,6 +32,10 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
     window.print();
   };
 
+  const handleCopyManageCode = () => {
+    navigator.clipboard.writeText(booking.managementToken);
+  };
+
   const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
   const fullAddress = `${unitPrefix}${booking.property.streetAddress}, ${booking.property.suburb} ${booking.property.state} ${booking.property.postcode}`;
 
@@ -116,10 +120,24 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           </div>
         </div>
 
-        {/* Notice of Calendar Invite */}
-        <div className="p-3.5 bg-sky-50 border border-sky-100 rounded-lg text-xs text-[#0369A1] font-medium flex items-center gap-2">
-          <Mail className="w-4 h-4 shrink-0" />
-          <span>A calendar invitation has been sent to the email address provided.</span>
+        <div className="p-3.5 bg-sky-50 border border-sky-100 rounded-lg text-xs text-[#0369A1] font-medium space-y-2">
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 shrink-0" />
+            <span>Your booking has been recorded in the ProInspect scheduling system.</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2 border-t border-sky-100">
+            <span className="text-slate-600">
+              Keep this secure management code private:
+              <strong className="font-mono text-[#0A2540] ml-1">{booking.managementToken}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyManageCode}
+              className="sm:ml-auto px-2.5 py-1.5 rounded-md bg-white border border-sky-200 text-[#0369A1] font-bold"
+            >
+              Copy code
+            </button>
+          </div>
         </div>
       </div>
 
