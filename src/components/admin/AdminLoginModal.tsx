@@ -98,8 +98,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         </div>
 
         <div className="text-center text-[11px] text-slate-400">
-          Authorized administrator email: <br />
-          <strong className="text-slate-600 font-mono">info@remotebusinesspartner.com.au</strong>
+          Use an authorised ProInspect Google Workspace account.
         </div>
       </div>
     </div>
