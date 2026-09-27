@@ -466,10 +466,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1 text-xs text-emerald-900">
                 <div className="flex items-center gap-1.5 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Google Calendar FreeBusy API Connected</span>
+                  <span>{settings?.calendarConnected ? 'Google Calendar integration configured' : 'Google Calendar configuration required'}</span>
                 </div>
-                <div>FreeBusy queries calculate deterministic slot availability.</div>
-                <div>Server rechecks conflict right before confirmation.</div>
+                <div>Availability is calculated server-side from Google Calendar and service rules.</div>
+                <div>The server rechecks availability immediately before confirmation.</div>
               </div>
             </div>
 
@@ -480,15 +480,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="font-bold text-[#0A2540] block">Monday</span>
-                  <span className="text-slate-600">8:00 am - 5:00 pm</span>
+                  <span className="text-slate-600">
+                    {settings?.operatingHours.monday.active
+                      ? `${settings.operatingHours.monday.open} - ${settings.operatingHours.monday.close}`
+                      : 'Unavailable / Off'}
+                  </span>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="font-bold text-[#0A2540] block">Tuesday to Friday</span>
-                  <span className="text-slate-600">8:00 am - 4:00 pm</span>
+                  <span className="text-slate-600">
+                    {settings?.operatingHours.tuesday.active
+                      ? `${settings.operatingHours.tuesday.open} - ${settings.operatingHours.tuesday.close}`
+                      : 'Unavailable / Off'}
+                  </span>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <span className="font-bold text-[#0A2540] block">Saturday &amp; Sunday</span>
-                  <span className="text-slate-400">Unavailable / Off</span>
+                  <span className="text-slate-400">
+                    {settings?.operatingHours.saturday.active || settings?.operatingHours.sunday.active
+                      ? 'See current configured hours'
+                      : 'Unavailable / Off'}
+                  </span>
                 </div>
               </div>
             </div>
