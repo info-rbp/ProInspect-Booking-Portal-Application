@@ -359,9 +359,10 @@ export default function App() {
                 />
               )}
 
-              {currentStep === 'service' && (
+              {currentStep === 'service' && selectedCategory && (
                 <Step1Service
                   services={filteredServices}
+                  serviceCategory={selectedCategory}
                   selectedServiceId={selectedServiceId}
                   onSelectService={handleSelectService}
                   onBack={() => setCurrentStep('service-type')}
