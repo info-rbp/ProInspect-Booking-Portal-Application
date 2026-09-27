@@ -10,7 +10,8 @@
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "container:build": "docker build -t proinspect-booking-portal ."
+    "container:build": "docker build -t proinspect-booking-portal .",
+    "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
