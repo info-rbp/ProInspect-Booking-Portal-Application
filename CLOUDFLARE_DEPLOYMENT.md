@@ -22,16 +22,32 @@ Create:
 CLOUDFLARE_API_TOKEN
 ```
 
-Use a **user API token** created in Cloudflare with access to the production account and these permissions:
+Use an **account-owned API token** created under **Cloudflare > Manage Account > API Tokens**. Cloudflare's current Wrangler CI guidance prefers account-owned tokens for automation. The token must have access to the production account and these permissions:
 
-- Account > Workers Scripts: Edit
+- Workers deployment access for the existing `proinspect-booking-portal` Worker (Workers Editor / Workers Scripts Edit, depending on the token UI)
 - Account > Containers: Edit
-- Account > Account Settings: Read
-- User > User Details: Read
-- User > Memberships: Read
-- Zone > Workers Routes: Edit for `proinspect.systems` if the deployment manages a route or custom domain
+- Account > Account Settings: Read where offered
+- Zone > Workers Routes: Edit for `proinspect.systems` only if the deployment manages a route or custom domain
+
+The account must also have **Workers Paid** enabled because Cloudflare Containers are not available on the Workers Free plan.
 
 The Cloudflare account ID is not secret and is pinned in both `wrangler.jsonc` and the deployment workflow.
+
+### Containers API preflight
+
+Before installing dependencies or building Docker, GitHub Actions now calls the same Cloudflare Containers control-plane endpoint that Wrangler uses:
+
+```text
+GET /accounts/<account-id>/containers/me
+```
+
+The workflow prints the HTTP status plus Cloudflare's `errors` and `messages` fields without exposing the API token.
+
+- A successful response confirms the token and account can use Containers.
+- An authentication/authorization error means the GitHub `CLOUDFLARE_API_TOKEN` must be replaced with a token that has Containers Edit and Worker deployment access.
+- An entitlement/plan error means Workers Paid / Containers must be enabled on the Cloudflare account.
+
+This check deliberately runs before the Docker build so an account-level problem fails quickly and with the actual Cloudflare API response.
 
 ### Disable Cloudflare Workers Builds
 

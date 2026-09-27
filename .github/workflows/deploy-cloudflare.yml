@@ -32,6 +32,43 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify Cloudflare Containers access
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          response_file="$(mktemp)"
+          status="$(
+            curl --silent --show-error               --output "$response_file"               --write-out "%{http_code}"               --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               --header "Content-Type: application/json"               "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/containers/me"
+          )"
+
+          echo "Cloudflare Containers API HTTP status: $status"
+
+          if command -v jq >/dev/null 2>&1; then
+            jq -c '{success, errors, messages}' "$response_file" || cat "$response_file"
+          else
+            cat "$response_file"
+          fi
+
+          success="$(
+            node -e "
+              const fs = require('fs');
+              try {
+                const value = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+                process.stdout.write(value.success === true ? 'true' : 'false');
+              } catch {
+                process.stdout.write('false');
+              }
+            " "$response_file"
+          )"
+
+          if [ "$status" != "200" ] || [ "$success" != "true" ]; then
+            echo "::error::Cloudflare Containers API access failed before deployment."
+            echo "::error::Confirm the account is on Workers Paid and replace CLOUDFLARE_API_TOKEN with an account-owned API token that has Workers deployment access and Containers Edit for this account."
+            exit 1
+          fi
+
       - name: Checkout
         if: steps.cloudflare-token.outputs.configured == 'true'
         uses: actions/checkout@v4
