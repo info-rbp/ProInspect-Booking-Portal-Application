@@ -73,6 +73,12 @@ export async function sendBookingConfirmationEmail(params: {
   const { booking, managementUrl } = params;
   const readiness = readinessCopy(booking.readinessStatus || 'ready');
   const address = fullAddress(booking);
+  const categoryLabel =
+    booking.serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : booking.serviceCategory
+        ? booking.serviceCategory.charAt(0).toUpperCase() + booking.serviceCategory.slice(1)
+        : 'Legacy / uncategorised';
 
   const subject = `ProInspect booking confirmed – ${booking.bookingReference}`;
   const text = [
@@ -80,6 +86,7 @@ export async function sendBookingConfirmationEmail(params: {
     '',
     `Reference: ${booking.bookingReference}`,
     `Service: ${booking.serviceName}`,
+    `Category: ${categoryLabel}`,
     `Property: ${address}`,
     `Appointment: ${booking.appointment.dateString} at ${booking.appointment.timeString} AWST`,
     `Access status: ${readiness.label}`,
@@ -102,6 +109,7 @@ export async function sendBookingConfirmationEmail(params: {
       <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
         <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Reference</td><td style="padding:10px 14px;">${escapeHtml(booking.bookingReference)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Service</td><td style="padding:10px 14px;">${escapeHtml(booking.serviceName)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;">Category</td><td style="padding:10px 14px;">${escapeHtml(categoryLabel)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Property</td><td style="padding:10px 14px;">${escapeHtml(address)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Appointment</td><td style="padding:10px 14px;">${escapeHtml(booking.appointment.dateString)} at ${escapeHtml(booking.appointment.timeString)} AWST</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Access status</td><td style="padding:10px 14px;">${escapeHtml(readiness.label)}</td></tr>
