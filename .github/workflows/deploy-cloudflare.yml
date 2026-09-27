@@ -1,0 +1,55 @@
+name: Deploy Cloudflare production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: "8ca23ac6d2cc906d4dd13b8da5ea2b25"
+
+    steps:
+      - name: Check deployment token
+        id: cloudflare-token
+        shell: bash
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN is not configured. Production deployment was skipped."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        run: npm install --no-package-lock
+
+      - name: Type check
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        run: npm run lint
+
+      - name: Deploy Worker and Container
+        if: steps.cloudflare-token.outputs.configured == 'true'
+        run: npm run cf:deploy
