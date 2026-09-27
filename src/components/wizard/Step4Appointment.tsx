@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { InspectionService, AppointmentSlot } from '../../types/booking';
-import { fetchAvailability } from '../../services/api';
+import { InspectionService, AppointmentSlot, BusinessSettings } from '../../types/booking';
+import { fetchAvailability, fetchSettings } from '../../services/api';
 import { formatAustralianDate, formatAustralianTime, getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar as CalendarIcon,
@@ -18,7 +18,7 @@ import {
 interface Step4AppointmentProps {
   service: InspectionService;
   selectedSlot: AppointmentSlot | null;
-  onSelectSlot: (slot: AppointmentSlot) => void;
+  onSelectSlot: (slot: AppointmentSlot | null) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -52,6 +52,17 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
   const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
   const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+
+  useEffect(() => {
+    fetchSettings().then(setSettings).catch(() => setSettings(null));
+  }, []);
+
+  useEffect(() => {
+    if (selectedSlot && selectedSlot.dateKey !== selectedDateKey) {
+      onSelectSlot(null);
+    }
+  }, [selectedDateKey, selectedSlot, onSelectSlot]);
 
   // Fetch availability when selectedDateKey or service changes
   useEffect(() => {
@@ -64,12 +75,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
       setEmptyMessage(null);
 
       try {
-        const result = await fetchAvailability(
-          selectedDateKey,
-          service.duration,
-          service.bufferBefore || 15,
-          service.bufferAfter || 15
-        );
+        const result = await fetchAvailability(selectedDateKey, service.id);
 
         if (!isCancelled) {
           setSlots(result.slots || []);
@@ -97,7 +103,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [selectedDateKey, service.duration, service.bufferBefore, service.bufferAfter]);
+  }, [selectedDateKey, service.id]);
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -131,7 +137,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
   const startDayOffset = (firstDayOfMonth + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const daysArray: Array<{ dayNum: number; dateKey: string; isPast: boolean; isWeekend: boolean }> = [];
+  const daysArray: Array<{ dayNum: number; dateKey: string; isPast: boolean; isUnavailable: boolean }> = [];
   const todayKey = getPerthDateKey(new Date());
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -140,15 +146,21 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
     const dateKey = `${year}-${padMonth}-${padDay}`;
 
     const dateObj = new Date(year, month, d);
-    const dayOfWeek = dateObj.getDay(); // 0 is Sun, 6 is Sat
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const dayOfWeek = dateObj.getDay();
+    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+    const dayName = dayNames[dayOfWeek];
     const isPast = dateKey < todayKey;
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + service.maxFutureBookingDays);
+    const maxDateKey = getPerthDateKey(maxDate);
+    const operatingDay = settings?.operatingHours?.[dayName];
+    const isUnavailable = Boolean(settings && operatingDay && !operatingDay.active) || dateKey > maxDateKey;
 
     daysArray.push({
       dayNum: d,
       dateKey,
       isPast,
-      isWeekend,
+      isUnavailable,
     });
   }
 
@@ -160,7 +172,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
     <div className="space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
           Choose an appointment
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
@@ -174,8 +186,8 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
         <div className="lg:col-span-7 bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-[#0284C7]" />
-              <h2 className="font-bold text-base text-[#0A2540] capitalize">{monthName}</h2>
+              <CalendarIcon className="w-5 h-5 text-[#006D70]" />
+              <h2 className="font-bold text-base text-[#1A2B4A] capitalize">{monthName}</h2>
             </div>
 
             <div className="flex items-center gap-1">
@@ -219,7 +231,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
             {/* Days in Month */}
             {daysArray.map((day) => {
               const isSelected = day.dateKey === selectedDateKey;
-              const isDisabled = day.isPast || day.isWeekend;
+              const isDisabled = day.isPast || day.isUnavailable;
 
               return (
                 <button
@@ -229,10 +241,10 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
                   onClick={() => setSelectedDateKey(day.dateKey)}
                   className={`h-10 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-center transition-all ${
                     isSelected
-                      ? 'bg-[#0284C7] text-white shadow-xs font-bold ring-2 ring-sky-200'
+                      ? 'bg-[#007F82] text-white shadow-xs font-bold ring-2 ring-sky-200'
                       : isDisabled
                       ? 'text-slate-300 bg-transparent cursor-not-allowed'
-                      : 'text-[#0A2540] hover:bg-slate-100 cursor-pointer'
+                      : 'text-[#1A2B4A] hover:bg-slate-100 cursor-pointer'
                   }`}
                 >
                   {day.dayNum}
@@ -244,10 +256,10 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           {/* Legend & Operating Notice */}
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#0284C7]" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#007F82]" />
               Selected Date
             </span>
-            <span>Operating: Mon 8am-5pm &bull; Tue-Fri 8am-4pm</span>
+            <span>Operating hours are based on the current ProInspect booking settings.</span>
           </div>
         </div>
 
@@ -255,8 +267,8 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
         <div className="lg:col-span-5 bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
           <div className="border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#0284C7]" />
-              <h3 className="font-bold text-sm text-[#0A2540]">Available Times</h3>
+              <Clock className="w-4 h-4 text-[#006D70]" />
+              <h3 className="font-bold text-sm text-[#1A2B4A]">Available Times</h3>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">{selectedDateFormatted}</p>
           </div>
@@ -264,7 +276,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           {/* Slots Content State */}
           {isLoadingSlots ? (
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
-              <Loader2 className="w-6 h-6 text-[#0284C7] animate-spin" />
+              <Loader2 className="w-6 h-6 text-[#006D70] animate-spin" />
               <span className="text-xs font-semibold text-slate-600">
                 Checking Google Calendar availability...
               </span>
@@ -300,8 +312,8 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
                       onClick={() => onSelectSlot(slot)}
                       className={`py-3 px-3 rounded-lg text-xs sm:text-sm font-semibold border text-center transition-all cursor-pointer ${
                         isSelected
-                          ? 'border-[#0284C7] bg-[#0284C7] text-white shadow-xs font-bold ring-2 ring-sky-200'
-                          : 'border-slate-200 bg-slate-50 text-[#0A2540] hover:bg-slate-100 hover:border-slate-300'
+                          ? 'border-[#00B5B8] bg-[#007F82] text-white shadow-xs font-bold ring-2 ring-sky-200'
+                          : 'border-slate-200 bg-slate-50 text-[#1A2B4A] hover:bg-slate-100 hover:border-slate-300'
                       }`}
                     >
                       {slot.displayTime}
@@ -323,11 +335,11 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
       {selectedSlot && (
         <div className="bg-[#F0F9FF] border border-sky-200 rounded-xl p-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#0284C7] text-white flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-[#007F82] text-white flex items-center justify-center shrink-0">
               <CheckCircle className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-bold text-[#0A2540]">
+              <div className="text-xs font-bold text-[#1A2B4A]">
                 Proposed Appointment: {selectedSlot.displayDate} at {selectedSlot.displayTime}
               </div>
               <span className="text-xs text-slate-600">
@@ -343,7 +355,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#0A2540] hover:bg-slate-100 rounded-lg transition-colors"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#1A2B4A] hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Property Access</span>
@@ -355,7 +367,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           onClick={onNext}
           className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm transition-all ${
             selectedSlot
-              ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white shadow-xs cursor-pointer'
+              ? 'bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs cursor-pointer'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >

@@ -1,293 +1,524 @@
-import express, { Request, Response } from 'express';
+import 'dotenv/config';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from './src/services/defaultServices.js';
-import { generateBookingReference, generateManagementToken, formatAustralianDate, formatAustralianTime } from './src/utils/dateTime.js';
+import { randomBytes } from 'crypto';
+import {
+  formatAustralianDate,
+  formatAustralianTime,
+  getPerthDateKey,
+} from './src/utils/dateTime.js';
+import type { AccessDetails, BookingRecord, BusinessSettings, InspectionService, PropertyType } from './src/types/booking.js';
+import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
+import {
+  acquireScheduleLocks,
+  activeBookingsForDate,
+  bookingReferenceExists,
+  ensureSeedData,
+  findBookingByToken,
+  getBooking,
+  getService,
+  getSettings,
+  listBookings,
+  listServices,
+  newBookingId,
+  releaseScheduleLocks,
+  saveBooking,
+  ScheduleLockConflictError,
+  updateBooking,
+} from './src/server/store.js';
+import {
+  calendarIsConfigured,
+  createEvent,
+  deleteEvent,
+  freeBusy,
+  getCalendarId,
+} from './src/server/calendar.js';
 
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
+const TIMEZONE = 'Australia/Perth';
+const PERTH_OFFSET = '+08:00';
+const SLOT_INTERVAL_MINUTES = 15;
 
-app.use(express.json());
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '256kb' }));
 
-// In-memory operational store for bookings and calendar sync
-// Synchronized with Firestore on the client/admin side
-interface StoredBooking {
-  id: string;
-  bookingReference: string;
-  managementToken: string;
-  serviceId: string;
-  serviceName: string;
-  calendarEventId?: string;
-  property: any;
-  access: any;
-  appointment: {
-    start: string;
-    end: string;
-    dateString: string;
-    timeString: string;
-    durationMinutes: number;
-    timezone: string;
+type RateBucket = { count: number; resetAt: number };
+const rateBuckets = new Map<string, RateBucket>();
+
+function rateLimit(options: { windowMs: number; max: number; prefix: string }) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const clientKey = req.ip || req.socket.remoteAddress || 'unknown';
+    const key = `${options.prefix}:${clientKey}`;
+    const current = rateBuckets.get(key);
+
+    if (!current || current.resetAt <= now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + options.windowMs });
+      return next();
+    }
+
+    if (current.count >= options.max) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'Too many requests. Please wait a moment and try again.',
+      });
+    }
+
+    current.count += 1;
+    return next();
   };
-  status: 'confirmed' | 'completed' | 'cancelled';
-  adminNotes?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
-// Seed initial realistic Perth bookings for operational realism
-const bookingsStore: StoredBooking[] = [
-  {
-    id: 'pi-seed-1',
-    bookingReference: 'PI-20261005-0012',
-    managementToken: 'pi_seed_token_1',
-    serviceId: 'routine-inspection',
-    serviceName: 'Routine Inspection',
-    calendarEventId: 'gcal_event_001',
-    property: {
-      streetAddress: '27 Example Street',
-      unit: '',
-      suburb: 'Cloverdale',
-      state: 'WA',
-      postcode: '6105',
-      propertyType: 'House',
-      clientName: 'Perth Premier Real Estate',
-      clientReference: 'PPR-CLOV-27',
-      customerName: 'Sarah Jones',
-      customerEmail: 'sarah.jones@example.com.au',
-      customerPhone: '0400 123 456',
-    },
-    access: {
-      method: 'tenant',
-      tenant: {
-        tenantName: 'John Smith',
-        tenantPhone: '0411 222 333',
-        tenantEmail: 'john.smith@example.com',
-        noticeIssued: 'yes',
-        noticeDate: '2026-09-28',
-        accessRestrictions: 'Dog in backyard, please keep side gate closed.',
-      },
-      specialInstructions: 'Friendly border collie in rear garden. Call tenant on arrival.',
-    },
-    appointment: {
-      start: '2026-10-05T09:00:00+08:00',
-      end: '2026-10-05T09:45:00+08:00',
-      dateString: 'Monday, 5 October 2026',
-      timeString: '9:00 am',
-      durationMinutes: 45,
-      timezone: 'Australia/Perth',
-    },
-    status: 'confirmed',
-    adminNotes: 'Confirmed by tenant via SMS.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: 'pi-seed-2',
-    bookingReference: 'PI-20261005-0015',
-    managementToken: 'pi_seed_token_2',
-    serviceId: 'property-condition-report',
-    serviceName: 'Property Condition Report (PCR)',
-    calendarEventId: 'gcal_event_002',
-    property: {
-      streetAddress: '14/82 King George Street',
-      unit: 'Unit 14',
-      suburb: 'Victoria Park',
-      state: 'WA',
-      postcode: '6100',
-      propertyType: 'Apartment / Unit',
-      clientName: 'Bourkes Real Estate',
-      clientReference: 'BK-VP-14',
-      customerName: 'Michael Wong',
-      customerEmail: 'mwong@bourkes.example.com',
-      customerPhone: '0422 987 654',
-    },
-    access: {
-      method: 'lockbox',
-      lockbox: {
-        location: 'Gas meter box on western exterior wall',
-        instructions: 'Scramble dials after returning keys',
-        code: '4821',
-      },
-      specialInstructions: 'Visitor parking available in marked bay 14.',
-    },
-    appointment: {
-      start: '2026-10-05T13:30:00+08:00',
-      end: '2026-10-05T15:00:00+08:00',
-      dateString: 'Monday, 5 October 2026',
-      timeString: '1:30 pm',
-      durationMinutes: 90,
-      timezone: 'Australia/Perth',
-    },
-    status: 'confirmed',
-    adminNotes: 'Keys verified in lockbox.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  }
-];
-
-// Active administrative Google OAuth Access Token (stored when admin signs in)
-let activeServerOAuthToken: string | null = null;
-
-// Helper: Format Google Calendar structured event description according to Section 12
-function formatCalendarEventDescription(booking: StoredBooking): string {
-  const parts: string[] = [];
-
-  parts.push('BOOKING REFERENCE');
-  parts.push(booking.bookingReference);
-  parts.push('');
-
-  parts.push('SERVICE');
-  parts.push(booking.serviceName);
-  parts.push('');
-
-  parts.push('PROPERTY');
-  const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
-  parts.push(`${unitPrefix}${booking.property.streetAddress}`);
-  parts.push(`${booking.property.suburb} ${booking.property.state} ${booking.property.postcode}`);
-  parts.push('');
-
-  if (booking.property.clientName) {
-    parts.push('CLIENT');
-    parts.push(booking.property.clientName);
-    if (booking.property.clientReference) {
-      parts.push(`Ref: ${booking.property.clientReference}`);
-    }
-    parts.push('');
-  }
-
-  parts.push('CUSTOMER');
-  parts.push(booking.property.customerName);
-  parts.push(booking.property.customerPhone);
-  parts.push(booking.property.customerEmail);
-  parts.push('');
-
-  parts.push('ACCESS');
-  const methodNames: Record<string, string> = {
-    tenant: 'Tenant will provide access',
-    meet_onsite: 'Meet someone onsite',
-    keys_agency: 'Keys held at agency',
-    keys_proinspect: 'Keys held by ProInspect',
-    lockbox: 'Lockbox on site',
-    vacant: 'Property is vacant / open access',
-    other: 'Other / custom access arrangement',
-  };
-  parts.push(methodNames[booking.access.method] || booking.access.method);
-
-  if (booking.access.method === 'tenant' && booking.access.tenant) {
-    parts.push('');
-    parts.push('TENANT');
-    parts.push(booking.access.tenant.tenantName);
-    parts.push(booking.access.tenant.tenantPhone);
-    if (booking.access.tenant.tenantEmail) parts.push(booking.access.tenant.tenantEmail);
-    if (booking.access.tenant.noticeIssued) {
-      parts.push('');
-      parts.push('ENTRY NOTICE');
-      const noticeStatus = booking.access.tenant.noticeIssued === 'yes' ? 'Issued' : 'Pending';
-      const noticeDate = booking.access.tenant.noticeDate ? ` on ${booking.access.tenant.noticeDate}` : '';
-      parts.push(`${noticeStatus}${noticeDate}`);
-    }
-    if (booking.access.tenant.accessRestrictions) {
-      parts.push(`Restrictions: ${booking.access.tenant.accessRestrictions}`);
-    }
-  } else if (booking.access.method === 'meet_onsite' && booking.access.meetOnsite) {
-    parts.push('');
-    parts.push('ONSITE CONTACT');
-    parts.push(`${booking.access.meetOnsite.contactName} (${booking.access.meetOnsite.relationship || 'Contact'})`);
-    parts.push(booking.access.meetOnsite.contactPhone);
-    if (booking.access.meetOnsite.specialInstructions) {
-      parts.push(`Instructions: ${booking.access.meetOnsite.specialInstructions}`);
-    }
-  } else if (booking.access.method === 'keys_agency' && booking.access.agencyKeys) {
-    parts.push('');
-    parts.push('KEY COLLECTION');
-    parts.push(`Agency: ${booking.access.agencyKeys.agencyName}`);
-    parts.push(`Address: ${booking.access.agencyKeys.collectionAddress}`);
-    if (booking.access.agencyKeys.keyReference) parts.push(`Key Ref: ${booking.access.agencyKeys.keyReference}`);
-    if (booking.access.agencyKeys.keyInstructions) parts.push(`Instructions: ${booking.access.agencyKeys.keyInstructions}`);
-    if (booking.access.agencyKeys.returnInstructions) parts.push(`Return: ${booking.access.agencyKeys.returnInstructions}`);
-  } else if (booking.access.method === 'lockbox' && booking.access.lockbox) {
-    parts.push('');
-    parts.push('LOCKBOX');
-    parts.push(`Location: ${booking.access.lockbox.location}`);
-    parts.push(`Code: ${booking.access.lockbox.code}`);
-    if (booking.access.lockbox.instructions) parts.push(`Instructions: ${booking.access.lockbox.instructions}`);
-  }
-
-  if (booking.access.specialInstructions) {
-    parts.push('');
-    parts.push('SPECIAL INSTRUCTIONS');
-    parts.push(booking.access.specialInstructions);
-  }
-
-  return parts.join('\n');
-}
-
-// ----------------------------------------------------
-// API ROUTES
-// ----------------------------------------------------
-
-// 1. Sync admin access token from client
-app.post('/api/admin/sync-token', (req: Request, res: Response) => {
-  const { accessToken } = req.body;
-  if (accessToken) {
-    activeServerOAuthToken = accessToken;
-    res.json({ success: true, message: 'Google Calendar server integration token active.' });
-  } else {
-    res.status(400).json({ error: 'Missing access token.' });
-  }
+const availabilityRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  prefix: 'availability',
 });
 
-// 2. Status of Calendar Integration
-app.get('/api/calendar/status', (req: Request, res: Response) => {
+const bookingRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  prefix: 'booking',
+});
+
+const manageRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 30,
+  prefix: 'manage',
+});
+
+function parseAdminEmails(): Set<string> {
+  const configured = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  return new Set([
+    'info@remotebusinesspartner.com.au',
+    'info@proinspect.systems',
+    ...configured,
+  ]);
+}
+
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Administrator authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified administrator account is required.' });
+    }
+
+    const configuredAdmins = parseAdminEmails();
+    let authorised = configuredAdmins.has(email);
+
+    if (!authorised) {
+      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
+      const data = adminUser.exists ? adminUser.data() : null;
+      authorised =
+        Boolean(data) &&
+        data?.active !== false &&
+        (!data?.email || String(data.email).trim().toLowerCase() === email);
+    }
+
+    if (!authorised) {
+      return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
+    }
+
+    res.locals.admin = { uid: decoded.uid, email };
+    return next();
+  } catch (error) {
+    console.error('Admin authentication failed:', error);
+    return res.status(401).json({ error: 'Administrator session is invalid or has expired.' });
+  }
+}
+
+function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
+  const hours = Math.floor(minutesAfterMidnight / 60);
+  const minutes = minutesAfterMidnight % 60;
+  return `${dateKey}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00${PERTH_OFFSET}`;
+}
+
+function dayKeyForDate(dateKey: string): keyof BusinessSettings['operatingHours'] {
+  const date = new Date(`${dateKey}T12:00:00${PERTH_OFFSET}`);
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE,
+    weekday: 'long',
+  }).format(date).toLowerCase();
+
+  return weekday as keyof BusinessSettings['operatingHours'];
+}
+
+function minutesFromClock(clock: string): number {
+  const [hours, minutes] = clock.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function isValidDateKey(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(`${value}T12:00:00${PERTH_OFFSET}`);
+  return !Number.isNaN(parsed.getTime()) && getPerthDateKey(parsed) === value;
+}
+
+function isValidEmail(value: unknown): boolean {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function normalizeText(value: unknown, maxLength = 1000): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+const PROPERTY_TYPES: PropertyType[] = [
+  'House',
+  'Apartment / Unit',
+  'Townhouse',
+  'Commercial',
+  'Retail',
+  'Office',
+  'Industrial',
+  'Strata / Common Property',
+  'Other',
+];
+
+function sanitizeAccess(input: unknown): AccessDetails | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as Record<string, any>;
+  const method = value.method;
+
+  if (!['tenant', 'meet_onsite', 'keys_agency', 'keys_proinspect', 'lockbox', 'vacant', 'other'].includes(method)) {
+    return null;
+  }
+
+  const base: AccessDetails = {
+    method,
+    specialInstructions: normalizeText(value.specialInstructions, 2000) || undefined,
+  };
+
+  if (method === 'tenant') {
+    const tenant = value.tenant || {};
+    const noticeIssued = ['yes', 'no', 'pending'].includes(tenant.noticeIssued)
+      ? tenant.noticeIssued
+      : 'pending';
+
+    if (!normalizeText(tenant.tenantName, 100) || !normalizeText(tenant.tenantPhone, 50)) {
+      return null;
+    }
+
+    base.tenant = {
+      tenantName: normalizeText(tenant.tenantName, 100),
+      tenantPhone: normalizeText(tenant.tenantPhone, 50),
+      tenantEmail: normalizeText(tenant.tenantEmail, 120) || undefined,
+      noticeIssued,
+      noticeDate: normalizeText(tenant.noticeDate, 20) || undefined,
+      accessRestrictions: normalizeText(tenant.accessRestrictions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'meet_onsite') {
+    const contact = value.meetOnsite || {};
+    if (!normalizeText(contact.contactName, 100) || !normalizeText(contact.contactPhone, 50)) {
+      return null;
+    }
+
+    base.meetOnsite = {
+      contactName: normalizeText(contact.contactName, 100),
+      contactPhone: normalizeText(contact.contactPhone, 50),
+      relationship: normalizeText(contact.relationship, 100),
+      specialInstructions: normalizeText(contact.specialInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'keys_agency') {
+    const agency = value.agencyKeys || {};
+    if (!normalizeText(agency.agencyName, 120) || !normalizeText(agency.collectionAddress, 200)) {
+      return null;
+    }
+
+    base.agencyKeys = {
+      agencyName: normalizeText(agency.agencyName, 120),
+      collectionAddress: normalizeText(agency.collectionAddress, 200),
+      keyReference: normalizeText(agency.keyReference, 100) || undefined,
+      keyInstructions: normalizeText(agency.keyInstructions, 1000) || undefined,
+      returnInstructions: normalizeText(agency.returnInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'keys_proinspect') {
+    const keys = value.proInspectKeys || {};
+    base.proInspectKeys = {
+      keyReference: normalizeText(keys.keyReference, 100) || undefined,
+      additionalInstructions: normalizeText(keys.additionalInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'lockbox') {
+    const lockbox = value.lockbox || {};
+    if (!normalizeText(lockbox.location, 200) || !normalizeText(lockbox.code, 100)) {
+      return null;
+    }
+
+    base.lockbox = {
+      location: normalizeText(lockbox.location, 200),
+      instructions: normalizeText(lockbox.instructions, 1000) || undefined,
+      code: normalizeText(lockbox.code, 100),
+    };
+  }
+
+  if (method === 'vacant') {
+    const vacant = value.vacant || {};
+    if (!normalizeText(vacant.accessInstructions, 1000)) return null;
+
+    base.vacant = {
+      accessInstructions: normalizeText(vacant.accessInstructions, 1000),
+      securityAlarm: normalizeText(vacant.securityAlarm, 500) || undefined,
+    };
+  }
+
+  if (method === 'other') {
+    const other = value.other || {};
+    if (!normalizeText(other.instructions, 1000)) return null;
+    base.other = {
+      instructions: normalizeText(other.instructions, 1000),
+    };
+  }
+
+  return base;
+}
+
+function generateManagementToken(): string {
+  return `pi_${randomBytes(24).toString('base64url')}`;
+}
+
+async function generateBookingReference(start: Date): Promise<string> {
+  const datePart = getPerthDateKey(start).replace(/-/g, '');
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const suffix = String(Math.floor(1000 + Math.random() * 9000));
+    const reference = `PI-${datePart}-${suffix}`;
+    if (!(await bookingReferenceExists(reference))) return reference;
+  }
+
+  return `PI-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+function serviceCalendarId(service: InspectionService): string {
+  return getCalendarId(service.calendarId);
+}
+
+function candidateConflicts(
+  candidateStart: Date,
+  candidateEnd: Date,
+  busyStart: Date,
+  busyEnd: Date,
+  candidateBufferBeforeMinutes: number,
+  candidateBufferAfterMinutes: number,
+  busyBufferBeforeMinutes = 0,
+  busyBufferAfterMinutes = 0
+): boolean {
+  const candidateBufferedStart = new Date(
+    candidateStart.getTime() - candidateBufferBeforeMinutes * 60_000
+  );
+  const candidateBufferedEnd = new Date(
+    candidateEnd.getTime() + candidateBufferAfterMinutes * 60_000
+  );
+  const busyBufferedStart = new Date(
+    busyStart.getTime() - busyBufferBeforeMinutes * 60_000
+  );
+  const busyBufferedEnd = new Date(
+    busyEnd.getTime() + busyBufferAfterMinutes * 60_000
+  );
+
+  return candidateBufferedStart < busyBufferedEnd && candidateBufferedEnd > busyBufferedStart;
+}
+
+function dateWithinServiceWindow(dateKey: string, service: InspectionService, now = new Date()): boolean {
+  const todayKey = getPerthDateKey(now);
+  const max = new Date(now.getTime() + service.maxFutureBookingDays * 24 * 60 * 60_000);
+  const maxDateKey = getPerthDateKey(max);
+  return dateKey >= todayKey && dateKey <= maxDateKey;
+}
+
+async function calendarConflictForSlot(
+  service: InspectionService,
+  startIso: string,
+  endIso: string
+): Promise<boolean> {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const queryStart = new Date(start.getTime() - service.bufferBefore * 60_000).toISOString();
+  const queryEnd = new Date(end.getTime() + service.bufferAfter * 60_000).toISOString();
+
+  const busy = await freeBusy({
+    timeMin: queryStart,
+    timeMax: queryEnd,
+    timezone: TIMEZONE,
+    calendarId: serviceCalendarId(service),
+  });
+
+  return busy.some((interval) =>
+    candidateConflicts(
+      start,
+      end,
+      new Date(interval.start),
+      new Date(interval.end),
+      service.bufferBefore,
+      service.bufferAfter
+    )
+  );
+}
+
+async function localConflictForSlot(
+  dateKey: string,
+  service: InspectionService,
+  startIso: string,
+  endIso: string
+): Promise<boolean> {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const bookings = await activeBookingsForDate(dateKey);
+  const serviceRules = await Promise.all(
+    bookings.map((booking) => getService(booking.serviceId))
+  );
+
+  return bookings.some((booking, index) => {
+    const existingRules = serviceRules[index];
+    const existingBufferBefore =
+      booking.appointment.bufferBeforeMinutes ?? existingRules?.bufferBefore ?? 0;
+    const existingBufferAfter =
+      booking.appointment.bufferAfterMinutes ?? existingRules?.bufferAfter ?? 0;
+
+    return candidateConflicts(
+      start,
+      end,
+      new Date(booking.appointment.start),
+      new Date(booking.appointment.end),
+      service.bufferBefore,
+      service.bufferAfter,
+      existingBufferBefore,
+      existingBufferAfter
+    );
+  });
+}
+
+function publicBookingView(booking: BookingRecord, includeManagementToken = false) {
+  return {
+    bookingReference: booking.bookingReference,
+    ...(includeManagementToken ? { managementToken: booking.managementToken } : {}),
+    serviceName: booking.serviceName,
+    status: booking.status,
+    property: {
+      streetAddress: booking.property.streetAddress,
+      unit: booking.property.unit || '',
+      suburb: booking.property.suburb,
+      state: booking.property.state,
+      postcode: booking.property.postcode,
+      propertyType: booking.property.propertyType,
+      customerName: booking.property.customerName,
+      customerEmail: booking.property.customerEmail,
+    },
+    access: {
+      method: booking.access.method,
+    },
+    appointment: booking.appointment,
+  };
+}
+
+app.get('/api/health', (_req, res) => {
   res.json({
-    connected: true,
-    provider: 'Google Calendar API',
-    hasOAuthToken: Boolean(activeServerOAuthToken),
-    timezone: 'Australia/Perth',
-    locale: 'en-AU',
+    ok: true,
+    calendarConfigured: calendarIsConfigured(),
+    timezone: TIMEZONE,
   });
 });
 
-// 3. Query Calendar Availability using Google Calendar FreeBusy and operating hours
-app.get('/api/calendar/availability', async (req: Request, res: Response) => {
+app.get('/api/services', async (_req, res) => {
   try {
-    const { date, duration = '45', bufferBefore = '15', bufferAfter = '15' } = req.query;
+    const services = await listServices(true);
+    const publicServices = services.map(({ calendarId: _calendarId, ...service }) => service);
+    res.json({ services: publicServices });
+  } catch (error) {
+    console.error('Failed to load services:', error);
+    res.status(500).json({ error: 'Unable to load booking services.' });
+  }
+});
 
-    if (!date || typeof date !== 'string') {
-      return res.status(400).json({ error: 'Query parameter "date" (YYYY-MM-DD) is required.' });
+app.get('/api/settings', async (_req, res) => {
+  try {
+    const settings = await getSettings();
+    res.json({
+      settings: {
+        timezone: settings.timezone,
+        locale: settings.locale,
+        operatingHours: settings.operatingHours,
+        minimumNoticeHours: settings.minimumNoticeHours,
+        maxFutureBookingDays: settings.maxFutureBookingDays,
+        calendarConnected: calendarIsConfigured(),
+      },
+    });
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+    res.status(500).json({ error: 'Unable to load booking settings.' });
+  }
+});
+
+app.get('/api/calendar/status', (_req, res) => {
+  res.json({
+    connected: calendarIsConfigured(),
+    provider: 'Google Calendar API',
+    timezone: TIMEZONE,
+  });
+});
+
+app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) => {
+  try {
+    const { date, serviceId } = req.query;
+
+    if (!isValidDateKey(date) || typeof serviceId !== 'string') {
+      return res.status(400).json({ error: 'A valid date and serviceId are required.' });
     }
 
-    const durationNum = parseInt(duration as string, 10) || 45;
-    const bufBeforeNum = parseInt(bufferBefore as string, 10) || 15;
-    const bufAfterNum = parseInt(bufferAfter as string, 10) || 15;
+    const [service, settings] = await Promise.all([
+      getService(serviceId),
+      getSettings(),
+    ]);
 
-    // Parse date in Australia/Perth
-    // Format: YYYY-MM-DD
-    const [yearStr, monthStr, dayStr] = date.split('-');
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10) - 1;
-    const day = parseInt(dayStr, 10);
+    if (!service || !service.active || !service.publiclyBookable) {
+      return res.status(404).json({ error: 'The selected service is not available for public booking.' });
+    }
 
-    // Get day of week (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
-    const targetDate = new Date(Date.UTC(year, month, day, 4, 0, 0)); // Roughly mid-day UTC for Perth (UTC+8)
-    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Australia/Perth',
-      weekday: 'long',
-    }).format(targetDate).toLowerCase();
+    if (!calendarIsConfigured()) {
+      return res.status(503).json({ error: 'Online scheduling is temporarily unavailable.' });
+    }
 
-    // Check operating hours for day of week
-    // Monday: 8:00 am to 5:00 pm
-    // Tuesday to Friday: 8:00 am to 4:00 pm
-    // Saturday / Sunday: unavailable
-    const hoursConfig = DEFAULT_SETTINGS.operatingHours[dayOfWeek as keyof typeof DEFAULT_SETTINGS.operatingHours];
+    if (!dateWithinServiceWindow(date, service)) {
+      return res.json({
+        date,
+        slots: [],
+        message: 'This date is outside the available booking period. Please choose another date.',
+      });
+    }
 
-    if (!hoursConfig || !hoursConfig.active) {
+    const dayKey = dayKeyForDate(date);
+    const operatingHours = settings.operatingHours[dayKey];
+
+    if (!operatingHours?.active) {
       return res.json({
         date,
         slots: [],
@@ -295,318 +526,444 @@ app.get('/api/calendar/availability', async (req: Request, res: Response) => {
       });
     }
 
-    const [openH, openM] = hoursConfig.open.split(':').map(Number);
-    const [closeH, closeM] = hoursConfig.close.split(':').map(Number);
+    const openMinutes = minutesFromClock(operatingHours.open);
+    const closeMinutes = minutesFromClock(operatingHours.close);
+    const noticeHours = Math.max(settings.minimumNoticeHours || 0, service.minimumNoticeHours || 0);
+    const earliestStart = Date.now() + noticeHours * 60 * 60_000;
 
-    // Business bounds in minutes from midnight
-    const openMinutes = openH * 60 + openM;
-    const closeMinutes = closeH * 60 + closeM;
+    const dayStart = `${date}T00:00:00${PERTH_OFFSET}`;
+    const dayEnd = `${date}T23:59:59${PERTH_OFFSET}`;
 
-    // Query Google Calendar FreeBusy if access token is available
-    const busyIntervals: Array<{ start: Date; end: Date }> = [];
+    const [calendarBusy, localBookings] = await Promise.all([
+      freeBusy({
+        timeMin: dayStart,
+        timeMax: dayEnd,
+        timezone: TIMEZONE,
+        calendarId: serviceCalendarId(service),
+      }),
+      activeBookingsForDate(date),
+    ]);
+    const localServiceRules = await Promise.all(
+      localBookings.map((booking) => getService(booking.serviceId))
+    );
 
-    // Also include existing bookings from our store
-    for (const b of bookingsStore) {
-      if (b.status === 'cancelled') continue;
-      const bStart = new Date(b.appointment.start);
-      const bEnd = new Date(b.appointment.end);
-      
-      // Format start in Perth date key
-      const bDateKey = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Australia/Perth',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(bStart);
+    const busyIntervals = [
+      ...calendarBusy.map((item) => ({
+        start: new Date(item.start),
+        end: new Date(item.end),
+        bufferBefore: 0,
+        bufferAfter: 0,
+      })),
+      ...localBookings.map((booking, index) => ({
+        start: new Date(booking.appointment.start),
+        end: new Date(booking.appointment.end),
+        bufferBefore:
+          booking.appointment.bufferBeforeMinutes ??
+          localServiceRules[index]?.bufferBefore ??
+          0,
+        bufferAfter:
+          booking.appointment.bufferAfterMinutes ??
+          localServiceRules[index]?.bufferAfter ??
+          0,
+      })),
+    ];
 
-      if (bDateKey === date) {
-        // Apply buffer around existing appointment
-        const bufferedStart = new Date(bStart.getTime() - bufBeforeNum * 60000);
-        const bufferedEnd = new Date(bEnd.getTime() + bufAfterNum * 60000);
-        busyIntervals.push({ start: bufferedStart, end: bufferedEnd });
-      }
-    }
+    const slots = [];
 
-    // Call Google Calendar FreeBusy API if an access token is provided or active
-    const clientAuthToken = (req.headers.authorization || '').replace('Bearer ', '') || activeServerOAuthToken;
-    if (clientAuthToken) {
-      try {
-        const timeMin = `${date}T00:00:00+08:00`;
-        const timeMax = `${date}T23:59:59+08:00`;
-        const gcalRes = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${clientAuthToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            timeMin,
-            timeMax,
-            timeZone: 'Australia/Perth',
-            items: [{ id: 'primary' }],
-          }),
-        });
+    for (
+      let startMinutes = openMinutes;
+      startMinutes + service.duration <= closeMinutes;
+      startMinutes += SLOT_INTERVAL_MINUTES
+    ) {
+      const startIso = isoForPerth(date, startMinutes);
+      const endIso = isoForPerth(date, startMinutes + service.duration);
+      const start = new Date(startIso);
+      const end = new Date(endIso);
 
-        if (gcalRes.ok) {
-          const gcalData = await gcalRes.json();
-          const primaryBusy = gcalData.calendars?.primary?.busy || [];
-          for (const item of primaryBusy) {
-            busyIntervals.push({
-              start: new Date(new Date(item.start).getTime() - bufBeforeNum * 60000),
-              end: new Date(new Date(item.end).getTime() + bufAfterNum * 60000),
-            });
-          }
-        }
-      } catch (gcalErr) {
-        console.warn('Google Calendar FreeBusy check warning (using local business scheduling):', gcalErr);
-      }
-    }
+      if (start.getTime() < earliestStart) continue;
 
-    // Calculate slots: 45 min intervals or matching duration
-    const intervalStepMinutes = durationNum <= 45 ? 45 : durationNum <= 60 ? 60 : 60;
-    const slots: Array<{
-      start: string;
-      end: string;
-      displayTime: string;
-      displayDate: string;
-      dateKey: string;
-    }> = [];
+      const conflict = busyIntervals.some((busy) =>
+        candidateConflicts(
+          start,
+          end,
+          busy.start,
+          busy.end,
+          service.bufferBefore,
+          service.bufferAfter,
+          busy.bufferBefore,
+          busy.bufferAfter
+        )
+      );
 
-    // Australian Perth timezone offset string: +08:00
-    const now = new Date();
-    const minNoticeMs = DEFAULT_SETTINGS.minimumNoticeHours * 3600000;
-
-    for (let m = openMinutes; m + durationNum <= closeMinutes; m += intervalStepMinutes) {
-      const slotHour = Math.floor(m / 60);
-      const slotMin = m % 60;
-
-      const hourPad = String(slotHour).padStart(2, '0');
-      const minPad = String(slotMin).padStart(2, '0');
-
-      const slotStartISO = `${date}T${hourPad}:${minPad}:00+08:00`;
-      const slotStartDate = new Date(slotStartISO);
-
-      // Check minimum booking notice
-      if (slotStartDate.getTime() - now.getTime() < minNoticeMs) {
-        continue;
-      }
-
-      const endMinutesTotal = m + durationNum;
-      const endHour = Math.floor(endMinutesTotal / 60);
-      const endMin = endMinutesTotal % 60;
-      const endHourPad = String(endHour).padStart(2, '0');
-      const endMinPad = String(endMin).padStart(2, '0');
-      const slotEndISO = `${date}T${endHourPad}:${endMinPad}:00+08:00`;
-      const slotEndDate = new Date(slotEndISO);
-
-      // Check conflict with busy intervals
-      const hasConflict = busyIntervals.some(busy => {
-        return slotStartDate < busy.end && slotEndDate > busy.start;
-      });
-
-      if (!hasConflict) {
+      if (!conflict) {
         slots.push({
-          start: slotStartISO,
-          end: slotEndISO,
-          displayTime: formatAustralianTime(slotStartDate),
-          displayDate: formatAustralianDate(slotStartDate),
+          start: startIso,
+          end: endIso,
+          displayTime: formatAustralianTime(start),
+          displayDate: formatAustralianDate(start),
           dateKey: date,
         });
       }
     }
 
-    res.json({
+    return res.json({
       date,
       slots,
-      message: slots.length === 0 ? 'No appointments are available on this date. Please choose another date.' : undefined,
+      message:
+        slots.length === 0
+          ? 'No appointments are available on this date. Please choose another date.'
+          : undefined,
     });
   } catch (error) {
-    console.error('Error getting calendar availability:', error);
-    res.status(500).json({ error: 'Failed to retrieve availability.' });
+    console.error('Availability error:', error);
+    return res.status(503).json({
+      error: 'Unable to confirm Google Calendar availability right now. Please try again shortly.',
+    });
   }
 });
 
-// 4. Create Booking with instant conflict recheck & Google Calendar Event Creation
-app.post('/api/bookings/create', async (req: Request, res: Response) => {
-  try {
-    const { serviceId, property, access, appointment } = req.body;
+app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
+  let calendarEventId: string | undefined;
+  let lockedBookingId: string | null = null;
 
-    // Validation
-    if (!serviceId || !property || !access || !appointment || !appointment.start) {
+  try {
+    const { serviceId, property, access, appointment } = req.body || {};
+
+    if (!serviceId || !property || !access || !appointment?.start) {
       return res.status(400).json({ error: 'Missing mandatory booking information.' });
     }
 
-    if (!property.streetAddress || !property.suburb || !property.postcode) {
-      return res.status(400).json({ error: 'Incomplete property address.' });
+    if (
+      !normalizeText(property.streetAddress, 150) ||
+      !normalizeText(property.suburb, 100) ||
+      !/^\d{4}$/.test(normalizeText(property.postcode, 4))
+    ) {
+      return res.status(400).json({ error: 'A complete Australian property address is required.' });
     }
 
-    if (!property.customerName || !property.customerEmail || !property.customerPhone) {
-      return res.status(400).json({ error: 'Customer contact details are required.' });
+    if (
+      !normalizeText(property.customerName, 100) ||
+      !isValidEmail(property.customerEmail) ||
+      !normalizeText(property.customerPhone, 50)
+    ) {
+      return res.status(400).json({ error: 'Valid booking contact details are required.' });
     }
 
-    // CRITICAL: Availability and Conflict Protection
-    // Query availability again immediately before creating appointment
-    const reqStart = new Date(appointment.start);
-    const reqEnd = new Date(appointment.end);
+    const sanitizedAccess = sanitizeAccess(access);
+    if (!sanitizedAccess) {
+      return res.status(400).json({ error: 'Valid property access information is required.' });
+    }
 
-    const conflictingBooking = bookingsStore.find(b => {
-      if (b.status === 'cancelled') return false;
-      const bStart = new Date(b.appointment.start);
-      const bEnd = new Date(b.appointment.end);
-      return reqStart < bEnd && reqEnd > bStart;
-    });
+    const [service, settings] = await Promise.all([
+      getService(String(serviceId)),
+      getSettings(),
+    ]);
 
-    if (conflictingBooking) {
+    if (!service || !service.active || !service.publiclyBookable) {
+      return res.status(400).json({ error: 'The selected service is not available for public booking.' });
+    }
+
+    if (!calendarIsConfigured()) {
+      return res.status(503).json({ error: 'Online scheduling is temporarily unavailable.' });
+    }
+
+    const requestedStart = new Date(appointment.start);
+    if (Number.isNaN(requestedStart.getTime())) {
+      return res.status(400).json({ error: 'Invalid appointment start time.' });
+    }
+
+    const dateKey = getPerthDateKey(requestedStart);
+    const canonicalStartIso = requestedStart.toISOString();
+    const canonicalEnd = new Date(requestedStart.getTime() + service.duration * 60_000);
+    const canonicalEndIso = canonicalEnd.toISOString();
+
+    if (!dateWithinServiceWindow(dateKey, service)) {
+      return res.status(400).json({ error: 'The requested appointment is outside the available booking period.' });
+    }
+
+    const noticeHours = Math.max(settings.minimumNoticeHours || 0, service.minimumNoticeHours || 0);
+    if (requestedStart.getTime() - Date.now() < noticeHours * 60 * 60_000) {
+      return res.status(409).json({
+        error: `This service requires at least ${noticeHours} hours' notice. Please choose another time.`,
+        conflict: true,
+      });
+    }
+
+    const dayKey = dayKeyForDate(dateKey);
+    const hours = settings.operatingHours[dayKey];
+
+    if (!hours?.active) {
+      return res.status(409).json({
+        error: 'That date is not available for this service. Please choose another date.',
+        conflict: true,
+      });
+    }
+
+    const localStartText = new Intl.DateTimeFormat('en-GB', {
+      timeZone: TIMEZONE,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(requestedStart);
+    const localStartMinutes = minutesFromClock(localStartText);
+    const localEndMinutes = localStartMinutes + service.duration;
+    const dayOpenMinutes = minutesFromClock(hours.open);
+    const dayCloseMinutes = minutesFromClock(hours.close);
+    const isCanonicalSlot =
+      requestedStart.getUTCSeconds() === 0 &&
+      requestedStart.getUTCMilliseconds() === 0 &&
+      (localStartMinutes - dayOpenMinutes) % SLOT_INTERVAL_MINUTES === 0;
+
+    if (!isCanonicalSlot) {
+      return res.status(409).json({
+        error: 'That appointment is not a valid booking slot. Please select one of the available times shown.',
+        conflict: true,
+      });
+    }
+
+    if (
+      localStartMinutes < dayOpenMinutes ||
+      localEndMinutes > dayCloseMinutes
+    ) {
+      return res.status(409).json({
+        error: 'That appointment falls outside operating hours. Please choose another time.',
+        conflict: true,
+      });
+    }
+
+    const [calendarConflict, localConflict] = await Promise.all([
+      calendarConflictForSlot(service, canonicalStartIso, canonicalEndIso),
+      localConflictForSlot(dateKey, service, canonicalStartIso, canonicalEndIso),
+    ]);
+
+    if (calendarConflict || localConflict) {
       return res.status(409).json({
         error: 'That appointment has just become unavailable. Please select another time.',
         conflict: true,
       });
     }
 
-    // Find service definition
-    const service = DEFAULT_SERVICES.find(s => s.id === serviceId) || {
-      name: serviceId,
-      duration: appointment.durationMinutes || 45,
-    };
+    const bookingId = newBookingId();
+    lockedBookingId = bookingId;
 
-    // Generate Human-Readable ProInspect Booking Reference: PI-YYYYMMDD-XXXX
-    const bookingRef = generateBookingReference(reqStart);
-    const managementToken = generateManagementToken();
-
-    const newBooking: StoredBooking = {
-      id: `booking-${Date.now()}`,
-      bookingReference: bookingRef,
-      managementToken,
-      serviceId,
-      serviceName: service.name,
-      property,
-      access,
-      appointment: {
-        start: appointment.start,
-        end: appointment.end,
-        dateString: formatAustralianDate(reqStart),
-        timeString: formatAustralianTime(reqStart),
-        durationMinutes: service.duration || 45,
-        timezone: 'Australia/Perth',
-      },
-      status: 'confirmed',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // Google Calendar Event Creation
-    // Format Title: [Service] | [Property Address]
-    const unitText = property.unit ? `${property.unit}, ` : '';
-    const fullAddress = `${unitText}${property.streetAddress}, ${property.suburb} ${property.state || 'WA'} ${property.postcode}`;
-    const eventSummary = `${service.name} | ${fullAddress}`;
-    const eventDescription = formatCalendarEventDescription(newBooking);
-
-    let calendarEventId = `gcal_${Date.now()}`;
-
-    // Execute server-side Google Calendar API insert if token available
-    const clientAuthToken = (req.headers.authorization || '').replace('Bearer ', '') || activeServerOAuthToken;
-    if (clientAuthToken) {
-      try {
-        const gcalEventPayload = {
-          summary: eventSummary,
-          location: fullAddress,
-          description: eventDescription,
-          start: {
-            dateTime: appointment.start,
-            timeZone: 'Australia/Perth',
-          },
-          end: {
-            dateTime: appointment.end,
-            timeZone: 'Australia/Perth',
-          },
-          attendees: [
-            { email: property.customerEmail, displayName: property.customerName },
-          ],
-          reminders: {
-            useDefault: true,
-          },
-        };
-
-        const gcalRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${clientAuthToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(gcalEventPayload),
+    try {
+      await acquireScheduleLocks({
+        bookingId,
+        calendarId: serviceCalendarId(service),
+        start: canonicalStartIso,
+        end: canonicalEndIso,
+        bufferBeforeMinutes: service.bufferBefore,
+        bufferAfterMinutes: service.bufferAfter,
+      });
+    } catch (error) {
+      if (error instanceof ScheduleLockConflictError) {
+        return res.status(409).json({
+          error: 'That appointment is currently being confirmed by another customer. Please select another time.',
+          conflict: true,
         });
-
-        if (gcalRes.ok) {
-          const createdGcal = await gcalRes.json();
-          calendarEventId = createdGcal.id || calendarEventId;
-        } else {
-          console.warn('Google Calendar API returned status:', gcalRes.status);
-        }
-      } catch (calErr) {
-        console.warn('Error during Google Calendar event insertion:', calErr);
       }
+      throw error;
     }
 
-    newBooking.calendarEventId = calendarEventId;
-    bookingsStore.unshift(newBooking);
+    const [postLockCalendarConflict, postLockLocalConflict] = await Promise.all([
+      calendarConflictForSlot(service, canonicalStartIso, canonicalEndIso),
+      localConflictForSlot(dateKey, service, canonicalStartIso, canonicalEndIso),
+    ]);
 
-    res.status(201).json({
+    if (postLockCalendarConflict || postLockLocalConflict) {
+      await releaseScheduleLocks(bookingId);
+      lockedBookingId = null;
+      return res.status(409).json({
+        error: 'That appointment has just become unavailable. Please select another time.',
+        conflict: true,
+      });
+    }
+
+    const bookingReference = await generateBookingReference(requestedStart);
+    const now = new Date().toISOString();
+
+    const resolvedCalendarId = serviceCalendarId(service);
+    const booking: BookingRecord = {
+      id: bookingId,
+      bookingReference,
+      managementToken: generateManagementToken(),
+      serviceId: service.id,
+      serviceName: service.name,
+      calendarId: resolvedCalendarId,
+      property: {
+        streetAddress: normalizeText(property.streetAddress, 150),
+        unit: normalizeText(property.unit, 50),
+        suburb: normalizeText(property.suburb, 100),
+        state: normalizeText(property.state, 10) || 'WA',
+        postcode: normalizeText(property.postcode, 4),
+        propertyType: PROPERTY_TYPES.includes(property.propertyType)
+          ? property.propertyType
+          : 'Other',
+        clientName: normalizeText(property.clientName, 100),
+        clientReference: normalizeText(property.clientReference, 100),
+        customerName: normalizeText(property.customerName, 100),
+        customerEmail: normalizeText(property.customerEmail, 120),
+        customerPhone: normalizeText(property.customerPhone, 50),
+      },
+      access: sanitizedAccess,
+      appointment: {
+        start: requestedStart.toISOString(),
+        end: canonicalEnd.toISOString(),
+        dateKey,
+        dateString: formatAustralianDate(requestedStart),
+        timeString: formatAustralianTime(requestedStart),
+        durationMinutes: service.duration,
+        bufferBeforeMinutes: service.bufferBefore,
+        bufferAfterMinutes: service.bufferAfter,
+        timezone: TIMEZONE,
+      },
+      status: 'confirmed',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const calendarResult = await createEvent(booking, resolvedCalendarId);
+    calendarEventId = calendarResult.eventId;
+    booking.calendarEventId = calendarEventId;
+    booking.calendarHtmlLink = calendarResult.htmlLink;
+
+    try {
+      await saveBooking(booking);
+    } catch (firestoreError) {
+      await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
+        console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
+      });
+      throw firestoreError;
+    }
+
+    await releaseScheduleLocks(bookingId).catch((releaseError) => {
+      console.error('Failed to release completed booking locks:', releaseError);
+    });
+    lockedBookingId = null;
+
+    return res.status(201).json({
       success: true,
-      booking: newBooking,
-      message: 'Booking confirmed successfully and calendar event created.',
+      booking: publicBookingView(booking, true),
+      message: 'Booking confirmed successfully.',
     });
   } catch (error) {
-    console.error('Error creating booking:', error);
-    res.status(500).json({ error: 'Failed to process and confirm your booking. Please try again.' });
+    if (lockedBookingId) {
+      await releaseScheduleLocks(lockedBookingId).catch((releaseError) => {
+        console.error('Failed to release booking locks after error:', releaseError);
+      });
+    }
+
+    console.error('Booking creation failed:', error);
+    return res.status(500).json({
+      error: 'The booking could not be confirmed. No appointment has been saved. Please try again.',
+    });
   }
 });
 
-// 5. Get all bookings for admin
-app.get('/api/admin/bookings', (req: Request, res: Response) => {
-  res.json({ bookings: bookingsStore });
-});
+app.get('/api/bookings/manage/:token', manageRateLimit, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!/^pi_[A-Za-z0-9_-]{24,}$/.test(token)) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
 
-// 6. Update booking status / notes (admin)
-app.patch('/api/admin/bookings/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { status, adminNotes } = req.body;
+    const booking = await findBookingByToken(token);
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
 
-  const booking = bookingsStore.find(b => b.id === id || b.bookingReference === id);
-  if (!booking) {
-    return res.status(404).json({ error: 'Booking not found.' });
+    return res.json({ booking: publicBookingView(booking) });
+  } catch (error) {
+    console.error('Public booking lookup failed:', error);
+    return res.status(500).json({ error: 'Unable to retrieve this booking.' });
   }
-
-  if (status) booking.status = status;
-  if (adminNotes !== undefined) booking.adminNotes = adminNotes;
-  booking.updatedAt = new Date().toISOString();
-
-  res.json({ success: true, booking });
 });
 
-// 7. Get booking by management token (public self-service)
-app.get('/api/bookings/manage/:token', (req: Request, res: Response) => {
-  const { token } = req.params;
-  const booking = bookingsStore.find(b => b.managementToken === token || b.bookingReference === token);
-  if (!booking) {
-    return res.status(404).json({ error: 'Booking not found or invalid reference.' });
+app.get('/api/admin/session', requireAdmin, (_req, res) => {
+  return res.json({ authorised: true });
+});
+
+app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
+  try {
+    const bookings = await listBookings();
+    return res.json({ bookings });
+  } catch (error) {
+    console.error('Admin bookings load failed:', error);
+    return res.status(500).json({ error: 'Unable to load bookings.' });
   }
-  // Expose sanitized public view
-  res.json({ booking });
 });
 
-// 8. Public Services & Settings
-app.get('/api/services', (req: Request, res: Response) => {
-  res.json({ services: DEFAULT_SERVICES });
+app.get('/api/admin/services', requireAdmin, async (_req, res) => {
+  try {
+    const services = await listServices(false);
+    return res.json({ services });
+  } catch (error) {
+    console.error('Admin services load failed:', error);
+    return res.status(500).json({ error: 'Unable to load services.' });
+  }
 });
 
-app.get('/api/settings', (req: Request, res: Response) => {
-  res.json({ settings: DEFAULT_SETTINGS });
+app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
+  try {
+    const settings = await getSettings();
+    return res.json({
+      settings: {
+        ...settings,
+        calendarConnected: calendarIsConfigured(),
+      },
+    });
+  } catch (error) {
+    console.error('Admin settings load failed:', error);
+    return res.status(500).json({ error: 'Unable to load settings.' });
+  }
 });
 
-// ----------------------------------------------------
-// VITE MIDDLEWARE / STATIC ASSETS SETUP
-// ----------------------------------------------------
+app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
+  try {
+    const booking = await getBooking(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    const status = req.body?.status;
+    const adminNotes =
+      req.body?.adminNotes === undefined
+        ? undefined
+        : normalizeText(req.body.adminNotes, 2000);
+
+    if (status && !['confirmed', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid booking status.' });
+    }
+
+    if (booking.status === 'cancelled' && status && status !== 'cancelled') {
+      return res.status(409).json({
+        error: 'Cancelled bookings cannot be reactivated. Create a new booking instead.',
+      });
+    }
+
+    if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
+      const service = await getService(booking.serviceId);
+      await deleteEvent(
+        booking.calendarEventId,
+        booking.calendarId || service?.calendarId
+      );
+    }
+
+    const updated = await updateBooking(booking.id, {
+      ...(status ? { status } : {}),
+      ...(adminNotes !== undefined ? { adminNotes } : {}),
+    });
+
+    return res.json({ success: true, booking: updated });
+  } catch (error) {
+    console.error('Admin booking update failed:', error);
+    return res.status(500).json({ error: 'Unable to update booking.' });
+  }
+});
+
 async function startServer() {
+  await ensureSeedData();
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -616,7 +973,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (req: Request, res: Response) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
@@ -626,6 +983,7 @@ async function startServer() {
   });
 }
 
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
+startServer().catch((error) => {
+  console.error('Failed to start ProInspect Booking Hub:', error);
+  process.exitCode = 1;
 });

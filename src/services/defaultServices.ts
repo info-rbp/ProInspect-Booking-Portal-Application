@@ -132,5 +132,5 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   },
   minimumNoticeHours: 24,
   maxFutureBookingDays: 60,
-  calendarConnected: true,
+  calendarConnected: false,
 };

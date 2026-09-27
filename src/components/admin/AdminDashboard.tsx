@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookingRecord, BookingStatus, InspectionService, BusinessSettings } from '../../types/booking';
-import { fetchAdminBookings, updateAdminBooking, fetchServices, fetchSettings } from '../../services/api';
-import { logoutAdmin, getCachedAccessToken } from '../../services/firebase';
+import { fetchAdminBookings, updateAdminBooking, fetchAdminServices, fetchAdminSettings } from '../../services/api';
+import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
@@ -56,8 +56,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const [bkList, srvList, stData] = await Promise.all([
         fetchAdminBookings(),
-        fetchServices(),
-        fetchSettings(),
+        fetchAdminServices(),
+        fetchAdminSettings(),
       ]);
       setBookings(bkList);
       setServices(srvList);
@@ -79,18 +79,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Metrics calculations
   const todayKey = getPerthDateKey(new Date());
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowKey = getPerthDateKey(tomorrow);
+  const tomorrowKey = getPerthDateKey(new Date(Date.now() + 24 * 60 * 60_000));
 
   const todaysBookings = bookings.filter(
-    (b) => b.appointment.start.startsWith(todayKey) && b.status !== 'cancelled'
+    (b) => b.appointment.dateKey === todayKey && b.status !== 'cancelled'
   );
   const tomorrowsBookings = bookings.filter(
-    (b) => b.appointment.start.startsWith(tomorrowKey) && b.status !== 'cancelled'
+    (b) => b.appointment.dateKey === tomorrowKey && b.status !== 'cancelled'
   );
   const upcomingBookings = bookings.filter(
-    (b) => b.appointment.start >= todayKey && b.status === 'confirmed'
+    (b) => b.appointment.dateKey >= todayKey && b.status === 'confirmed'
   );
   const cancelledBookings = bookings.filter((b) => b.status === 'cancelled');
 
@@ -114,11 +112,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Top Admin Bar */}
       <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#0A2540] text-white flex items-center justify-center font-black">
+          <div className="w-10 h-10 rounded-xl bg-[#1A2B4A] text-white flex items-center justify-center font-black">
             PI
           </div>
           <div>
-            <h1 className="text-xl font-black text-[#0A2540] leading-tight">
+            <h1 className="text-xl font-black text-[#1A2B4A] leading-tight">
               ProInspect Operational Portal
             </h1>
             <p className="text-xs text-slate-500">
@@ -150,7 +148,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('bookings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'bookings'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -162,7 +160,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('services')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'services'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -174,7 +172,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'settings'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -193,7 +191,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Today's Bookings
               </span>
               <div className="mt-2 flex items-baseline justify-between">
-                <span className="text-2xl sm:text-3xl font-black text-[#0A2540]">
+                <span className="text-2xl sm:text-3xl font-black text-[#1A2B4A]">
                   {todaysBookings.length}
                 </span>
                 <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded">
@@ -207,7 +205,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Tomorrow's Bookings
               </span>
               <div className="mt-2 flex items-baseline justify-between">
-                <span className="text-2xl sm:text-3xl font-black text-[#0A2540]">
+                <span className="text-2xl sm:text-3xl font-black text-[#1A2B4A]">
                   {tomorrowsBookings.length}
                 </span>
                 <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
@@ -254,7 +252,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 placeholder="Search reference, address, customer..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-9 pr-3 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:bg-white focus:border-[#0284C7]"
+                className="w-full h-10 pl-9 pr-3 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:bg-white focus:border-[#00B5B8]"
               />
             </div>
 
@@ -289,7 +287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="bg-white border border-slate-200/90 rounded-xl shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-[#0A2540] text-slate-200 uppercase tracking-wider font-bold">
+                <thead className="bg-[#1A2B4A] text-slate-200 uppercase tracking-wider font-bold">
                   <tr>
                     <th className="py-3 px-4">Reference</th>
                     <th className="py-3 px-4">Date / Time</th>
@@ -315,7 +313,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer"
                         onClick={() => setSelectedBooking(b)}
                       >
-                        <td className="py-3.5 px-4 font-mono font-bold text-[#0A2540]">
+                        <td className="py-3.5 px-4 font-mono font-bold text-[#1A2B4A]">
                           {b.bookingReference}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
@@ -335,7 +333,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </div>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="font-semibold text-[#0284C7]">{b.serviceName}</span>
+                          <span className="font-semibold text-[#006D70]">{b.serviceName}</span>
                           <span className="text-[10px] text-slate-400 block">
                             {b.appointment.durationMinutes} mins
                           </span>
@@ -373,7 +371,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               e.stopPropagation();
                               setSelectedBooking(b);
                             }}
-                            className="text-xs font-bold text-[#0284C7] hover:underline"
+                            className="text-xs font-bold text-[#006D70] hover:underline"
                           >
                             View Order &rarr;
                           </button>
@@ -392,9 +390,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'services' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-base text-[#0A2540]">Active Inspection Services</h3>
+            <h3 className="font-bold text-base text-[#1A2B4A]">Active Inspection Services</h3>
             <span className="text-xs text-slate-500">
-              Stored in Firestore &bull; Synchronized across booking flow
+              Stored in Firestore &bull; Used by the public booking flow
             </span>
           </div>
 
@@ -406,7 +404,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h4 className="font-bold text-base text-[#0A2540]">{srv.name}</h4>
+                    <h4 className="font-bold text-base text-[#1A2B4A]">{srv.name}</h4>
                     <p className="text-xs text-slate-500 mt-1">{srv.publicDescription}</p>
                   </div>
                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
@@ -438,7 +436,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'settings' && (
         <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
-            <h3 className="font-bold text-base text-[#0A2540]">
+            <h3 className="font-bold text-base text-[#1A2B4A]">
               Google Calendar &amp; Operating Settings
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -466,10 +464,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1 text-xs text-emerald-900">
                 <div className="flex items-center gap-1.5 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Google Calendar FreeBusy API Connected</span>
+                  <span>{settings?.calendarConnected ? 'Google Calendar integration configured' : 'Google Calendar configuration required'}</span>
                 </div>
-                <div>FreeBusy queries calculate deterministic slot availability.</div>
-                <div>Server rechecks conflict right before confirmation.</div>
+                <div>Availability is calculated server-side from Google Calendar and service rules.</div>
+                <div>The server rechecks availability immediately before confirmation.</div>
               </div>
             </div>
 
@@ -477,19 +475,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
                 Operating Hours
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Monday</span>
-                  <span className="text-slate-600">8:00 am - 5:00 pm</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Tuesday to Friday</span>
-                  <span className="text-slate-600">8:00 am - 4:00 pm</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Saturday &amp; Sunday</span>
-                  <span className="text-slate-400">Unavailable / Off</span>
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {([
+                  ['monday', 'Monday'],
+                  ['tuesday', 'Tuesday'],
+                  ['wednesday', 'Wednesday'],
+                  ['thursday', 'Thursday'],
+                  ['friday', 'Friday'],
+                  ['saturday', 'Saturday'],
+                  ['sunday', 'Sunday'],
+                ] as const).map(([dayKey, label]) => {
+                  const day = settings?.operatingHours[dayKey];
+                  return (
+                    <div key={dayKey} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <span className="font-bold text-[#1A2B4A] block">{label}</span>
+                      <span className={day?.active ? 'text-slate-600' : 'text-slate-400'}>
+                        {day?.active ? `${day.open} - ${day.close}` : 'Unavailable / Off'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

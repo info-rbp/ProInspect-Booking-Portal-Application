@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { signInWithGoogle, getCachedAccessToken } from '../../services/firebase';
-import { syncServerOAuthToken } from '../../services/api';
+import { logoutAdmin, signInWithGoogle } from '../../services/firebase';
+import { verifyAdminSession } from '../../services/api';
 import { Shield, X, AlertCircle, Loader2 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -25,8 +25,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setError(null);
     try {
       const result = await signInWithGoogle();
-      if (result.accessToken) {
-        await syncServerOAuthToken(result.accessToken);
+      try {
+        await verifyAdminSession();
+      } catch (authorisationError) {
+        await logoutAdmin();
+        throw authorisationError;
       }
       onLoginSuccess(result.user);
       onClose();
@@ -49,11 +52,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         </button>
 
         <div className="text-center space-y-3 pb-4 border-b border-slate-100">
-          <div className="w-12 h-12 bg-sky-100 text-[#0284C7] rounded-xl flex items-center justify-center mx-auto">
+          <div className="w-12 h-12 bg-sky-100 text-[#006D70] rounded-xl flex items-center justify-center mx-auto">
             <Shield className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-[#0A2540]">ProInspect Staff Portal</h2>
+            <h2 className="text-xl font-bold text-[#1A2B4A]">ProInspect Staff Portal</h2>
             <p className="text-xs text-slate-500 mt-1">
               Sign in with your authorized Google Workspace account to access operational work orders and calendar synchronization.
             </p>
@@ -76,7 +79,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm py-3 px-4 rounded-xl border border-slate-300 shadow-xs hover:shadow transition-all cursor-pointer disabled:opacity-50"
           >
             {loading ? (
-              <Loader2 className="w-5 h-5 text-[#0284C7] animate-spin" />
+              <Loader2 className="w-5 h-5 text-[#006D70] animate-spin" />
             ) : (
               <svg className="w-5 h-5" viewBox="0 0 24 24">
                 <path
@@ -102,8 +105,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         </div>
 
         <div className="text-center text-[11px] text-slate-400">
-          Authorized administrator email: <br />
-          <strong className="text-slate-600 font-mono">info@remotebusinesspartner.com.au</strong>
+          Use an authorised ProInspect Google Workspace account.
         </div>
       </div>
     </div>

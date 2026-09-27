@@ -2,103 +2,253 @@
   "entities": {
     "Service": {
       "title": "Service",
-      "description": "ProInspect inspection service configuration",
+      "description": "ProInspect bookable service configuration. Firestore is the runtime source of truth; defaults seed missing records only.",
       "type": "object",
       "properties": {
-        "id": { "type": "string", "maxLength": 64 },
-        "name": { "type": "string", "maxLength": 100 },
-        "publicDescription": { "type": "string", "maxLength": 500 },
-        "duration": { "type": "number" },
-        "bufferBefore": { "type": "number" },
-        "bufferAfter": { "type": "number" },
-        "minimumNoticeHours": { "type": "number" },
-        "maxFutureBookingDays": { "type": "number" },
-        "calendarId": { "type": "string", "maxLength": 128 },
-        "active": { "type": "boolean" },
-        "publiclyBookable": { "type": "boolean" },
-        "order": { "type": "number" }
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "publicDescription": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "duration": {
+          "type": "number"
+        },
+        "bufferBefore": {
+          "type": "number"
+        },
+        "bufferAfter": {
+          "type": "number"
+        },
+        "minimumNoticeHours": {
+          "type": "number"
+        },
+        "maxFutureBookingDays": {
+          "type": "number"
+        },
+        "calendarId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "publiclyBookable": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "number"
+        },
+        "iconName": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "badge": {
+          "type": "string",
+          "maxLength": 64
+        }
       },
-      "required": ["name", "duration", "active"]
+      "required": [
+        "name",
+        "duration",
+        "active",
+        "publiclyBookable"
+      ]
     },
     "Booking": {
       "title": "Booking",
-      "description": "Property inspection booking and work order record",
+      "description": "Persistent booking/work-order record created by the trusted server API.",
       "type": "object",
       "properties": {
-        "bookingReference": { "type": "string", "maxLength": 32 },
-        "managementToken": { "type": "string", "maxLength": 64 },
-        "serviceId": { "type": "string", "maxLength": 64 },
-        "serviceName": { "type": "string", "maxLength": 100 },
-        "calendarEventId": { "type": "string", "maxLength": 128 },
-        "propertyStreet": { "type": "string", "maxLength": 150 },
-        "propertyUnit": { "type": "string", "maxLength": 50 },
-        "suburb": { "type": "string", "maxLength": 100 },
-        "state": { "type": "string", "maxLength": 10 },
-        "postcode": { "type": "string", "maxLength": 10 },
-        "fullAddress": { "type": "string", "maxLength": 300 },
-        "propertyType": { "type": "string", "maxLength": 50 },
-        "clientName": { "type": "string", "maxLength": 100 },
-        "clientReference": { "type": "string", "maxLength": 100 },
-        "customerName": { "type": "string", "maxLength": 100 },
-        "customerEmail": { "type": "string", "maxLength": 120 },
-        "customerPhone": { "type": "string", "maxLength": 50 },
-        "accessMethod": { "type": "string", "maxLength": 50 },
-        "accessDetails": { "type": "object" },
-        "tenantDetails": { "type": "object" },
-        "specialInstructions": { "type": "string", "maxLength": 1000 },
-        "appointmentStart": { "type": "string", "maxLength": 50 },
-        "appointmentEnd": { "type": "string", "maxLength": 50 },
-        "timezone": { "type": "string", "maxLength": 50 },
-        "status": { "type": "string", "enum": ["confirmed", "completed", "cancelled"] },
-        "adminNotes": { "type": "string", "maxLength": 1000 },
-        "createdAt": { "type": "string", "maxLength": 50 },
-        "updatedAt": { "type": "string", "maxLength": 50 }
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "bookingReference": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "managementToken": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "serviceId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "serviceName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "calendarEventId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "calendarHtmlLink": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "property": {
+          "type": "object"
+        },
+        "access": {
+          "type": "object"
+        },
+        "appointment": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "adminNotes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
       },
-      "required": ["bookingReference", "serviceName", "customerEmail", "status", "appointmentStart"]
+      "required": [
+        "id",
+        "bookingReference",
+        "managementToken",
+        "serviceId",
+        "serviceName",
+        "property",
+        "access",
+        "appointment",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
     },
     "Settings": {
       "title": "Settings",
-      "description": "ProInspect global operating and scheduling settings",
+      "description": "ProInspect scheduling and operating configuration stored at settings/business.",
       "type": "object",
       "properties": {
-        "timezone": { "type": "string", "maxLength": 50 },
-        "locale": { "type": "string", "maxLength": 20 },
-        "operatingHours": { "type": "object" },
-        "minimumNoticeHours": { "type": "number" },
-        "maxFutureBookingDays": { "type": "number" },
-        "defaultCalendarId": { "type": "string", "maxLength": 128 },
-        "updatedAt": { "type": "string", "maxLength": 50 }
+        "timezone": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "locale": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "operatingHours": {
+          "type": "object"
+        },
+        "minimumNoticeHours": {
+          "type": "number"
+        },
+        "maxFutureBookingDays": {
+          "type": "number"
+        },
+        "calendarConnected": {
+          "type": "boolean"
+        },
+        "calendarEmail": {
+          "type": "string",
+          "maxLength": 256
+        }
       },
-      "required": ["timezone", "locale"]
+      "required": [
+        "timezone",
+        "locale",
+        "operatingHours"
+      ]
     },
     "AdminUser": {
       "title": "AdminUser",
-      "description": "Authorized administrator profile",
+      "description": "Optional Firebase UID based administrator allow-list entry.",
       "type": "object",
       "properties": {
-        "email": { "type": "string", "maxLength": 120 },
-        "role": { "type": "string", "maxLength": 50 },
-        "createdAt": { "type": "string", "maxLength": 50 }
+        "email": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        }
       },
-      "required": ["email", "role"]
+      "required": [
+        "email"
+      ]
+    },
+    "ScheduleLock": {
+      "title": "ScheduleLock",
+      "description": "Short-lived internal Firestore lock used to prevent concurrent booking confirmations from reserving overlapping times.",
+      "type": "object",
+      "properties": {
+        "bookingId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "expiresAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "bookingId",
+        "expiresAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "/services/{serviceId}": {
       "schema": "Service",
-      "description": "Inspection services available for booking"
+      "description": "Inspection and field-service definitions used by the booking engine."
     },
     "/bookings/{bookingId}": {
       "schema": "Booking",
-      "description": "All customer bookings and work orders"
+      "description": "Persistent customer bookings and internal work orders."
     },
-    "/settings/{settingId}": {
+    "/settings/business": {
       "schema": "Settings",
-      "description": "Operating hours, timezone and configuration"
+      "description": "Single business scheduling configuration record."
     },
-    "/adminUsers/{adminId}": {
+    "/adminUsers/{firebaseUid}": {
       "schema": "AdminUser",
-      "description": "Administrator allowlist entries"
+      "description": "Optional Firebase UID based administrator allow-list."
+    },
+    "/scheduleLocks/{lockId}": {
+      "schema": "ScheduleLock",
+      "description": "Internal transient concurrency locks. Server-only; never exposed to the browser."
     }
+  },
+  "security": {
+    "clientFirestoreAccess": "denied",
+    "trustedServerAccess": "Firebase Admin SDK",
+    "adminAuthentication": "Firebase Authentication ID token verified by Express server"
   }
 }

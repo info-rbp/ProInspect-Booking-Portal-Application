@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { BookingRecord } from '../../types/booking';
 import { fetchBookingByToken } from '../../services/api';
+import type { PublicBookingSummary } from '../../types/booking';
 import { Search, X, Calendar, MapPin, KeyRound, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface PublicBookingManageModalProps {
@@ -15,7 +15,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
   const [tokenOrRef, setTokenOrRef] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [booking, setBooking] = useState<BookingRecord | null>(null);
+  const [booking, setBooking] = useState<PublicBookingSummary | null>(null);
 
   if (!isOpen) return null;
 
@@ -31,7 +31,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
       const data = await fetchBookingByToken(tokenOrRef.trim());
       setBooking(data);
     } catch (err: any) {
-      setError('No matching booking found. Please check your booking reference (e.g. PI-20261005-0042).');
+      setError('No matching booking was found for that secure management code.');
     } finally {
       setLoading(false);
     }
@@ -48,9 +48,9 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
         </button>
 
         <div className="border-b border-slate-100 pb-3">
-          <h2 className="text-xl font-bold text-[#0A2540]">Manage Booking</h2>
+          <h2 className="text-xl font-bold text-[#1A2B4A]">Manage Booking</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Enter your ProInspect Booking Reference to view your scheduled appointment.
+            Open your booking using the secure management code supplied with your confirmation.
           </p>
         </div>
 
@@ -59,16 +59,16 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="e.g. PI-20261005-0012"
+              placeholder="Secure management code"
               value={tokenOrRef}
               onChange={(e) => setTokenOrRef(e.target.value)}
-              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] font-mono focus:bg-white focus:border-[#0284C7] outline-none"
+              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] font-mono focus:bg-white focus:border-[#00B5B8] outline-none"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="px-5 h-11 bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+            className="px-5 h-11 bg-[#007F82] hover:bg-[#006D70] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             <span>Lookup</span>
@@ -86,7 +86,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
         {booking && (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 text-xs">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-              <span className="font-mono font-bold text-[#0A2540] text-sm">
+              <span className="font-mono font-bold text-[#1A2B4A] text-sm">
                 {booking.bookingReference}
               </span>
               <span className="capitalize font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">
@@ -95,13 +95,13 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
             </div>
 
             <div className="space-y-1.5 text-slate-700">
-              <div className="font-bold text-[#0A2540] text-sm">{booking.serviceName}</div>
+              <div className="font-bold text-[#1A2B4A] text-sm">{booking.serviceName}</div>
               <div className="flex items-center gap-1.5 text-slate-800">
-                <Calendar className="w-3.5 h-3.5 text-[#0284C7]" />
+                <Calendar className="w-3.5 h-3.5 text-[#006D70]" />
                 <span>{booking.appointment.dateString} at {booking.appointment.timeString} AWST</span>
               </div>
               <div className="flex items-start gap-1.5 text-slate-800">
-                <MapPin className="w-3.5 h-3.5 text-[#0284C7] shrink-0 mt-0.5" />
+                <MapPin className="w-3.5 h-3.5 text-[#006D70] shrink-0 mt-0.5" />
                 <span>
                   {booking.property.unit ? `${booking.property.unit}, ` : ''}{booking.property.streetAddress}, {booking.property.suburb} {booking.property.state}
                 </span>
@@ -114,8 +114,8 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
 
             <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
               Need to reschedule or cancel? Contact ProInspect at{' '}
-              <a href="mailto:info@remotebusinesspartner.com.au" className="font-semibold text-[#0284C7] underline">
-                info@remotebusinesspartner.com.au
+              <a href="mailto:info@proinspect.systems" className="font-semibold text-[#006D70] underline">
+                info@proinspect.systems
               </a>
             </div>
           </div>

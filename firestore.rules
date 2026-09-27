@@ -1,57 +1,18 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'info@remotebusinesspartner.com.au' ||
-        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid))
-      );
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Default deny
+    // The booking portal uses the trusted server API for all Firestore access.
+    // Firebase Authentication is used by the browser only to obtain an ID token
+    // that the server verifies before allowing administrator operations.
+    //
+    // Keeping direct browser access closed prevents public enumeration of:
+    // - bookings and tenant contact information
+    // - lockbox / key / alarm access details
+    // - administrator notes
+    // - service and scheduling configuration writes
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    // Services collection: publicly readable, admin writable
-    match /services/{serviceId} {
-      allow read: if true;
-      allow write: if isAdmin() && isValidId(serviceId);
-    }
-
-    // Settings collection: publicly readable for business hours, admin writable
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isAdmin() && isValidId(settingId);
-    }
-
-    // Bookings collection:
-    // Admin has full read and write
-    // Public can read an individual booking if they have the secure management token or reference
-    match /bookings/{bookingId} {
-      allow get: if isAdmin() || (
-        resource.data.managementToken != null &&
-        request.auth == null
-      );
-      allow list: if isAdmin();
-      allow create: if true; // Allows customer booking intake
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    // Admin users allowlist
-    match /adminUsers/{adminId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isValidId(adminId);
     }
   }
 }

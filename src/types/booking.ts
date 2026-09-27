@@ -121,23 +121,47 @@ export interface BookingRecord {
   managementToken: string;  // secure random token for self-service or direct access
   serviceId: string;
   serviceName: string;
+  calendarId?: string;
   calendarEventId?: string;
+  calendarHtmlLink?: string;
   property: PropertyDetails;
   access: AccessDetails;
   appointment: {
-    start: string; // ISO string in Australia/Perth
-    end: string;   // ISO string
+    start: string; // ISO timestamp
+    end: string;   // ISO timestamp
+    dateKey: string; // YYYY-MM-DD in Australia/Perth
     dateString: string;
     timeString: string;
     durationMinutes: number;
+    bufferBeforeMinutes?: number;
+    bufferAfterMinutes?: number;
     timezone: string;
   };
   status: BookingStatus;
   adminNotes?: string;
-  emailReceiptHtml?: string;
-  calendarInviteUrl?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicBookingSummary {
+  bookingReference: string;
+  managementToken?: string;
+  serviceName: string;
+  status: BookingStatus;
+  property: {
+    streetAddress: string;
+    unit?: string;
+    suburb: string;
+    state: string;
+    postcode: string;
+    propertyType: PropertyType;
+    customerName: string;
+    customerEmail: string;
+  };
+  access: {
+    method: AccessMethod;
+  };
+  appointment: BookingRecord['appointment'];
 }
 
 export interface OperatingHours {

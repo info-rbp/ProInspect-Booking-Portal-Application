@@ -16,9 +16,9 @@ import {
   PropertyDetails,
   AccessDetails,
   AppointmentSlot,
-  BookingRecord,
+  PublicBookingSummary,
 } from './types/booking';
-import { fetchServices, submitBooking } from './services/api';
+import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin } from './services/firebase';
 import { User } from 'firebase/auth';
 import { Search, ShieldAlert, CalendarClock } from 'lucide-react';
@@ -59,7 +59,7 @@ export default function App() {
   });
 
   const [selectedSlot, setSelectedSlot] = useState<AppointmentSlot | null>(null);
-  const [confirmedBooking, setConfirmedBooking] = useState<BookingRecord | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<PublicBookingSummary | null>(null);
 
   // Submission & Conflict State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,7 +94,12 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = initAuthListener(
       (user) => {
-        setCurrentUser(user);
+        verifyAdminSession()
+          .then(() => setCurrentUser(user))
+          .catch(async () => {
+            setCurrentUser(null);
+            await logoutAdmin();
+          });
       },
       () => {
         setCurrentUser(null);
@@ -109,6 +114,10 @@ export default function App() {
   };
 
   const handleSelectService = (service: InspectionService) => {
+    if (service.id !== selectedServiceId) {
+      setSelectedSlot(null);
+      setConflictError(null);
+    }
     setSelectedServiceId(service.id);
   };
 
@@ -152,11 +161,6 @@ export default function App() {
         access: accessData,
         appointment: {
           start: selectedSlot.start,
-          end: selectedSlot.end,
-          dateString: selectedSlot.displayDate,
-          timeString: selectedSlot.displayTime,
-          durationMinutes: selectedService.duration,
-          timezone: 'Australia/Perth',
         },
       };
 
@@ -189,6 +193,28 @@ export default function App() {
     setConflictError(null);
     setCompletedSteps([]);
     setCurrentStep('service');
+    setSelectedServiceId(services[0]?.id || null);
+    setPropertyData({
+      streetAddress: '',
+      unit: '',
+      suburb: '',
+      state: 'WA',
+      postcode: '',
+      propertyType: 'House',
+      clientName: '',
+      clientReference: '',
+      customerName: '',
+      customerEmail: '',
+      customerPhone: '',
+    });
+    setAccessData({
+      method: 'tenant',
+      tenant: {
+        tenantName: '',
+        tenantPhone: '',
+        noticeIssued: 'yes',
+      },
+    });
   };
 
   const handleAdminLogout = async () => {
@@ -203,14 +229,6 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
       {/* Top Application Header */}
       <Header
-        onOpenAdmin={() => {
-          if (currentUser) {
-            setActiveView('admin');
-          } else {
-            setIsAdminLoginOpen(true);
-          }
-        }}
-        isAdminLoggedIn={Boolean(currentUser)}
         activeView={activeView}
         setActiveView={setActiveView}
       />
@@ -241,10 +259,10 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsManageModalOpen(true)}
-                className="text-[#0284C7] hover:underline flex items-center gap-1 font-semibold"
+                className="text-[#006D70] hover:underline flex items-center gap-1 font-semibold"
               >
                 <Search className="w-3.5 h-3.5" />
-                <span>Existing booking? Enter reference</span>
+                <span>Existing booking? Use secure code</span>
               </button>
             </div>
 
