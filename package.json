@@ -12,7 +12,7 @@
     "lint": "npm run cf:types && tsc --noEmit",
     "cf:types": "wrangler types",
     "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy --yes",
+    "cf:deploy": "wrangler deploy",
     "container:build": "docker build -t proinspect-booking-portal ."
   },
   "dependencies": {

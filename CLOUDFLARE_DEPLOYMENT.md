@@ -50,7 +50,7 @@ After the GitHub secret exists, either:
 - push/merge to `main`, or
 - open **GitHub > Actions > Deploy Cloudflare production > Run workflow**.
 
-The workflow type-checks the application and then runs `wrangler deploy --yes`, which builds, uploads and rolls out both the Worker and its Container.
+The workflow type-checks the application and then runs `wrangler deploy`, which builds, uploads and rolls out both the Worker and its Container.
 
 
 Create/import a Worker from this GitHub repository and use:
