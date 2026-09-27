@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
+    "lint": "npm run cf:types && tsc --noEmit",
     "cf:types": "wrangler types",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy",
