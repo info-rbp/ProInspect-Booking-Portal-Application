@@ -315,12 +315,14 @@ export const AdminServiceEditor: React.FC<AdminServiceEditorProps> = ({
                   <span className="text-xs font-bold text-slate-700">Display order</span>
                   <input
                     type="number"
-                    min={1}
-                    max={9999}
                     className={fieldClass}
                     value={form.order || suggestedOrder}
-                    onChange={(e) => update('order', Number(e.target.value))}
+                    disabled
+                    readOnly
                   />
+                  <span className="text-[11px] text-slate-400 block">
+                    Use the arrow controls on the Services page to reorder.
+                  </span>
                 </label>
               </div>
             </section>
