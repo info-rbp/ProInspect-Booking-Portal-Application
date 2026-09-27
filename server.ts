@@ -8,9 +8,10 @@ import {
   formatAustralianTime,
   getPerthDateKey,
 } from './src/utils/dateTime.js';
-import type { BookingRecord, BusinessSettings, InspectionService } from './src/types/booking.js';
-import { adminAuth, adminDb, getFirebaseRuntimeInfo } from './src/server/firebaseAdmin.js';
+import type { AccessDetails, BookingRecord, BusinessSettings, InspectionService, PropertyType } from './src/types/booking.js';
+import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
+  acquireScheduleLocks,
   activeBookingsForDate,
   bookingReferenceExists,
   ensureSeedData,
@@ -21,7 +22,9 @@ import {
   listBookings,
   listServices,
   newBookingId,
+  releaseScheduleLocks,
   saveBooking,
+  ScheduleLockConflictError,
   updateBooking,
 } from './src/server/store.js';
 import {
@@ -44,7 +47,54 @@ const PERTH_OFFSET = '+08:00';
 const SLOT_INTERVAL_MINUTES = 15;
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '256kb' }));
+
+type RateBucket = { count: number; resetAt: number };
+const rateBuckets = new Map<string, RateBucket>();
+
+function rateLimit(options: { windowMs: number; max: number; prefix: string }) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const clientKey = req.ip || req.socket.remoteAddress || 'unknown';
+    const key = `${options.prefix}:${clientKey}`;
+    const current = rateBuckets.get(key);
+
+    if (!current || current.resetAt <= now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + options.windowMs });
+      return next();
+    }
+
+    if (current.count >= options.max) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return res.status(429).json({
+        error: 'Too many requests. Please wait a moment and try again.',
+      });
+    }
+
+    current.count += 1;
+    return next();
+  };
+}
+
+const availabilityRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  prefix: 'availability',
+});
+
+const bookingRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  prefix: 'booking',
+});
+
+const manageRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 30,
+  prefix: 'manage',
+});
 
 function parseAdminEmails(): Set<string> {
   const configured = (process.env.ADMIN_EMAILS || '')
@@ -129,6 +179,123 @@ function isValidEmail(value: unknown): boolean {
 
 function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+const PROPERTY_TYPES: PropertyType[] = [
+  'House',
+  'Apartment / Unit',
+  'Townhouse',
+  'Commercial',
+  'Retail',
+  'Office',
+  'Industrial',
+  'Strata / Common Property',
+  'Other',
+];
+
+function sanitizeAccess(input: unknown): AccessDetails | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as Record<string, any>;
+  const method = value.method;
+
+  if (!['tenant', 'meet_onsite', 'keys_agency', 'keys_proinspect', 'lockbox', 'vacant', 'other'].includes(method)) {
+    return null;
+  }
+
+  const base: AccessDetails = {
+    method,
+    specialInstructions: normalizeText(value.specialInstructions, 2000) || undefined,
+  };
+
+  if (method === 'tenant') {
+    const tenant = value.tenant || {};
+    const noticeIssued = ['yes', 'no', 'pending'].includes(tenant.noticeIssued)
+      ? tenant.noticeIssued
+      : 'pending';
+
+    if (!normalizeText(tenant.tenantName, 100) || !normalizeText(tenant.tenantPhone, 50)) {
+      return null;
+    }
+
+    base.tenant = {
+      tenantName: normalizeText(tenant.tenantName, 100),
+      tenantPhone: normalizeText(tenant.tenantPhone, 50),
+      tenantEmail: normalizeText(tenant.tenantEmail, 120) || undefined,
+      noticeIssued,
+      noticeDate: normalizeText(tenant.noticeDate, 20) || undefined,
+      accessRestrictions: normalizeText(tenant.accessRestrictions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'meet_onsite') {
+    const contact = value.meetOnsite || {};
+    if (!normalizeText(contact.contactName, 100) || !normalizeText(contact.contactPhone, 50)) {
+      return null;
+    }
+
+    base.meetOnsite = {
+      contactName: normalizeText(contact.contactName, 100),
+      contactPhone: normalizeText(contact.contactPhone, 50),
+      relationship: normalizeText(contact.relationship, 100),
+      specialInstructions: normalizeText(contact.specialInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'keys_agency') {
+    const agency = value.agencyKeys || {};
+    if (!normalizeText(agency.agencyName, 120) || !normalizeText(agency.collectionAddress, 200)) {
+      return null;
+    }
+
+    base.agencyKeys = {
+      agencyName: normalizeText(agency.agencyName, 120),
+      collectionAddress: normalizeText(agency.collectionAddress, 200),
+      keyReference: normalizeText(agency.keyReference, 100) || undefined,
+      keyInstructions: normalizeText(agency.keyInstructions, 1000) || undefined,
+      returnInstructions: normalizeText(agency.returnInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'keys_proinspect') {
+    const keys = value.proInspectKeys || {};
+    base.proInspectKeys = {
+      keyReference: normalizeText(keys.keyReference, 100) || undefined,
+      additionalInstructions: normalizeText(keys.additionalInstructions, 1000) || undefined,
+    };
+  }
+
+  if (method === 'lockbox') {
+    const lockbox = value.lockbox || {};
+    if (!normalizeText(lockbox.location, 200) || !normalizeText(lockbox.code, 100)) {
+      return null;
+    }
+
+    base.lockbox = {
+      location: normalizeText(lockbox.location, 200),
+      instructions: normalizeText(lockbox.instructions, 1000) || undefined,
+      code: normalizeText(lockbox.code, 100),
+    };
+  }
+
+  if (method === 'vacant') {
+    const vacant = value.vacant || {};
+    if (!normalizeText(vacant.accessInstructions, 1000)) return null;
+
+    base.vacant = {
+      accessInstructions: normalizeText(vacant.accessInstructions, 1000),
+      securityAlarm: normalizeText(vacant.securityAlarm, 500) || undefined,
+    };
+  }
+
+  if (method === 'other') {
+    const other = value.other || {};
+    if (!normalizeText(other.instructions, 1000)) return null;
+    base.other = {
+      instructions: normalizeText(other.instructions, 1000),
+    };
+  }
+
+  return base;
 }
 
 function generateManagementToken(): string {
@@ -246,7 +413,6 @@ function publicBookingView(booking: BookingRecord) {
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
-    firebase: getFirebaseRuntimeInfo(),
     calendarConfigured: calendarIsConfigured(),
     timezone: TIMEZONE,
   });
@@ -255,7 +421,8 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/services', async (_req, res) => {
   try {
     const services = await listServices(true);
-    res.json({ services });
+    const publicServices = services.map(({ calendarId: _calendarId, ...service }) => service);
+    res.json({ services: publicServices });
   } catch (error) {
     console.error('Failed to load services:', error);
     res.status(500).json({ error: 'Unable to load booking services.' });
@@ -289,7 +456,7 @@ app.get('/api/calendar/status', (_req, res) => {
   });
 });
 
-app.get('/api/calendar/availability', async (req, res) => {
+app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) => {
   try {
     const { date, serviceId } = req.query;
 
@@ -410,8 +577,9 @@ app.get('/api/calendar/availability', async (req, res) => {
   }
 });
 
-app.post('/api/bookings/create', async (req, res) => {
+app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
   let calendarEventId: string | undefined;
+  let lockedBookingId: string | null = null;
 
   try {
     const { serviceId, property, access, appointment } = req.body || {};
@@ -434,6 +602,11 @@ app.post('/api/bookings/create', async (req, res) => {
       !normalizeText(property.customerPhone, 50)
     ) {
       return res.status(400).json({ error: 'Valid booking contact details are required.' });
+    }
+
+    const sanitizedAccess = sanitizeAccess(access);
+    if (!sanitizedAccess) {
+      return res.status(400).json({ error: 'Valid property access information is required.' });
     }
 
     const [service, settings] = await Promise.all([
@@ -513,6 +686,41 @@ app.post('/api/bookings/create', async (req, res) => {
     }
 
     const bookingId = newBookingId();
+    lockedBookingId = bookingId;
+
+    try {
+      await acquireScheduleLocks({
+        bookingId,
+        calendarId: serviceCalendarId(service),
+        start: canonicalStartIso,
+        end: canonicalEndIso,
+        bufferBeforeMinutes: service.bufferBefore,
+        bufferAfterMinutes: service.bufferAfter,
+      });
+    } catch (error) {
+      if (error instanceof ScheduleLockConflictError) {
+        return res.status(409).json({
+          error: 'That appointment is currently being confirmed by another customer. Please select another time.',
+          conflict: true,
+        });
+      }
+      throw error;
+    }
+
+    const [postLockCalendarConflict, postLockLocalConflict] = await Promise.all([
+      calendarConflictForSlot(service, canonicalStartIso, canonicalEndIso),
+      localConflictForSlot(dateKey, service, canonicalStartIso, canonicalEndIso),
+    ]);
+
+    if (postLockCalendarConflict || postLockLocalConflict) {
+      await releaseScheduleLocks(bookingId);
+      lockedBookingId = null;
+      return res.status(409).json({
+        error: 'That appointment has just become unavailable. Please select another time.',
+        conflict: true,
+      });
+    }
+
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
 
@@ -528,14 +736,16 @@ app.post('/api/bookings/create', async (req, res) => {
         suburb: normalizeText(property.suburb, 100),
         state: normalizeText(property.state, 10) || 'WA',
         postcode: normalizeText(property.postcode, 4),
-        propertyType: property.propertyType || 'Other',
+        propertyType: PROPERTY_TYPES.includes(property.propertyType)
+          ? property.propertyType
+          : 'Other',
         clientName: normalizeText(property.clientName, 100),
         clientReference: normalizeText(property.clientReference, 100),
         customerName: normalizeText(property.customerName, 100),
         customerEmail: normalizeText(property.customerEmail, 120),
         customerPhone: normalizeText(property.customerPhone, 50),
       },
-      access,
+      access: sanitizedAccess,
       appointment: {
         start: requestedStart.toISOString(),
         end: canonicalEnd.toISOString(),
@@ -564,12 +774,23 @@ app.post('/api/bookings/create', async (req, res) => {
       throw firestoreError;
     }
 
+    await releaseScheduleLocks(bookingId).catch((releaseError) => {
+      console.error('Failed to release completed booking locks:', releaseError);
+    });
+    lockedBookingId = null;
+
     return res.status(201).json({
       success: true,
       booking,
       message: 'Booking confirmed successfully.',
     });
   } catch (error) {
+    if (lockedBookingId) {
+      await releaseScheduleLocks(lockedBookingId).catch((releaseError) => {
+        console.error('Failed to release booking locks after error:', releaseError);
+      });
+    }
+
     console.error('Booking creation failed:', error);
     return res.status(500).json({
       error: 'The booking could not be confirmed. No appointment has been saved. Please try again.',
@@ -577,7 +798,7 @@ app.post('/api/bookings/create', async (req, res) => {
   }
 });
 
-app.get('/api/bookings/manage/:token', async (req, res) => {
+app.get('/api/bookings/manage/:token', manageRateLimit, async (req, res) => {
   try {
     const token = req.params.token;
     if (!/^pi_[A-Za-z0-9_-]{24,}$/.test(token)) {
@@ -619,7 +840,12 @@ app.get('/api/admin/services', requireAdmin, async (_req, res) => {
 app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
   try {
     const settings = await getSettings();
-    return res.json({ settings });
+    return res.json({
+      settings: {
+        ...settings,
+        calendarConnected: calendarIsConfigured(),
+      },
+    });
   } catch (error) {
     console.error('Admin settings load failed:', error);
     return res.status(500).json({ error: 'Unable to load settings.' });
