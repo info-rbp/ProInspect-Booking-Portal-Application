@@ -88,3 +88,101 @@ The intended public hostname is `bookings.proinspect.systems`.
 Configure the custom hostname only after the generated Cloud Run URL is verified. Cloudflare can remain the DNS provider for `proinspect.systems`; the application runtime no longer depends on Cloudflare Workers or Containers.
 
 After the final hostname is active, add `bookings.proinspect.systems` to Firebase Authentication authorised domains.
+
+
+## Booking reliability configuration
+
+The booking reliability release adds confirmation email delivery, secure
+management links, server-side address verification, tenant access readiness
+and field-level encryption for sensitive access credentials.
+
+### Additional APIs
+
+Enable these APIs in the production Google Cloud project:
+
+- Places API (New)
+- Address Validation API
+
+The server can use the Cloud Run runtime identity through Application Default
+Credentials. `GOOGLE_MAPS_API_KEY` is an optional fallback if you prefer an
+API key.
+
+After API enablement has been tested, set:
+
+```text
+ADDRESS_VALIDATION_MODE=required
+```
+
+Use `optional` during rollout so a temporary Google Maps Platform outage does
+not block otherwise valid bookings.
+
+### Sensitive access encryption
+
+Create a 32-byte random encryption key and store it in Secret Manager:
+
+```bash
+openssl rand -base64 32
+```
+
+Expose that secret to Cloud Run as:
+
+```text
+ACCESS_DATA_ENCRYPTION_KEY
+```
+
+Also set:
+
+```text
+ACCESS_DATA_ENCRYPTION_KEY_ID=v1
+```
+
+New lockbox codes and security-alarm details are removed from the normal
+`bookings` document, encrypted with AES-256-GCM, and stored separately in
+`bookingAccessSecrets/{bookingId}`. Authenticated staff responses decrypt and
+restore those details only inside the operations portal.
+
+Do not enable or use lockbox/alarm booking paths in production until
+`ACCESS_DATA_ENCRYPTION_KEY` is configured.
+
+### Booking confirmation email
+
+Confirmation email uses Resend's HTTPS email API. Create a Resend API key and
+verify the ProInspect sending domain, then store the key in Secret Manager and
+expose it as:
+
+```text
+RESEND_API_KEY
+```
+
+Configure:
+
+```text
+BOOKING_EMAIL_FROM=ProInspect <bookings@proinspect.systems>
+BOOKING_EMAIL_REPLY_TO=info@proinspect.systems
+```
+
+Set `APP_URL` to the active public booking origin. Until the custom domain is
+live, use the current Cloud Run service URL. After
+`bookings.proinspect.systems` is activated, change `APP_URL` to that origin.
+
+The application does not fail a confirmed booking if the email provider is
+temporarily unavailable. Delivery status is recorded against the booking and
+shown on the confirmation screen.
+
+### Health verification
+
+`GET /api/health` reports non-secret configuration status:
+
+```json
+{
+  "ok": true,
+  "calendarConfigured": true,
+  "bookingEmailConfigured": true,
+  "sensitiveAccessEncryptionConfigured": true,
+  "addressValidationMode": "required",
+  "timezone": "Australia/Perth"
+}
+```
+
+Do not perform the final production booking test until all of the configuration
+flags above show the expected values.
