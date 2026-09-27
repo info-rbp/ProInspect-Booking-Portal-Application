@@ -11,11 +11,11 @@ export const Footer: React.FC = () => {
           <div className="md:col-span-2 space-y-4">
             <Logo variant="light" size="md" />
             <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
-              Western Australia's dedicated property inspection operations partner. Providing routine inspections, detailed property condition reports (PCR), exit inspections, and asset attendance across the greater Perth metropolitan area.
+              Property inspection and field support services for real estate agencies, landlords and property operators across Perth and Peel.
             </p>
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <ShieldCheck className="w-4 h-4 text-[#38BDF8]" />
-              <span>Fully Insured &bull; Professional Indemnity &amp; Public Liability</span>
+              <span>Property attendance, inspection and operational support</span>
             </div>
           </div>
 
@@ -41,17 +41,17 @@ export const Footer: React.FC = () => {
             <div className="space-y-2 text-sm text-slate-400">
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-[#38BDF8] shrink-0 mt-0.5" />
-                <span>Perth Metropolitan &amp; Greater WA</span>
+                <span>Perth &amp; Peel service areas</span>
               </div>
               <div className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-[#38BDF8] shrink-0" />
-                <a href="mailto:info@remotebusinesspartner.com.au" className="hover:text-white transition-colors">
-                  info@remotebusinesspartner.com.au
+                <a href="mailto:info@proinspect.systems" className="hover:text-white transition-colors">
+                  info@proinspect.systems
                 </a>
               </div>
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-[#38BDF8] shrink-0" />
-                <span>1300 PRO INSPECT</span>
+                <span>(08) 9306 9668</span>
               </div>
             </div>
           </div>
@@ -73,7 +73,9 @@ export const Footer: React.FC = () => {
               <ExternalLink className="w-3 h-3" />
             </a>
             <span>&bull;</span>
-            <span>Australian Privacy &amp; Tenancy Standards</span>
+            <a href="https://proinspect.systems" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300">
+              Privacy &amp; terms are maintained on the main ProInspect website
+            </a>
           </div>
         </div>
       </div>
