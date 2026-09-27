@@ -54,7 +54,7 @@ export async function ensureSeedData() {
 }
 
 function serviceFromDocument(
-  data: FirebaseFirestore.DocumentData,
+  data: Partial<InspectionService>,
   id: string
 ): InspectionService {
   const service = data as InspectionService;
@@ -68,14 +68,21 @@ function serviceFromDocument(
 export async function listServices(publicOnly = false): Promise<InspectionService[]> {
   await ensureSeedData();
   const snapshot = await adminDb.collection('services').orderBy('order', 'asc').get();
-  const services = snapshot.docs.map((doc) => serviceFromDocument(doc.data(), doc.id));
+  const services = snapshot.docs.map((doc) =>
+    serviceFromDocument(doc.data() as Partial<InspectionService>, doc.id)
+  );
   return publicOnly ? services.filter((service) => service.active && service.publiclyBookable) : services;
 }
 
 export async function getService(serviceId: string): Promise<InspectionService | null> {
   await ensureSeedData();
   const snapshot = await adminDb.collection('services').doc(serviceId).get();
-  return snapshot.exists ? serviceFromDocument(snapshot.data() || {}, snapshot.id) : null;
+  return snapshot.exists
+    ? serviceFromDocument(
+        (snapshot.data() || {}) as Partial<InspectionService>,
+        snapshot.id
+      )
+    : null;
 }
 
 export async function createService(service: InspectionService): Promise<InspectionService> {
