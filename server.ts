@@ -216,7 +216,7 @@ const SERVICE_ICON_NAMES = new Set([
   'KeyRound',
   'CalendarClock',
   'Home',
-  'BriefcaseBusiness',
+  'Briefcase',
 ]);
 
 function slugifyServiceId(value: string): string {
