@@ -265,7 +265,7 @@ export default function App() {
                 className="text-[#0284C7] hover:underline flex items-center gap-1 font-semibold"
               >
                 <Search className="w-3.5 h-3.5" />
-                <span>Existing booking? Enter reference</span>
+                <span>Existing booking? Use secure code</span>
               </button>
             </div>
 
