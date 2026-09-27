@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  BriefcaseBusiness,
+  Briefcase,
   Building2,
   CalendarClock,
   Check,
@@ -40,7 +40,7 @@ const ICON_OPTIONS = [
   { value: 'KeyRound', label: 'Keys', icon: KeyRound },
   { value: 'CalendarClock', label: 'Appointment', icon: CalendarClock },
   { value: 'Home', label: 'Residential', icon: Home },
-  { value: 'BriefcaseBusiness', label: 'Commercial', icon: BriefcaseBusiness },
+  { value: 'Briefcase', label: 'Commercial', icon: Briefcase },
 ];
 
 function slugify(value: string): string {
