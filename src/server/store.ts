@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { adminDb } from './firebaseAdmin.js';
@@ -101,4 +102,99 @@ export async function updateBooking(bookingId: string, changes: Partial<BookingR
   await ref.set({ ...changes, updatedAt: new Date().toISOString() }, { merge: true });
   const updated = await ref.get();
   return { ...(updated.data() as BookingRecord), id: updated.id };
+}
+
+
+const SCHEDULE_LOCK_INTERVAL_MINUTES = 15;
+
+function scheduleLockIndexes(
+  startIso: string,
+  endIso: string,
+  bufferBeforeMinutes: number,
+  bufferAfterMinutes: number
+): number[] {
+  const intervalMs = SCHEDULE_LOCK_INTERVAL_MINUTES * 60_000;
+  const startMs = new Date(startIso).getTime() - bufferBeforeMinutes * 60_000;
+  const endMs = new Date(endIso).getTime() + bufferAfterMinutes * 60_000;
+  const first = Math.floor(startMs / intervalMs);
+  const lastExclusive = Math.ceil(endMs / intervalMs);
+  const indexes: number[] = [];
+
+  for (let index = first; index < lastExclusive; index += 1) {
+    indexes.push(index);
+  }
+
+  return indexes;
+}
+
+function calendarLockPrefix(calendarId: string): string {
+  return createHash('sha256').update(calendarId).digest('hex').slice(0, 16);
+}
+
+export class ScheduleLockConflictError extends Error {
+  constructor() {
+    super('The requested appointment is currently being confirmed by another booking.');
+    this.name = 'ScheduleLockConflictError';
+  }
+}
+
+export async function acquireScheduleLocks(params: {
+  bookingId: string;
+  calendarId: string;
+  start: string;
+  end: string;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+}): Promise<void> {
+  const prefix = calendarLockPrefix(params.calendarId);
+  const indexes = scheduleLockIndexes(
+    params.start,
+    params.end,
+    params.bufferBeforeMinutes,
+    params.bufferAfterMinutes
+  );
+  const refs = indexes.map((index) =>
+    adminDb.collection('scheduleLocks').doc(`${prefix}_${index}`)
+  );
+  const now = Date.now();
+  const temporaryExpiry = new Date(now + 5 * 60_000).toISOString();
+
+  await adminDb.runTransaction(async (transaction) => {
+    const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+
+    for (const snapshot of snapshots) {
+      if (!snapshot.exists) continue;
+      const data = snapshot.data();
+      const expiresAt = Date.parse(String(data?.expiresAt || ''));
+
+      if (
+        data?.bookingId !== params.bookingId &&
+        Number.isFinite(expiresAt) &&
+        expiresAt > now
+      ) {
+        throw new ScheduleLockConflictError();
+      }
+    }
+
+    for (const ref of refs) {
+      transaction.set(ref, {
+        bookingId: params.bookingId,
+        expiresAt: temporaryExpiry,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  });
+}
+
+export async function releaseScheduleLocks(bookingId: string): Promise<void> {
+  const snapshot = await adminDb
+    .collection('scheduleLocks')
+    .where('bookingId', '==', bookingId)
+    .get();
+
+  if (snapshot.empty) return;
+
+  const batch = adminDb.batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
 }
