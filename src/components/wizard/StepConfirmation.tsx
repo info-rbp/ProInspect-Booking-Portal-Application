@@ -41,6 +41,12 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
   const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
   const fullAddress = `${unitPrefix}${booking.property.streetAddress}, ${booking.property.suburb} ${booking.property.state} ${booking.property.postcode}`;
   const readinessStatus = booking.readinessStatus || 'ready';
+  const serviceCategoryLabel =
+    booking.serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : booking.serviceCategory
+        ? booking.serviceCategory.charAt(0).toUpperCase() + booking.serviceCategory.slice(1)
+        : 'Legacy / uncategorised';
   const readinessLabel =
     readinessStatus === 'ready'
       ? 'Ready for attendance'
@@ -94,6 +100,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="space-y-1">
             <span className="text-xs text-slate-400 font-medium block">Service:</span>
             <span className="font-bold text-[#1A2B4A]">{booking.serviceName}</span>
+            <span className="text-xs font-semibold text-slate-500 block">{serviceCategoryLabel}</span>
           </div>
 
           <div className="space-y-1">
