@@ -150,7 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('bookings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'bookings'
-              ? 'bg-[#00B5B8] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -162,7 +162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('services')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'services'
-              ? 'bg-[#00B5B8] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -174,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'settings'
-              ? 'bg-[#00B5B8] text-white shadow-xs'
+              ? 'bg-[#007F82] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -335,7 +335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </div>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="font-semibold text-[#00B5B8]">{b.serviceName}</span>
+                          <span className="font-semibold text-[#006D70]">{b.serviceName}</span>
                           <span className="text-[10px] text-slate-400 block">
                             {b.appointment.durationMinutes} mins
                           </span>
@@ -373,7 +373,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               e.stopPropagation();
                               setSelectedBooking(b);
                             }}
-                            className="text-xs font-bold text-[#00B5B8] hover:underline"
+                            className="text-xs font-bold text-[#006D70] hover:underline"
                           >
                             View Order &rarr;
                           </button>
