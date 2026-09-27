@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
 import { WizardProgress, WizardStepId } from './components/wizard/WizardProgress';
+import { Step0ServiceType } from './components/wizard/Step0ServiceType';
 import { Step1Service } from './components/wizard/Step1Service';
 import { Step2Property } from './components/wizard/Step2Property';
 import { Step3Access } from './components/wizard/Step3Access';
@@ -13,6 +14,7 @@ import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import {
   InspectionService,
+  ServiceCategory,
   PropertyDetails,
   AccessDetails,
   AppointmentSlot,
@@ -31,7 +33,7 @@ function manageTokenFromPath(): string | null {
 export default function App() {
   // Navigation / View State
   const [activeView, setActiveView] = useState<'booking' | 'admin'>('booking');
-  const [currentStep, setCurrentStep] = useState<WizardStepId>('service');
+  const [currentStep, setCurrentStep] = useState<WizardStepId>('service-type');
   const [completedSteps, setCompletedSteps] = useState<WizardStepId[]>([]);
 
   // Services list
@@ -39,6 +41,7 @@ export default function App() {
   const [isLoadingServices, setIsLoadingServices] = useState(true);
 
   // Booking Form State
+  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [propertyData, setPropertyData] = useState<PropertyDetails>({
     streetAddress: '',
@@ -87,9 +90,14 @@ export default function App() {
       try {
         const srvs = await fetchServices();
         setServices(srvs);
-        // Pre-select Routine Inspection as standard starting point if available
-        if (srvs.length > 0 && !selectedServiceId) {
-          setSelectedServiceId(srvs[0].id);
+        // Service selection happens only after the customer selects a property category.
+        if (selectedCategory) {
+          const firstMatch = srvs.find((service) =>
+            service.categories.includes(selectedCategory)
+          );
+          if (firstMatch && !selectedServiceId) {
+            setSelectedServiceId(firstMatch.id);
+          }
         }
       } catch (err) {
         console.error('Failed to load services:', err);
@@ -121,6 +129,28 @@ export default function App() {
   // Step transition helpers
   const markStepCompleted = (step: WizardStepId) => {
     setCompletedSteps((prev) => (prev.includes(step) ? prev : [...prev, step]));
+  };
+
+  const filteredServices = selectedCategory
+    ? services.filter((service) => service.categories.includes(selectedCategory))
+    : [];
+
+  const handleSelectCategory = (category: ServiceCategory) => {
+    if (category !== selectedCategory) {
+      setSelectedCategory(category);
+      setSelectedServiceId(null);
+      setSelectedSlot(null);
+      setConflictError(null);
+      setCompletedSteps((prev) =>
+        prev.filter((step) => !['service', 'property', 'access', 'appointment', 'confirm'].includes(step))
+      );
+    }
+  };
+
+  const handleServiceTypeNext = () => {
+    if (!selectedCategory) return;
+    markStepCompleted('service-type');
+    setCurrentStep('service');
   };
 
   const handleSelectService = (service: InspectionService) => {
@@ -202,8 +232,9 @@ export default function App() {
     setSelectedSlot(null);
     setConflictError(null);
     setCompletedSteps([]);
-    setCurrentStep('service');
-    setSelectedServiceId(services[0]?.id || null);
+    setCurrentStep('service-type');
+    setSelectedCategory(null);
+    setSelectedServiceId(null);
     setPropertyData({
       streetAddress: '',
       unit: '',
@@ -247,18 +278,23 @@ export default function App() {
 
     const currentServiceStillAvailable =
       Boolean(selectedServiceId) &&
-      publicServices.some((service) => service.id === selectedServiceId);
+      publicServices.some(
+        (service) =>
+          service.id === selectedServiceId &&
+          (!selectedCategory || service.categories.includes(selectedCategory))
+      );
 
     if (!currentServiceStillAvailable) {
-      setSelectedServiceId(publicServices[0]?.id || null);
+      setSelectedServiceId(null);
       setSelectedSlot(null);
       setConflictError(null);
       setCompletedSteps([]);
-      setCurrentStep('service');
+      setCurrentStep(selectedCategory ? 'service' : 'service-type');
     }
   };
 
-  const selectedService = services.find((s) => s.id === selectedServiceId) || services[0];
+  const selectedService =
+    services.find((s) => s.id === selectedServiceId) || undefined;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
@@ -314,9 +350,17 @@ export default function App() {
 
             {/* Wizard Stage Content */}
             <div className="bg-transparent">
+              {currentStep === 'service-type' && (
+                <Step0ServiceType
+                  selectedCategory={selectedCategory}
+                  onSelectCategory={handleSelectCategory}
+                  onNext={handleServiceTypeNext}
+                />
+              )}
+
               {currentStep === 'service' && (
                 <Step1Service
-                  services={services}
+                  services={filteredServices}
                   selectedServiceId={selectedServiceId}
                   onSelectService={handleSelectService}
                   onNext={handleStep1Next}
