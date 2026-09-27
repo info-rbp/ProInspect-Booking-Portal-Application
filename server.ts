@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
-import dotenv from 'dotenv';
 import {
   formatAustralianDate,
   formatAustralianTime,
@@ -35,7 +35,6 @@ import {
   getCalendarId,
 } from './src/server/calendar.js';
 
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -120,7 +119,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
     const decoded = await adminAuth.verifyIdToken(idToken, true);
     const email = (decoded.email || '').trim().toLowerCase();
 
-    if (!email || decoded.email_verified === false) {
+    if (!email || decoded.email_verified !== true) {
       return res.status(403).json({ error: 'A verified administrator account is required.' });
     }
 
@@ -170,7 +169,12 @@ function minutesFromClock(clock: string): number {
 }
 
 function isValidDateKey(value: unknown): value is string {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(`${value}T12:00:00${PERTH_OFFSET}`);
+  return !Number.isNaN(parsed.getTime()) && getPerthDateKey(parsed) === value;
 }
 
 function isValidEmail(value: unknown): boolean {
@@ -323,12 +327,25 @@ function candidateConflicts(
   candidateEnd: Date,
   busyStart: Date,
   busyEnd: Date,
-  bufferBeforeMinutes: number,
-  bufferAfterMinutes: number
+  candidateBufferBeforeMinutes: number,
+  candidateBufferAfterMinutes: number,
+  busyBufferBeforeMinutes = 0,
+  busyBufferAfterMinutes = 0
 ): boolean {
-  const bufferedStart = new Date(candidateStart.getTime() - bufferBeforeMinutes * 60_000);
-  const bufferedEnd = new Date(candidateEnd.getTime() + bufferAfterMinutes * 60_000);
-  return bufferedStart < busyEnd && bufferedEnd > busyStart;
+  const candidateBufferedStart = new Date(
+    candidateStart.getTime() - candidateBufferBeforeMinutes * 60_000
+  );
+  const candidateBufferedEnd = new Date(
+    candidateEnd.getTime() + candidateBufferAfterMinutes * 60_000
+  );
+  const busyBufferedStart = new Date(
+    busyStart.getTime() - busyBufferBeforeMinutes * 60_000
+  );
+  const busyBufferedEnd = new Date(
+    busyEnd.getTime() + busyBufferAfterMinutes * 60_000
+  );
+
+  return candidateBufferedStart < busyBufferedEnd && candidateBufferedEnd > busyBufferedStart;
 }
 
 function dateWithinServiceWindow(dateKey: string, service: InspectionService, now = new Date()): boolean {
@@ -376,17 +393,28 @@ async function localConflictForSlot(
   const start = new Date(startIso);
   const end = new Date(endIso);
   const bookings = await activeBookingsForDate(dateKey);
+  const serviceRules = await Promise.all(
+    bookings.map((booking) => getService(booking.serviceId))
+  );
 
-  return bookings.some((booking) =>
-    candidateConflicts(
+  return bookings.some((booking, index) => {
+    const existingRules = serviceRules[index];
+    const existingBufferBefore =
+      booking.appointment.bufferBeforeMinutes ?? existingRules?.bufferBefore ?? 0;
+    const existingBufferAfter =
+      booking.appointment.bufferAfterMinutes ?? existingRules?.bufferAfter ?? 0;
+
+    return candidateConflicts(
       start,
       end,
       new Date(booking.appointment.start),
       new Date(booking.appointment.end),
       service.bufferBefore,
-      service.bufferAfter
-    )
-  );
+      service.bufferAfter,
+      existingBufferBefore,
+      existingBufferAfter
+    );
+  });
 }
 
 function publicBookingView(booking: BookingRecord) {
@@ -513,15 +541,28 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
       }),
       activeBookingsForDate(date),
     ]);
+    const localServiceRules = await Promise.all(
+      localBookings.map((booking) => getService(booking.serviceId))
+    );
 
     const busyIntervals = [
       ...calendarBusy.map((item) => ({
         start: new Date(item.start),
         end: new Date(item.end),
+        bufferBefore: 0,
+        bufferAfter: 0,
       })),
-      ...localBookings.map((booking) => ({
+      ...localBookings.map((booking, index) => ({
         start: new Date(booking.appointment.start),
         end: new Date(booking.appointment.end),
+        bufferBefore:
+          booking.appointment.bufferBeforeMinutes ??
+          localServiceRules[index]?.bufferBefore ??
+          0,
+        bufferAfter:
+          booking.appointment.bufferAfterMinutes ??
+          localServiceRules[index]?.bufferAfter ??
+          0,
       })),
     ];
 
@@ -546,7 +587,9 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
           busy.start,
           busy.end,
           service.bufferBefore,
-          service.bufferAfter
+          service.bufferAfter,
+          busy.bufferBefore,
+          busy.bufferAfter
         )
       );
 
@@ -662,10 +705,23 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
     }).format(requestedStart);
     const localStartMinutes = minutesFromClock(localStartText);
     const localEndMinutes = localStartMinutes + service.duration;
+    const dayOpenMinutes = minutesFromClock(hours.open);
+    const dayCloseMinutes = minutesFromClock(hours.close);
+    const isCanonicalSlot =
+      requestedStart.getUTCSeconds() === 0 &&
+      requestedStart.getUTCMilliseconds() === 0 &&
+      (localStartMinutes - dayOpenMinutes) % SLOT_INTERVAL_MINUTES === 0;
+
+    if (!isCanonicalSlot) {
+      return res.status(409).json({
+        error: 'That appointment is not a valid booking slot. Please select one of the available times shown.',
+        conflict: true,
+      });
+    }
 
     if (
-      localStartMinutes < minutesFromClock(hours.open) ||
-      localEndMinutes > minutesFromClock(hours.close)
+      localStartMinutes < dayOpenMinutes ||
+      localEndMinutes > dayCloseMinutes
     ) {
       return res.status(409).json({
         error: 'That appointment falls outside operating hours. Please choose another time.',
@@ -753,6 +809,8 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
         dateString: formatAustralianDate(requestedStart),
         timeString: formatAustralianTime(requestedStart),
         durationMinutes: service.duration,
+        bufferBeforeMinutes: service.bufferBefore,
+        bufferAfterMinutes: service.bufferAfter,
         timezone: TIMEZONE,
       },
       status: 'confirmed',
@@ -867,6 +925,12 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
 
     if (status && !['confirmed', 'completed', 'cancelled'].includes(status)) {
       return res.status(400).json({ error: 'Invalid booking status.' });
+    }
+
+    if (booking.status === 'cancelled' && status && status !== 'cancelled') {
+      return res.status(409).json({
+        error: 'Cancelled bookings cannot be reactivated. Create a new booking instead.',
+      });
     }
 
     if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
