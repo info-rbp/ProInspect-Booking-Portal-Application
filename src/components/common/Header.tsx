@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Logo } from './Logo';
-import { Shield, Clock, ExternalLink, Calendar, CheckCircle2 } from 'lucide-react';
+import { fetchSettings } from '../../services/api';
+import { Shield, Clock, ExternalLink, Calendar } from 'lucide-react';
 
 interface HeaderProps {
   onOpenAdmin: () => void;
@@ -15,6 +16,20 @@ export const Header: React.FC<HeaderProps> = ({
   activeView,
   setActiveView,
 }) => {
+  const [hoursSummary, setHoursSummary] = useState('Availability shown from live booking settings');
+
+  useEffect(() => {
+    fetchSettings()
+      .then((settings) => {
+        const monday = settings.operatingHours.monday;
+        const weekday = settings.operatingHours.tuesday;
+        if (monday?.active && weekday?.active) {
+          setHoursSummary(`Mon ${monday.open}-${monday.close} · Tue-Fri ${weekday.open}-${weekday.close}`);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
       {/* Top micro-bar for WA operational status */}
@@ -30,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="hidden sm:flex items-center gap-4 text-[11px] text-slate-300">
             <span className="flex items-center gap-1">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
-              Mon-Fri 8:00am - 5:00pm
+              {hoursSummary}
             </span>
             <span className="text-slate-500">|</span>
             <a
