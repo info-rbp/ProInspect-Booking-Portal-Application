@@ -52,4 +52,6 @@ jobs:
 
       - name: Deploy Worker and Container
         if: steps.cloudflare-token.outputs.configured == 'true'
+        env:
+          CI: "true"
         run: npm run cf:deploy
