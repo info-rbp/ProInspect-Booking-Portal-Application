@@ -19,6 +19,7 @@ import {
 import type {
   InspectionService,
   ServiceAdminInput,
+  ServiceCategory,
 } from '../../types/booking';
 
 interface AdminServiceEditorProps {
@@ -27,6 +28,12 @@ interface AdminServiceEditorProps {
   onClose: () => void;
   onSave: (input: ServiceAdminInput) => Promise<void>;
 }
+
+const CATEGORY_OPTIONS: Array<{ value: ServiceCategory; label: string }> = [
+  { value: 'residential', label: 'Residential' },
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'strata-building', label: 'Strata / Building' },
+];
 
 const ICON_OPTIONS = [
   { value: 'ClipboardCheck', label: 'Inspection', icon: ClipboardCheck },
@@ -61,6 +68,7 @@ function initialValues(
       id: service.id,
       name: service.name,
       publicDescription: service.publicDescription,
+      categories: service.categories || [],
       duration: service.duration,
       bufferBefore: service.bufferBefore,
       bufferAfter: service.bufferAfter,
@@ -79,6 +87,7 @@ function initialValues(
     id: '',
     name: '',
     publicDescription: '',
+    categories: ['residential'],
     duration: 45,
     bufferBefore: 15,
     bufferAfter: 15,
@@ -141,6 +150,9 @@ export const AdminServiceEditor: React.FC<AdminServiceEditorProps> = ({
     }
     if (form.publicDescription.trim().length < 10) {
       return 'Enter a customer-facing description of at least 10 characters.';
+    }
+    if (!form.categories || form.categories.length === 0) {
+      return 'Select at least one service category.';
     }
     if (!form.id || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.id)) {
       return 'Service ID must contain only lowercase letters, numbers and hyphens.';
@@ -271,6 +283,42 @@ export const AdminServiceEditor: React.FC<AdminServiceEditorProps> = ({
                     Permanent identifier. It cannot be changed after creation.
                   </span>
                 </label>
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-slate-700">Service categories</span>
+                <p className="text-[11px] text-slate-500">
+                  Choose every booking category where this service should appear.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {CATEGORY_OPTIONS.map((option) => {
+                    const checked = form.categories?.includes(option.value) ?? false;
+                    return (
+                      <label
+                        key={option.value}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-semibold cursor-pointer ${
+                          checked
+                            ? 'border-[#00B5B8] bg-[#F0FBFB] text-[#1A2B4A]'
+                            : 'border-slate-200 bg-white text-slate-600'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const current = form.categories || [];
+                            const categories = e.target.checked
+                              ? [...current, option.value]
+                              : current.filter((category) => category !== option.value);
+                            update('categories', categories);
+                          }}
+                          className="accent-[#007F82]"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <label className="space-y-1.5 block">
