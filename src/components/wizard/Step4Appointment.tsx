@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { InspectionService, AppointmentSlot } from '../../types/booking';
-import { fetchAvailability } from '../../services/api';
+import { InspectionService, AppointmentSlot, BusinessSettings } from '../../types/booking';
+import { fetchAvailability, fetchSettings } from '../../services/api';
 import { formatAustralianDate, formatAustralianTime, getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar as CalendarIcon,
@@ -18,7 +18,7 @@ import {
 interface Step4AppointmentProps {
   service: InspectionService;
   selectedSlot: AppointmentSlot | null;
-  onSelectSlot: (slot: AppointmentSlot) => void;
+  onSelectSlot: (slot: AppointmentSlot | null) => void;
   onNext: () => void;
   onBack: () => void;
 }
@@ -52,6 +52,17 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
   const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
   const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<BusinessSettings | null>(null);
+
+  useEffect(() => {
+    fetchSettings().then(setSettings).catch(() => setSettings(null));
+  }, []);
+
+  useEffect(() => {
+    if (selectedSlot && selectedSlot.dateKey !== selectedDateKey) {
+      onSelectSlot(null);
+    }
+  }, [selectedDateKey, selectedSlot, onSelectSlot]);
 
   // Fetch availability when selectedDateKey or service changes
   useEffect(() => {
@@ -64,12 +75,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
       setEmptyMessage(null);
 
       try {
-        const result = await fetchAvailability(
-          selectedDateKey,
-          service.duration,
-          service.bufferBefore || 15,
-          service.bufferAfter || 15
-        );
+        const result = await fetchAvailability(selectedDateKey, service.id);
 
         if (!isCancelled) {
           setSlots(result.slots || []);
@@ -131,7 +137,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
   const startDayOffset = (firstDayOfMonth + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const daysArray: Array<{ dayNum: number; dateKey: string; isPast: boolean; isWeekend: boolean }> = [];
+  const daysArray: Array<{ dayNum: number; dateKey: string; isPast: boolean; isUnavailable: boolean }> = [];
   const todayKey = getPerthDateKey(new Date());
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -140,15 +146,21 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
     const dateKey = `${year}-${padMonth}-${padDay}`;
 
     const dateObj = new Date(year, month, d);
-    const dayOfWeek = dateObj.getDay(); // 0 is Sun, 6 is Sat
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const dayOfWeek = dateObj.getDay();
+    const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+    const dayName = dayNames[dayOfWeek];
     const isPast = dateKey < todayKey;
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + service.maxFutureBookingDays);
+    const maxDateKey = getPerthDateKey(maxDate);
+    const operatingDay = settings?.operatingHours?.[dayName];
+    const isUnavailable = Boolean(settings && operatingDay && !operatingDay.active) || dateKey > maxDateKey;
 
     daysArray.push({
       dayNum: d,
       dateKey,
       isPast,
-      isWeekend,
+      isUnavailable,
     });
   }
 
@@ -219,7 +231,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
             {/* Days in Month */}
             {daysArray.map((day) => {
               const isSelected = day.dateKey === selectedDateKey;
-              const isDisabled = day.isPast || day.isWeekend;
+              const isDisabled = day.isPast || day.isUnavailable;
 
               return (
                 <button
@@ -247,7 +259,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
               <span className="w-2.5 h-2.5 rounded-full bg-[#0284C7]" />
               Selected Date
             </span>
-            <span>Operating: Mon 8am-5pm &bull; Tue-Fri 8am-4pm</span>
+            <span>Operating hours are based on the current ProInspect booking settings.</span>
           </div>
         </div>
 
