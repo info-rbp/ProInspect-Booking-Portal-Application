@@ -4,6 +4,55 @@ The production hosting target is Cloudflare Workers + Containers. The React/Vite
 
 ## Cloudflare project
 
+## Production deployment method
+
+Production deployment is handled by **GitHub Actions**, not Cloudflare Workers Builds.
+
+This avoids the automatically generated Workers Builds token, which does not include the Containers permission required by this application.
+
+### GitHub repository secret
+
+In GitHub, open:
+
+**Settings > Secrets and variables > Actions > New repository secret**
+
+Create:
+
+```text
+CLOUDFLARE_API_TOKEN
+```
+
+Use a **user API token** created in Cloudflare with access to the production account and these permissions:
+
+- Account > Workers Scripts: Edit
+- Account > Containers: Edit
+- Account > Account Settings: Read
+- User > User Details: Read
+- User > Memberships: Read
+- Zone > Workers Routes: Edit for `proinspect.systems` if the deployment manages a route or custom domain
+
+The Cloudflare account ID is not secret and is pinned in both `wrangler.jsonc` and the deployment workflow.
+
+### Disable Cloudflare Workers Builds
+
+The Worker is currently connected to Cloudflare Workers Builds. Disconnect that Git integration after the GitHub deployment workflow is enabled:
+
+**Cloudflare > Workers & Pages > proinspect-booking-portal > Settings > Builds > Disconnect**
+
+This prevents two separate CI/CD systems attempting to deploy the same Worker.
+
+Runtime Variables and Secrets remain configured in the Cloudflare dashboard. The Wrangler configuration uses `keep_vars: true`, so GitHub deployments preserve those dashboard-managed values.
+
+### Deploy
+
+After the GitHub secret exists, either:
+
+- push/merge to `main`, or
+- open **GitHub > Actions > Deploy Cloudflare production > Run workflow**.
+
+The workflow type-checks the application and then runs `wrangler deploy --yes`, which builds, uploads and rolls out both the Worker and its Container.
+
+
 Create/import a Worker from this GitHub repository and use:
 
 - Production branch: `main`
@@ -12,23 +61,6 @@ Create/import a Worker from this GitHub repository and use:
 - Workers Paid plan: required for Containers
 
 Cloudflare Workers Builds can build the Dockerfile automatically when `wrangler deploy` runs.
-
-## Workers Builds API token permissions
-
-The production deploy command uses Cloudflare Containers. The API token used by **Settings > Builds** must be allowed to manage Containers as well as the Worker.
-
-If deployment reaches image upload and then fails on an endpoint such as `/accounts/<account-id>/containers/me`, replace the automatically generated Workers Builds token with a user API token that includes:
-
-- Workers Scripts: Edit
-- Containers: Edit / Write
-- Account Settings: Read
-- User Details: Read
-- Memberships: Read
-- Workers Routes: Edit for the relevant zone if the deployment manages a route or custom domain
-
-The repository pins the production account with `account_id` in `wrangler.jsonc` so Wrangler cannot accidentally target another Cloudflare account.
-
-After changing the Builds API token, retry the failed production deployment. No application-code change is required for a Containers permission failure.
 
 ## Runtime Variables
 
