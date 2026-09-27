@@ -1094,6 +1094,62 @@ app.get('/api/bookings/manage/:token', manageRateLimit, async (req, res) => {
   }
 });
 
+app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!/^pi_[A-Za-z0-9_-]{24,}$/.test(token)) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    const booking = await findBookingByToken(token);
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    if (booking.status === 'cancelled') {
+      const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
+      return res.json({
+        success: true,
+        booking: publicBookingView(booking, false, managementUrl),
+      });
+    }
+
+    if (booking.status === 'completed') {
+      return res.status(409).json({ error: 'Completed bookings cannot be cancelled.' });
+    }
+
+    if (new Date(booking.appointment.start).getTime() <= Date.now()) {
+      return res.status(409).json({
+        error: 'This appointment has already started. Contact ProInspect for assistance.',
+      });
+    }
+
+    if (booking.calendarEventId) {
+      const service = await getService(booking.serviceId);
+      await deleteEvent(
+        booking.calendarEventId,
+        booking.calendarId || service?.calendarId
+      );
+    }
+
+    const updated = await updateBooking(booking.id, { status: 'cancelled' });
+    if (!updated) {
+      throw new Error('Booking disappeared while cancellation was being processed.');
+    }
+
+    const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
+    return res.json({
+      success: true,
+      booking: publicBookingView(updated, false, managementUrl),
+    });
+  } catch (error) {
+    console.error('Public booking cancellation failed:', error);
+    return res.status(500).json({
+      error: 'The booking could not be cancelled. Please contact ProInspect.',
+    });
+  }
+});
+
 app.get('/api/admin/session', requireAdmin, (_req, res) => {
   return res.json({ authorised: true });
 });
