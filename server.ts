@@ -52,10 +52,26 @@ app.use(express.json({ limit: '256kb' }));
 type RateBucket = { count: number; resetAt: number };
 const rateBuckets = new Map<string, RateBucket>();
 
+function rateLimitClientKey(req: Request): string {
+  if (process.env.CLOUDFLARE_APPLICATION_ID) {
+    const cloudflareIp = req.headers['cf-connecting-ip'];
+    if (typeof cloudflareIp === 'string' && cloudflareIp.trim()) {
+      return cloudflareIp.trim();
+    }
+
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+      return forwardedFor.split(',')[0].trim();
+    }
+  }
+
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
 function rateLimit(options: { windowMs: number; max: number; prefix: string }) {
   return (req: Request, res: Response, next: NextFunction) => {
     const now = Date.now();
-    const clientKey = req.ip || req.socket.remoteAddress || 'unknown';
+    const clientKey = rateLimitClientKey(req);
     const key = `${options.prefix}:${clientKey}`;
     const current = rateBuckets.get(key);
 

@@ -34,7 +34,7 @@ FIREBASE_SERVICE_ACCOUNT_JSON
 GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON
 ```
 
-They are declared in `wrangler.jsonc` as required secrets, so deployment fails instead of publishing a broken production configuration if either is absent.
+The Worker can be created before these secrets exist, which makes the initial GitHub import straightforward. Until the required runtime values are configured, the Worker deliberately returns HTTP 503 with a configuration error and does not start the application container.
 
 ## Frontend brand asset
 
