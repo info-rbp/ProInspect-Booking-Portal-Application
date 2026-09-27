@@ -4,6 +4,7 @@ import type {
   AppointmentSlot,
   BookingRecord,
   PublicBookingSummary,
+  ServiceAdminInput,
 } from '../types/booking';
 import { getAdminIdToken } from './firebase';
 
@@ -24,6 +25,8 @@ type AdminBookingsResponse = { bookings: BookingRecord[] };
 type AdminServicesResponse = { services: InspectionService[] };
 type AdminSettingsResponse = { settings: BusinessSettings };
 type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
+type AdminServiceMutationResponse = { service: InspectionService } & ApiErrorResponse;
+type AdminServiceReorderResponse = { services: InspectionService[] } & ApiErrorResponse;
 type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
 
 export async function fetchServices(): Promise<InspectionService[]> {
@@ -123,6 +126,64 @@ export async function fetchAdminSettings(): Promise<BusinessSettings> {
   if (!res.ok) throw new Error('Failed to load settings.');
   const data = (await res.json()) as AdminSettingsResponse;
   return data.settings;
+}
+
+export async function createAdminService(
+  input: ServiceAdminInput
+): Promise<InspectionService> {
+  const res = await adminFetch('/api/admin/services', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  const data = (await res.json()) as AdminServiceMutationResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to create service.');
+  }
+
+  return data.service;
+}
+
+export async function updateAdminService(
+  serviceId: string,
+  updates: Partial<ServiceAdminInput>
+): Promise<InspectionService> {
+  const res = await adminFetch(
+    `/api/admin/services/${encodeURIComponent(serviceId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }
+  );
+
+  const data = (await res.json()) as AdminServiceMutationResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to update service.');
+  }
+
+  return data.service;
+}
+
+export async function reorderAdminServices(
+  serviceIds: string[]
+): Promise<InspectionService[]> {
+  const res = await adminFetch('/api/admin/services/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ serviceIds }),
+  });
+
+  const data = (await res.json()) as AdminServiceReorderResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to reorder services.');
+  }
+
+  return data.services;
 }
 
 export async function updateAdminBooking(

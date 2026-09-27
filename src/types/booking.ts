@@ -15,6 +15,11 @@ export interface InspectionService {
   badge?: string;
 }
 
+export type ServiceAdminInput = Omit<InspectionService, 'id' | 'order'> & {
+  id?: string;
+  order?: number;
+};
+
 export type PropertyType =
   | 'House'
   | 'Apartment / Unit'

@@ -79,3 +79,21 @@ Use GitHub as the source of truth for reviewed code changes:
 2. Merge the approved pull request into `main`.
 3. In the existing Google AI Studio project, use its GitHub integration to pull/synchronise the updated repository.
 4. Keep secrets in AI Studio/Google Cloud configuration rather than in GitHub.
+
+
+## Service management
+
+Authorised staff can manage the live booking catalogue from **Staff Portal > Booking Services**.
+
+Supported operations:
+- add a service
+- edit its customer-facing name and description
+- set duration, buffers, notice period and booking horizon
+- activate or deactivate a service
+- make a service public or internal
+- reorder services
+- optionally assign a service-specific Google Calendar ID
+
+Service IDs are permanent after creation. Services are never deleted through the V1 interface; deactivation preserves historical bookings and prevents new bookings.
+
+Firestore remains the runtime source of truth. Changes made in the Staff Portal are written to `/services/{serviceId}` and active public services update the public booking flow immediately.

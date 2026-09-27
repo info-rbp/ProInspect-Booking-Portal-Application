@@ -50,6 +50,69 @@ export async function getService(serviceId: string): Promise<InspectionService |
   return snapshot.exists ? ({ ...(snapshot.data() as InspectionService), id: snapshot.id }) : null;
 }
 
+export async function createService(service: InspectionService): Promise<InspectionService> {
+  await ensureSeedData();
+  const ref = adminDb.collection('services').doc(service.id);
+
+  await adminDb.runTransaction(async (transaction) => {
+    const existing = await transaction.get(ref);
+    if (existing.exists) {
+      throw new Error('SERVICE_ALREADY_EXISTS');
+    }
+    transaction.set(ref, service);
+  });
+
+  return service;
+}
+
+export async function updateService(
+  serviceId: string,
+  service: InspectionService
+): Promise<InspectionService | null> {
+  await ensureSeedData();
+  const ref = adminDb.collection('services').doc(serviceId);
+  const existing = await ref.get();
+
+  if (!existing.exists) return null;
+
+  await ref.set(
+    {
+      ...service,
+      id: serviceId,
+    },
+    { merge: false }
+  );
+
+  return {
+    ...service,
+    id: serviceId,
+  };
+}
+
+export async function reorderServices(serviceIds: string[]): Promise<InspectionService[]> {
+  await ensureSeedData();
+  const uniqueIds = Array.from(new Set(serviceIds));
+
+  if (uniqueIds.length !== serviceIds.length) {
+    throw new Error('DUPLICATE_SERVICE_IDS');
+  }
+
+  const refs = serviceIds.map((id) => adminDb.collection('services').doc(id));
+  const snapshots = await Promise.all(refs.map((ref) => ref.get()));
+
+  if (snapshots.some((snapshot) => !snapshot.exists)) {
+    throw new Error('SERVICE_NOT_FOUND');
+  }
+
+  const batch = adminDb.batch();
+  refs.forEach((ref, index) => {
+    batch.set(ref, { order: index + 1 }, { merge: true });
+  });
+  await batch.commit();
+
+  return listServices(false);
+}
+
 export async function getSettings(): Promise<BusinessSettings> {
   await ensureSeedData();
   const snapshot = await adminDb.collection('settings').doc(SETTINGS_ID).get();

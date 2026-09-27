@@ -14,6 +14,7 @@ import {
   acquireScheduleLocks,
   activeBookingsForDate,
   bookingReferenceExists,
+  createService,
   ensureSeedData,
   findBookingByToken,
   getBooking,
@@ -23,9 +24,11 @@ import {
   listServices,
   newBookingId,
   releaseScheduleLocks,
+  reorderServices,
   saveBooking,
   ScheduleLockConflictError,
   updateBooking,
+  updateService,
 } from './src/server/store.js';
 import {
   calendarIsConfigured,
@@ -199,6 +202,131 @@ function isValidEmail(value: unknown): boolean {
 
 function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+const SERVICE_ICON_NAMES = new Set([
+  'ClipboardCheck',
+  'FileSpreadsheet',
+  'LogOut',
+  'Building2',
+  'Wrench',
+  'Users',
+  'ShieldCheck',
+  'HelpCircle',
+  'KeyRound',
+  'CalendarClock',
+  'Home',
+  'Briefcase',
+]);
+
+function slugifyServiceId(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function integerInRange(
+  value: unknown,
+  minimum: number,
+  maximum: number
+): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    return null;
+  }
+  return parsed;
+}
+
+function sanitizeServiceConfiguration(
+  input: unknown,
+  options: { existingId?: string; fallbackOrder: number }
+): { service?: InspectionService; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Service configuration is required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const name = normalizeText(value.name, 100);
+  const publicDescription = normalizeText(value.publicDescription, 500);
+  const requestedId = normalizeText(value.id, 64);
+  const id = options.existingId || slugifyServiceId(requestedId || name);
+
+  if (!id || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+    return {
+      error: 'Service ID must contain only lowercase letters, numbers and hyphens.',
+    };
+  }
+
+  if (name.length < 2) {
+    return { error: 'Service name must contain at least 2 characters.' };
+  }
+
+  if (publicDescription.length < 10) {
+    return { error: 'Service description must contain at least 10 characters.' };
+  }
+
+  const duration = integerInRange(value.duration, 15, 480);
+  const bufferBefore = integerInRange(value.bufferBefore, 0, 180);
+  const bufferAfter = integerInRange(value.bufferAfter, 0, 180);
+  const minimumNoticeHours = integerInRange(value.minimumNoticeHours, 0, 720);
+  const maxFutureBookingDays = integerInRange(value.maxFutureBookingDays, 1, 365);
+  const order = integerInRange(value.order ?? options.fallbackOrder, 1, 9999);
+
+  if (
+    duration === null ||
+    bufferBefore === null ||
+    bufferAfter === null ||
+    minimumNoticeHours === null ||
+    maxFutureBookingDays === null ||
+    order === null
+  ) {
+    return {
+      error:
+        'Duration, buffers, notice period, booking horizon and display order must be whole numbers within the permitted ranges.',
+    };
+  }
+
+  if (duration % 15 !== 0) {
+    return { error: 'Service duration must be in 15-minute increments.' };
+  }
+
+  if (bufferBefore % 5 !== 0 || bufferAfter % 5 !== 0) {
+    return { error: 'Service buffers must be in 5-minute increments.' };
+  }
+
+  if (typeof value.active !== 'boolean' || typeof value.publiclyBookable !== 'boolean') {
+    return { error: 'Active and publicly bookable settings must be explicitly selected.' };
+  }
+
+  const badge = normalizeText(value.badge, 40);
+  const iconName = normalizeText(value.iconName, 64) || 'ClipboardCheck';
+  const calendarId = normalizeText(value.calendarId, 256);
+
+  if (!SERVICE_ICON_NAMES.has(iconName)) {
+    return { error: 'The selected service icon is not supported.' };
+  }
+
+  return {
+    service: {
+      id,
+      name,
+      publicDescription,
+      duration,
+      bufferBefore,
+      bufferAfter,
+      minimumNoticeHours,
+      maxFutureBookingDays,
+      active: value.active,
+      publiclyBookable: value.publiclyBookable,
+      order,
+      iconName,
+      ...(badge ? { badge } : {}),
+      ...(calendarId ? { calendarId } : {}),
+    },
+  };
 }
 
 const PROPERTY_TYPES: PropertyType[] = [
@@ -916,6 +1044,109 @@ app.get('/api/admin/services', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Admin services load failed:', error);
     return res.status(500).json({ error: 'Unable to load services.' });
+  }
+});
+
+app.post('/api/admin/services', requireAdmin, async (req, res) => {
+  try {
+    const existingServices = await listServices(false);
+    const nextOrder =
+      existingServices.reduce((highest, service) => Math.max(highest, service.order || 0), 0) + 1;
+    const parsed = sanitizeServiceConfiguration(
+      {
+        ...(req.body || {}),
+        order: nextOrder,
+      },
+      {
+        fallbackOrder: nextOrder,
+      }
+    );
+
+    if (!parsed.service) {
+      return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
+    }
+
+    const created = await createService(parsed.service);
+    return res.status(201).json({ success: true, service: created });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'SERVICE_ALREADY_EXISTS') {
+      return res.status(409).json({
+        error: 'A service with this ID already exists. Choose a different service name or ID.',
+      });
+    }
+
+    console.error('Admin service creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create service.' });
+  }
+});
+
+app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+    const existing = await getService(serviceId);
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Service not found.' });
+    }
+
+    const parsed = sanitizeServiceConfiguration(
+      {
+        ...existing,
+        ...(req.body || {}),
+        id: existing.id,
+        order: existing.order,
+      },
+      {
+        existingId: existing.id,
+        fallbackOrder: existing.order,
+      }
+    );
+
+    if (!parsed.service) {
+      return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
+    }
+
+    const updated = await updateService(serviceId, parsed.service);
+    return res.json({ success: true, service: updated });
+  } catch (error) {
+    console.error('Admin service update failed:', error);
+    return res.status(500).json({ error: 'Unable to update service.' });
+  }
+});
+
+app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
+  try {
+    const rawServiceIds: unknown = req.body?.serviceIds;
+
+    if (
+      !Array.isArray(rawServiceIds) ||
+      rawServiceIds.some((id: unknown) => typeof id !== 'string')
+    ) {
+      return res.status(400).json({
+        error: 'Service order must be supplied as a list of service IDs.',
+      });
+    }
+
+    const serviceIds = rawServiceIds as string[];
+    const currentServices = await listServices(false);
+    const currentIds = new Set(currentServices.map((service) => service.id));
+    const suppliedIds = new Set(serviceIds);
+
+    if (
+      serviceIds.length !== currentServices.length ||
+      suppliedIds.size !== serviceIds.length ||
+      serviceIds.some((id) => !currentIds.has(id))
+    ) {
+      return res.status(400).json({
+        error: 'The reorder request must include every current service exactly once.',
+      });
+    }
+
+    const services = await reorderServices(serviceIds);
+    return res.json({ success: true, services });
+  } catch (error) {
+    console.error('Admin service reorder failed:', error);
+    return res.status(500).json({ error: 'Unable to reorder services.' });
   }
 });
 
