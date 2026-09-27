@@ -36,16 +36,19 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
   const [showLockboxCode, setShowLockboxCode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
+    setSaveError(null);
     try {
       await onUpdateStatus(booking.id, currentStatus, adminNotes);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (err) {
       console.error('Failed to update status:', err);
+      setSaveError(err instanceof Error ? err.message : 'Unable to save changes.');
     } finally {
       setIsSaving(false);
     }
@@ -297,8 +300,8 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
 
           {/* Action buttons */}
           <div className="flex items-center justify-between pt-2">
-            <span className="text-xs text-emerald-600 font-semibold">
-              {saveSuccess && 'Changes saved successfully!'}
+            <span className={`text-xs font-semibold ${saveError ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {saveError || (saveSuccess ? 'Changes saved successfully!' : '')}
             </span>
 
             <div className="flex items-center gap-2">
