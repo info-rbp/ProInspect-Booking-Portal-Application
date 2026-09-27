@@ -1,18 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Logo } from './Logo';
 import { fetchSettings } from '../../services/api';
-import { Shield, Clock, ExternalLink, Calendar } from 'lucide-react';
+import { Clock, ExternalLink, Calendar } from 'lucide-react';
 
 interface HeaderProps {
-  onOpenAdmin: () => void;
-  isAdminLoggedIn?: boolean;
   activeView: 'booking' | 'admin';
   setActiveView: (view: 'booking' | 'admin') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  onOpenAdmin,
-  isAdminLoggedIn,
   activeView,
   setActiveView,
 }) => {
@@ -81,26 +77,15 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Customer Booking View</span>
             </button>
           ) : (
-            <>
-              <a
-                href="https://proinspect.systems"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-[#1A2B4A] px-3 py-2 rounded-md hover:bg-slate-100 transition-colors"
-              >
-                <span>proinspect.systems</span>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-              </a>
-
-              <button
-                onClick={onOpenAdmin}
-                className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1.5 rounded-lg transition-colors"
-                title="Operational Admin Access"
-              >
-                <Shield className="w-3.5 h-3.5 text-slate-600" />
-                <span>{isAdminLoggedIn ? 'Admin Portal' : 'Staff Access'}</span>
-              </button>
-            </>
+            <a
+              href="https://proinspect.systems"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-[#1A2B4A] px-3 py-2 rounded-md hover:bg-slate-100 transition-colors"
+            >
+              <span>proinspect.systems</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
           )}
         </div>
       </div>
