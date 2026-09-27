@@ -157,7 +157,11 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
   const handleBlur = (name: keyof PropertyDetails) => {
     setTouched((prev) => ({ ...prev, [name]: true }));
-    const err = validateField(name, formData[name] || '');
+    const currentValue = formData[name];
+    const err = validateField(
+      name,
+      typeof currentValue === 'string' ? currentValue : ''
+    );
     setErrors((prev) => ({ ...prev, [name]: err }));
   };
 
