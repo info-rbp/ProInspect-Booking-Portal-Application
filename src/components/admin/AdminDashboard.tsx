@@ -114,11 +114,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Top Admin Bar */}
       <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#0A2540] text-white flex items-center justify-center font-black">
+          <div className="w-10 h-10 rounded-xl bg-[#1A2B4A] text-white flex items-center justify-center font-black">
             PI
           </div>
           <div>
-            <h1 className="text-xl font-black text-[#0A2540] leading-tight">
+            <h1 className="text-xl font-black text-[#1A2B4A] leading-tight">
               ProInspect Operational Portal
             </h1>
             <p className="text-xs text-slate-500">
@@ -150,7 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('bookings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'bookings'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#00B5B8] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -162,7 +162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('services')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'services'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#00B5B8] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -174,7 +174,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
             activeTab === 'settings'
-              ? 'bg-[#0284C7] text-white shadow-xs'
+              ? 'bg-[#00B5B8] text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
@@ -193,7 +193,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Today's Bookings
               </span>
               <div className="mt-2 flex items-baseline justify-between">
-                <span className="text-2xl sm:text-3xl font-black text-[#0A2540]">
+                <span className="text-2xl sm:text-3xl font-black text-[#1A2B4A]">
                   {todaysBookings.length}
                 </span>
                 <span className="text-[10px] font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded">
@@ -207,7 +207,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Tomorrow's Bookings
               </span>
               <div className="mt-2 flex items-baseline justify-between">
-                <span className="text-2xl sm:text-3xl font-black text-[#0A2540]">
+                <span className="text-2xl sm:text-3xl font-black text-[#1A2B4A]">
                   {tomorrowsBookings.length}
                 </span>
                 <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
@@ -254,7 +254,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 placeholder="Search reference, address, customer..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-10 pl-9 pr-3 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:bg-white focus:border-[#0284C7]"
+                className="w-full h-10 pl-9 pr-3 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:bg-white focus:border-[#00B5B8]"
               />
             </div>
 
@@ -289,7 +289,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="bg-white border border-slate-200/90 rounded-xl shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-[#0A2540] text-slate-200 uppercase tracking-wider font-bold">
+                <thead className="bg-[#1A2B4A] text-slate-200 uppercase tracking-wider font-bold">
                   <tr>
                     <th className="py-3 px-4">Reference</th>
                     <th className="py-3 px-4">Date / Time</th>
@@ -315,7 +315,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer"
                         onClick={() => setSelectedBooking(b)}
                       >
-                        <td className="py-3.5 px-4 font-mono font-bold text-[#0A2540]">
+                        <td className="py-3.5 px-4 font-mono font-bold text-[#1A2B4A]">
                           {b.bookingReference}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
@@ -335,7 +335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </div>
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="font-semibold text-[#0284C7]">{b.serviceName}</span>
+                          <span className="font-semibold text-[#00B5B8]">{b.serviceName}</span>
                           <span className="text-[10px] text-slate-400 block">
                             {b.appointment.durationMinutes} mins
                           </span>
@@ -373,7 +373,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               e.stopPropagation();
                               setSelectedBooking(b);
                             }}
-                            className="text-xs font-bold text-[#0284C7] hover:underline"
+                            className="text-xs font-bold text-[#00B5B8] hover:underline"
                           >
                             View Order &rarr;
                           </button>
@@ -392,7 +392,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'services' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-base text-[#0A2540]">Active Inspection Services</h3>
+            <h3 className="font-bold text-base text-[#1A2B4A]">Active Inspection Services</h3>
             <span className="text-xs text-slate-500">
               Stored in Firestore &bull; Used by the public booking flow
             </span>
@@ -406,7 +406,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h4 className="font-bold text-base text-[#0A2540]">{srv.name}</h4>
+                    <h4 className="font-bold text-base text-[#1A2B4A]">{srv.name}</h4>
                     <p className="text-xs text-slate-500 mt-1">{srv.publicDescription}</p>
                   </div>
                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
@@ -438,7 +438,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'settings' && (
         <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
-            <h3 className="font-bold text-base text-[#0A2540]">
+            <h3 className="font-bold text-base text-[#1A2B4A]">
               Google Calendar &amp; Operating Settings
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -479,7 +479,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Monday</span>
+                  <span className="font-bold text-[#1A2B4A] block">Monday</span>
                   <span className="text-slate-600">
                     {settings?.operatingHours.monday.active
                       ? `${settings.operatingHours.monday.open} - ${settings.operatingHours.monday.close}`
@@ -487,7 +487,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </span>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Tuesday to Friday</span>
+                  <span className="font-bold text-[#1A2B4A] block">Tuesday to Friday</span>
                   <span className="text-slate-600">
                     {settings?.operatingHours.tuesday.active
                       ? `${settings.operatingHours.tuesday.open} - ${settings.operatingHours.tuesday.close}`
@@ -495,7 +495,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </span>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="font-bold text-[#0A2540] block">Saturday &amp; Sunday</span>
+                  <span className="font-bold text-[#1A2B4A] block">Saturday &amp; Sunday</span>
                   <span className="text-slate-400">
                     {settings?.operatingHours.saturday.active || settings?.operatingHours.sunday.active
                       ? 'See current configured hours'
