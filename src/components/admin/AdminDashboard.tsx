@@ -557,7 +557,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {(srv.categories || []).map((category) => (
+                          <span
+                            key={category}
+                            className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-600"
+                          >
+                            {category === 'strata-building'
+                              ? 'Strata / Building'
+                              : category.charAt(0).toUpperCase() + category.slice(1)}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-2 leading-relaxed">
                         {srv.publicDescription}
                       </p>
                       <p className="text-[10px] text-slate-400 font-mono mt-2">
