@@ -226,17 +226,17 @@ export default function App() {
   const handleAdminServicesChanged = (publicServices: InspectionService[]) => {
     setServices(publicServices);
 
-    setSelectedServiceId((current) => {
-      if (current && publicServices.some((service) => service.id === current)) {
-        return current;
-      }
+    const currentServiceStillAvailable =
+      Boolean(selectedServiceId) &&
+      publicServices.some((service) => service.id === selectedServiceId);
 
+    if (!currentServiceStillAvailable) {
+      setSelectedServiceId(publicServices[0]?.id || null);
       setSelectedSlot(null);
       setConflictError(null);
       setCompletedSteps([]);
       setCurrentStep('service');
-      return publicServices[0]?.id || null;
-    });
+    }
   };
 
   const selectedService = services.find((s) => s.id === selectedServiceId) || services[0];
