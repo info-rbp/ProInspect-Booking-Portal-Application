@@ -141,7 +141,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           <strong className="block">Online booking is temporarily unavailable.</strong>
           <span className="text-xs">
-            No services are currently enabled for public booking. Contact ProInspect if you need to arrange an attendance.
+            No services are currently enabled for this property category. Choose another service type or contact ProInspect to arrange an attendance.
           </span>
         </div>
       )}
