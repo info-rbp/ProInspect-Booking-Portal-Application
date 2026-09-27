@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { BookingRecord, BookingStatus, InspectionService, BusinessSettings } from '../../types/booking';
-import { fetchAdminBookings, updateAdminBooking, fetchAdminServices, fetchAdminSettings } from '../../services/api';
+import { BookingRecord, BookingStatus, InspectionService, BusinessSettings, ServiceAdminInput } from '../../types/booking';
+import {
+  createAdminService,
+  fetchAdminBookings,
+  fetchAdminServices,
+  fetchAdminSettings,
+  reorderAdminServices,
+  updateAdminBooking,
+  updateAdminService,
+} from '../../services/api';
 import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
+import { AdminServiceEditor } from './AdminServiceEditor';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar,
@@ -19,6 +28,13 @@ import {
   ExternalLink,
   ShieldCheck,
   Building,
+  Plus,
+  Pencil,
+  ArrowUp,
+  ArrowDown,
+  Eye,
+  EyeOff,
+  Power,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -26,12 +42,14 @@ interface AdminDashboardProps {
   currentUser: User | null;
   onLogout: () => void;
   onBackToBooking: () => void;
+  onServicesChanged?: (services: InspectionService[]) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   onLogout,
   onBackToBooking,
+  onServicesChanged,
 }) => {
   const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'settings'>('bookings');
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
@@ -47,6 +65,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Selected work order for modal
   const [selectedBooking, setSelectedBooking] = useState<BookingRecord | null>(null);
 
+  // Service management
+  const [isServiceEditorOpen, setIsServiceEditorOpen] = useState(false);
+  const [editingService, setEditingService] = useState<InspectionService | null>(null);
+  const [serviceActionId, setServiceActionId] = useState<string | null>(null);
+  const [serviceActionError, setServiceActionError] = useState<string | null>(null);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -61,6 +85,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ]);
       setBookings(bkList);
       setServices(srvList);
+      onServicesChanged?.(
+        srvList.filter((service) => service.active && service.publiclyBookable)
+      );
       setSettings(stData);
     } catch (err) {
       console.error('Failed to load admin data:', err);
@@ -76,6 +103,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setSelectedBooking(updated);
     }
   };
+
+  const applyServices = (nextServices: InspectionService[]) => {
+    const ordered = [...nextServices].sort(
+      (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+    );
+    setServices(ordered);
+    onServicesChanged?.(
+      ordered.filter((service) => service.active && service.publiclyBookable)
+    );
+  };
+
+  const handleSaveService = async (input: ServiceAdminInput) => {
+    setServiceActionError(null);
+
+    if (editingService) {
+      const updated = await updateAdminService(editingService.id, input);
+      applyServices(
+        services.map((service) =>
+          service.id === updated.id ? updated : service
+        )
+      );
+      return;
+    }
+
+    const created = await createAdminService(input);
+    applyServices([...services, created]);
+  };
+
+  const handleServicePatch = async (
+    service: InspectionService,
+    updates: Partial<ServiceAdminInput>
+  ) => {
+    setServiceActionId(service.id);
+    setServiceActionError(null);
+
+    try {
+      const updated = await updateAdminService(service.id, updates);
+      applyServices(
+        services.map((item) => (item.id === updated.id ? updated : item))
+      );
+    } catch (error) {
+      setServiceActionError(
+        error instanceof Error ? error.message : 'Unable to update service.'
+      );
+    } finally {
+      setServiceActionId(null);
+    }
+  };
+
+  const handleMoveService = async (
+    serviceId: string,
+    direction: -1 | 1
+  ) => {
+    const ordered = [...services].sort(
+      (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+    );
+    const currentIndex = ordered.findIndex((service) => service.id === serviceId);
+    const nextIndex = currentIndex + direction;
+
+    if (
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= ordered.length
+    ) {
+      return;
+    }
+
+    const next = [...ordered];
+    [next[currentIndex], next[nextIndex]] = [next[nextIndex], next[currentIndex]];
+
+    setServiceActionId(serviceId);
+    setServiceActionError(null);
+
+    try {
+      const reordered = await reorderAdminServices(
+        next.map((service) => service.id)
+      );
+      applyServices(reordered);
+    } catch (error) {
+      setServiceActionError(
+        error instanceof Error ? error.message : 'Unable to reorder services.'
+      );
+    } finally {
+      setServiceActionId(null);
+    }
+  };
+
+  const orderedServices = [...services].sort(
+    (a, b) => a.order - b.order || a.name.localeCompare(b.name)
+  );
 
   // Metrics calculations
   const todayKey = getPerthDateKey(new Date());
@@ -386,49 +503,197 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 2: INSPECTION SERVICES */}
+      {/* TAB 2: BOOKING SERVICES */}
       {activeTab === 'services' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-base text-[#1A2B4A]">Active Inspection Services</h3>
-            <span className="text-xs text-slate-500">
-              Stored in Firestore &bull; Used by the public booking flow
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-base text-[#1A2B4A]">Booking Services</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Firestore is the source of truth. Active public services appear immediately in the booking hub.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingService(null);
+                setServiceActionError(null);
+                setIsServiceEditorOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#007F82] hover:bg-[#006D70] text-white text-sm font-bold shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Service</span>
+            </button>
           </div>
+
+          {serviceActionError && (
+            <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-sm font-semibold text-rose-700">
+              {serviceActionError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {services.map((srv) => (
-              <div
-                key={srv.id}
-                className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs space-y-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="font-bold text-base text-[#1A2B4A]">{srv.name}</h4>
-                    <p className="text-xs text-slate-500 mt-1">{srv.publicDescription}</p>
-                  </div>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                    Active
-                  </span>
-                </div>
+            {orderedServices.map((srv, index) => {
+              const isWorking = serviceActionId === srv.id;
 
-                <div className="pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <span className="text-slate-400 block">Duration</span>
-                    <strong className="text-slate-800">{srv.duration} mins</strong>
+              return (
+                <div
+                  key={srv.id}
+                  className={`bg-white border rounded-xl p-5 shadow-xs space-y-4 ${
+                    srv.active ? 'border-slate-200/90' : 'border-slate-200 opacity-75'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-base text-[#1A2B4A]">
+                          {srv.name}
+                        </h4>
+                        {srv.badge && (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-sky-50 text-[#006D70]">
+                            {srv.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                        {srv.publicDescription}
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-mono mt-2">
+                        {srv.id}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                          srv.active
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {srv.active ? 'Active' : 'Inactive'}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                          srv.publiclyBookable
+                            ? 'bg-cyan-50 text-[#006D70]'
+                            : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {srv.publiclyBookable ? 'Public' : 'Internal'}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-slate-400 block">Notice Req.</span>
-                    <strong className="text-slate-800">{srv.minimumNoticeHours}h</strong>
+
+                  <div className="pt-3 border-t border-slate-100 grid grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-400 block">Duration</span>
+                      <strong className="text-slate-800">{srv.duration}m</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Notice</span>
+                      <strong className="text-slate-800">{srv.minimumNoticeHours}h</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Buffers</span>
+                      <strong className="text-slate-800">
+                        {srv.bufferBefore}/{srv.bufferAfter}m
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Horizon</span>
+                      <strong className="text-slate-800">
+                        {srv.maxFutureBookingDays}d
+                      </strong>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-slate-400 block">Buffer</span>
-                    <strong className="text-slate-800">{srv.bufferBefore}/{srv.bufferAfter}m</strong>
+
+                  <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isWorking || index === 0}
+                      onClick={() => handleMoveService(srv.id, -1)}
+                      className="w-9 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center disabled:opacity-35"
+                      title="Move service up"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isWorking || index === orderedServices.length - 1}
+                      onClick={() => handleMoveService(srv.id, 1)}
+                      className="w-9 h-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center disabled:opacity-35"
+                      title="Move service down"
+                    >
+                      <ArrowDown className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isWorking}
+                      onClick={() =>
+                        handleServicePatch(srv, {
+                          publiclyBookable: !srv.publiclyBookable,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {srv.publiclyBookable ? (
+                        <EyeOff className="w-3.5 h-3.5" />
+                      ) : (
+                        <Eye className="w-3.5 h-3.5" />
+                      )}
+                      <span>
+                        {srv.publiclyBookable ? 'Make Internal' : 'Make Public'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isWorking}
+                      onClick={() =>
+                        handleServicePatch(srv, { active: !srv.active })
+                      }
+                      className={`inline-flex items-center gap-1.5 px-3 h-9 rounded-lg border text-xs font-bold disabled:opacity-50 ${
+                        srv.active
+                          ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                      <span>{srv.active ? 'Deactivate' : 'Activate'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isWorking}
+                      onClick={() => {
+                        setEditingService(srv);
+                        setServiceActionError(null);
+                        setIsServiceEditorOpen(true);
+                      }}
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#1A2B4A] disabled:opacity-50"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {orderedServices.length === 0 && (
+            <div className="bg-white border border-dashed border-slate-300 rounded-xl p-10 text-center">
+              <Layers className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-700">No services configured</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Add the first bookable service to start building the catalogue.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -499,6 +764,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {isServiceEditorOpen && (
+        <AdminServiceEditor
+          service={editingService}
+          suggestedOrder={
+            orderedServices.reduce(
+              (highest, service) => Math.max(highest, service.order || 0),
+              0
+            ) + 1
+          }
+          onClose={() => {
+            setIsServiceEditorOpen(false);
+            setEditingService(null);
+          }}
+          onSave={handleSaveService}
+        />
       )}
 
       {/* Work Order Detail Modal */}
