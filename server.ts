@@ -165,9 +165,10 @@ function candidateConflicts(
 }
 
 function dateWithinServiceWindow(dateKey: string, service: InspectionService, now = new Date()): boolean {
-  const target = new Date(`${dateKey}T23:59:59${PERTH_OFFSET}`);
+  const todayKey = getPerthDateKey(now);
   const max = new Date(now.getTime() + service.maxFutureBookingDays * 24 * 60 * 60_000);
-  return target >= now && target <= max;
+  const maxDateKey = getPerthDateKey(max);
+  return dateKey >= todayKey && dateKey <= maxDateKey;
 }
 
 async function calendarConflictForSlot(
