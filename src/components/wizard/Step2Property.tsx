@@ -147,7 +147,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 1: Property Location */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-5">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <MapPin className="w-5 h-5 text-[#00B5B8]" />
+          <MapPin className="w-5 h-5 text-[#006D70]" />
           <h2 className="font-bold text-base text-[#1A2B4A]">Property Address</h2>
         </div>
 
@@ -267,7 +267,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                 key={sub}
                 type="button"
                 onClick={() => handleSelectSuburb(sub)}
-                className="text-xs px-2.5 py-1 rounded bg-slate-100 hover:bg-sky-50 hover:text-[#00B5B8] text-slate-700 transition-colors"
+                className="text-xs px-2.5 py-1 rounded bg-slate-100 hover:bg-sky-50 hover:text-[#006D70] text-slate-700 transition-colors"
               >
                 {sub}
               </button>
@@ -305,7 +305,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 2: Client / Agency Reference (Optional) */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <Building className="w-5 h-5 text-[#00B5B8]" />
+          <Building className="w-5 h-5 text-[#006D70]" />
           <div>
             <h2 className="font-bold text-base text-[#1A2B4A]">Agency / Client Reference</h2>
             <span className="text-xs text-slate-500">Optional for real estate agencies or landlords</span>
@@ -344,7 +344,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 3: Customer / Booking Contact */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <User className="w-5 h-5 text-[#00B5B8]" />
+          <User className="w-5 h-5 text-[#006D70]" />
           <div>
             <h2 className="font-bold text-base text-[#1A2B4A]">Booking Contact Details</h2>
             <span className="text-xs text-slate-500">
@@ -447,7 +447,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
         <button
           type="submit"
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs transition-colors cursor-pointer"
         >
           <span>Continue to Property Access</span>
           <ArrowRight className="w-4 h-4" />
