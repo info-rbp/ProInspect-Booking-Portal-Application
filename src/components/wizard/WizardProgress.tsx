@@ -35,7 +35,7 @@ export const WizardProgress: React.FC<WizardProgressProps> = ({
       {/* Mobile simplified progress bar */}
       <div className="block sm:hidden">
         <div className="flex items-center justify-between text-xs mb-2">
-          <span className="font-bold text-[#0A2540]">
+          <span className="font-bold text-[#1A2B4A]">
             Stage {currentIndex + 1} of {STEPS.length}: {STEPS[currentIndex]?.title}
           </span>
           <span className="text-slate-500 font-medium">
@@ -44,7 +44,7 @@ export const WizardProgress: React.FC<WizardProgressProps> = ({
         </div>
         <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
           <div
-            className="h-full bg-[#0284C7] transition-all duration-300 rounded-full"
+            className="h-full bg-[#00B5B8] transition-all duration-300 rounded-full"
             style={{ width: `${((currentIndex + 1) / STEPS.length) * 100}%` }}
           />
         </div>
@@ -55,7 +55,7 @@ export const WizardProgress: React.FC<WizardProgressProps> = ({
         {/* Background track line */}
         <div className="absolute left-6 right-6 top-4 h-0.5 bg-slate-200 -z-0" />
         <div
-          className="absolute left-6 top-4 h-0.5 bg-[#0284C7] -z-0 transition-all duration-300"
+          className="absolute left-6 top-4 h-0.5 bg-[#00B5B8] -z-0 transition-all duration-300"
           style={{
             width: `calc(${(currentIndex / (STEPS.length - 1)) * 100}% - 24px)`,
           }}
@@ -78,9 +78,9 @@ export const WizardProgress: React.FC<WizardProgressProps> = ({
                 onClick={() => isClickable && onStepClick(step.id)}
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${
                   isCurrent
-                    ? 'bg-[#0284C7] text-white ring-4 ring-sky-100 shadow-sm scale-110'
+                    ? 'bg-[#00B5B8] text-white ring-4 ring-sky-100 shadow-sm scale-110'
                     : isCompleted || isPast
-                    ? 'bg-[#0A2540] text-white cursor-pointer hover:bg-[#0284C7]'
+                    ? 'bg-[#1A2B4A] text-white cursor-pointer hover:bg-[#00B5B8]'
                     : 'bg-white text-slate-400 border-2 border-slate-300 cursor-not-allowed'
                 }`}
               >
@@ -93,7 +93,7 @@ export const WizardProgress: React.FC<WizardProgressProps> = ({
               <span
                 className={`text-xs mt-2 font-semibold transition-colors ${
                   isCurrent
-                    ? 'text-[#0A2540] font-bold'
+                    ? 'text-[#1A2B4A] font-bold'
                     : isCompleted || isPast
                     ? 'text-slate-700'
                     : 'text-slate-400'
