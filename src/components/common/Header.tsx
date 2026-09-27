@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
           {activeView === 'admin' ? (
             <button
               onClick={() => setActiveView('booking')}
-              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-[#00B5B8] hover:text-[#008B8E] px-3 py-1.5 rounded-md hover:bg-sky-50 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-[#006D70] hover:text-[#005B5E] px-3 py-1.5 rounded-md hover:bg-sky-50 transition-colors"
             >
               <Calendar className="w-4 h-4" />
               <span>Customer Booking View</span>
