@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { BookingRecord } from '../../types/booking';
 import { fetchBookingByToken } from '../../services/api';
 import { Search, X, Calendar, MapPin, KeyRound, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
@@ -15,7 +14,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
   const [tokenOrRef, setTokenOrRef] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [booking, setBooking] = useState<BookingRecord | null>(null);
+  const [booking, setBooking] = useState<any | null>(null);
 
   if (!isOpen) return null;
 
@@ -31,7 +30,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
       const data = await fetchBookingByToken(tokenOrRef.trim());
       setBooking(data);
     } catch (err: any) {
-      setError('No matching booking found. Please check your booking reference (e.g. PI-20261005-0042).');
+      setError('No matching booking was found for that secure management code.');
     } finally {
       setLoading(false);
     }
@@ -50,7 +49,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
         <div className="border-b border-slate-100 pb-3">
           <h2 className="text-xl font-bold text-[#0A2540]">Manage Booking</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Enter your ProInspect Booking Reference to view your scheduled appointment.
+            Open your booking using the secure management code supplied with your confirmation.
           </p>
         </div>
 
@@ -59,7 +58,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="e.g. PI-20261005-0012"
+              placeholder="Secure management code"
               value={tokenOrRef}
               onChange={(e) => setTokenOrRef(e.target.value)}
               className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] font-mono focus:bg-white focus:border-[#0284C7] outline-none"
@@ -114,8 +113,8 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
 
             <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
               Need to reschedule or cancel? Contact ProInspect at{' '}
-              <a href="mailto:info@remotebusinesspartner.com.au" className="font-semibold text-[#0284C7] underline">
-                info@remotebusinesspartner.com.au
+              <a href="mailto:info@proinspect.systems" className="font-semibold text-[#0284C7] underline">
+                info@proinspect.systems
               </a>
             </div>
           </div>
