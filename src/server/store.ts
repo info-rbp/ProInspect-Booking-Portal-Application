@@ -9,15 +9,22 @@ import {
 } from './accessSecrets.js';
 
 const SETTINGS_ID = 'business';
+const SERVICE_CATALOGUE_META_ID = 'serviceCatalogue';
+const SERVICE_CATALOGUE_VERSION = 2;
 let seeded: Promise<void> | null = null;
 
 export async function ensureSeedData() {
   if (!seeded) {
     seeded = (async () => {
       const settingsRef = adminDb.collection('settings').doc(SETTINGS_ID);
-      const settingsDoc = await settingsRef.get();
+      const catalogueMetaRef = adminDb.collection('systemMetadata').doc(SERVICE_CATALOGUE_META_ID);
       const refs = DEFAULT_SERVICES.map((service) => adminDb.collection('services').doc(service.id));
-      const docs = await Promise.all(refs.map((ref) => ref.get()));
+      const [settingsDoc, catalogueMetaDoc, ...docs] = await Promise.all([
+        settingsRef.get(),
+        catalogueMetaRef.get(),
+        ...refs.map((ref) => ref.get()),
+      ]);
+      const catalogueVersion = Number(catalogueMetaDoc.data()?.version || 0);
       const batch = adminDb.batch();
       let hasWrites = false;
 
@@ -34,15 +41,45 @@ export async function ensureSeedData() {
         }
 
         const existing = doc.data() as Partial<InspectionService>;
+        const defaultService = DEFAULT_SERVICES[index];
+
         if (!Array.isArray(existing.categories) || existing.categories.length === 0) {
           batch.set(
             refs[index],
-            { categories: DEFAULT_SERVICES[index].categories },
+            { categories: defaultService.categories },
             { merge: true }
           );
           hasWrites = true;
         }
+
+        if (catalogueVersion < SERVICE_CATALOGUE_VERSION) {
+          const migrationPatch: Partial<InspectionService> = {
+            order: defaultService.order,
+          };
+
+          if (
+            defaultService.id === 'maintenance-attendance' ||
+            defaultService.id === 'other-custom-appointment'
+          ) {
+            migrationPatch.publicDescription = defaultService.publicDescription;
+          }
+
+          batch.set(refs[index], migrationPatch, { merge: true });
+          hasWrites = true;
+        }
       });
+
+      if (catalogueVersion < SERVICE_CATALOGUE_VERSION) {
+        batch.set(
+          catalogueMetaRef,
+          {
+            version: SERVICE_CATALOGUE_VERSION,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+        hasWrites = true;
+      }
 
       if (hasWrites) await batch.commit();
     })().catch((error) => {
