@@ -45,7 +45,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
     <div className="space-y-6 animate-fadeIn">
       {/* Step Header */}
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
           What service do you need?
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
@@ -65,7 +65,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
               onClick={() => onSelectService(service)}
               className={`relative rounded-xl border-2 p-5 cursor-pointer transition-all duration-200 flex flex-col justify-between text-left group ${
                 isSelected
-                  ? 'border-[#0284C7] bg-[#F0F9FF] shadow-sm ring-1 ring-[#0284C7]/20'
+                  ? 'border-[#00B5B8] bg-[#F0FBFB] shadow-sm ring-1 ring-[#00B5B8]/20'
                   : 'border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-xs'
               }`}
             >
@@ -76,18 +76,18 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
                     <div
                       className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
                         isSelected
-                          ? 'bg-[#0284C7] text-white'
-                          : 'bg-slate-100 text-[#0A2540] group-hover:bg-slate-200'
+                          ? 'bg-[#00B5B8] text-white'
+                          : 'bg-slate-100 text-[#1A2B4A] group-hover:bg-slate-200'
                       }`}
                     >
                       <IconComponent className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-base text-[#0A2540] leading-snug">
+                      <h3 className="font-bold text-base text-[#1A2B4A] leading-snug">
                         {service.name}
                       </h3>
                       {service.badge && (
-                        <span className="inline-block text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-sky-100 text-[#0284C7] mt-0.5">
+                        <span className="inline-block text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-sky-100 text-[#00B5B8] mt-0.5">
                           {service.badge}
                         </span>
                       )}
@@ -98,7 +98,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
                   <div
                     className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                       isSelected
-                        ? 'border-[#0284C7] bg-[#0284C7] text-white'
+                        ? 'border-[#00B5B8] bg-[#00B5B8] text-white'
                         : 'border-slate-300 bg-white'
                     }`}
                   >
@@ -118,7 +118,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   Approx. {service.duration} mins on site
                 </span>
-                <span className="font-semibold text-[#0284C7] text-xs group-hover:underline">
+                <span className="font-semibold text-[#00B5B8] text-xs group-hover:underline">
                   {isSelected ? 'Selected' : 'Select'} &rarr;
                 </span>
               </div>
@@ -132,7 +132,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
         <div className="text-xs text-slate-500">
           {selectedService ? (
             <span>
-              Selected: <strong className="text-[#0A2540]">{selectedService.name}</strong> ({selectedService.duration} min)
+              Selected: <strong className="text-[#1A2B4A]">{selectedService.name}</strong> ({selectedService.duration} min)
             </span>
           ) : (
             <span>Please select an inspection service to proceed</span>
@@ -145,7 +145,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
           onClick={onNext}
           className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm transition-all duration-200 ${
             selectedServiceId
-              ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white shadow-xs cursor-pointer'
+              ? 'bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs cursor-pointer'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
