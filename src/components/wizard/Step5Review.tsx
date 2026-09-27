@@ -75,7 +75,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
     <form onSubmit={handleSubmit} className="space-y-6 animate-fadeIn">
       {/* Header */}
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
           Review your booking
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
@@ -104,7 +104,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
       {/* Structured Sections */}
       <div className="space-y-4">
         {/* 1. Appointment & Service Hero Card */}
-        <div className="bg-[#0A2540] text-white rounded-xl p-5 sm:p-6 shadow-sm relative overflow-hidden">
+        <div className="bg-[#1A2B4A] text-white rounded-xl p-5 sm:p-6 shadow-sm relative overflow-hidden">
           <div className="flex items-start justify-between relative z-10">
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
@@ -113,11 +113,11 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
               <h2 className="text-xl sm:text-2xl font-black text-white">{service.name}</h2>
               <div className="flex flex-wrap items-center gap-4 text-xs sm:text-sm text-slate-300 pt-2">
                 <span className="flex items-center gap-1.5 font-medium">
-                  <Calendar className="w-4 h-4 text-[#38BDF8]" />
+                  <Calendar className="w-4 h-4 text-[#00B5B8]" />
                   {appointment.displayDate}
                 </span>
                 <span className="flex items-center gap-1.5 font-medium">
-                  <Clock className="w-4 h-4 text-[#38BDF8]" />
+                  <Clock className="w-4 h-4 text-[#00B5B8]" />
                   {appointment.displayTime} AWST ({service.duration} mins)
                 </span>
               </div>
@@ -138,15 +138,15 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
             <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-[#0284C7]" />
-              <h3 className="font-bold text-sm text-[#0A2540] uppercase tracking-wider">
+              <MapPin className="w-4 h-4 text-[#00B5B8]" />
+              <h3 className="font-bold text-sm text-[#1A2B4A] uppercase tracking-wider">
                 Property Address
               </h3>
             </div>
             <button
               type="button"
               onClick={() => onJumpToStep('property')}
-              className="text-xs font-semibold text-[#0284C7] hover:underline flex items-center gap-1"
+              className="text-xs font-semibold text-[#00B5B8] hover:underline flex items-center gap-1"
             >
               <Edit3 className="w-3 h-3" />
               <span>Edit</span>
@@ -156,7 +156,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div>
               <span className="text-xs text-slate-400 font-medium block">Address:</span>
-              <span className="font-semibold text-[#0A2540]">{fullAddress}</span>
+              <span className="font-semibold text-[#1A2B4A]">{fullAddress}</span>
             </div>
             <div>
               <span className="text-xs text-slate-400 font-medium block">Property Type:</span>
@@ -181,15 +181,15 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
             <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-[#0284C7]" />
-              <h3 className="font-bold text-sm text-[#0A2540] uppercase tracking-wider">
+              <User className="w-4 h-4 text-[#00B5B8]" />
+              <h3 className="font-bold text-sm text-[#1A2B4A] uppercase tracking-wider">
                 Customer &amp; Booking Contact
               </h3>
             </div>
             <button
               type="button"
               onClick={() => onJumpToStep('property')}
-              className="text-xs font-semibold text-[#0284C7] hover:underline flex items-center gap-1"
+              className="text-xs font-semibold text-[#00B5B8] hover:underline flex items-center gap-1"
             >
               <Edit3 className="w-3 h-3" />
               <span>Edit</span>
@@ -199,7 +199,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
             <div>
               <span className="text-xs text-slate-400 font-medium block">Contact Name:</span>
-              <span className="font-semibold text-[#0A2540]">{property.customerName}</span>
+              <span className="font-semibold text-[#1A2B4A]">{property.customerName}</span>
             </div>
             <div>
               <span className="text-xs text-slate-400 font-medium block">Email (Invitee):</span>
@@ -216,15 +216,15 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
             <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#0284C7]" />
-              <h3 className="font-bold text-sm text-[#0A2540] uppercase tracking-wider">
+              <KeyRound className="w-4 h-4 text-[#00B5B8]" />
+              <h3 className="font-bold text-sm text-[#1A2B4A] uppercase tracking-wider">
                 Access Arrangements
               </h3>
             </div>
             <button
               type="button"
               onClick={() => onJumpToStep('access')}
-              className="text-xs font-semibold text-[#0284C7] hover:underline flex items-center gap-1"
+              className="text-xs font-semibold text-[#00B5B8] hover:underline flex items-center gap-1"
             >
               <Edit3 className="w-3 h-3" />
               <span>Edit</span>
@@ -234,7 +234,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-xs text-slate-400 font-medium block">Method:</span>
-              <span className="font-bold text-[#0A2540]">{formatAccessMethod(access.method)}</span>
+              <span className="font-bold text-[#1A2B4A]">{formatAccessMethod(access.method)}</span>
             </div>
 
             {/* Method Specific Details */}
@@ -313,8 +313,8 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
         {access.specialInstructions && (
           <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-2">
-              <FileText className="w-4 h-4 text-[#0284C7]" />
-              <h3 className="font-bold text-sm text-[#0A2540] uppercase tracking-wider">
+              <FileText className="w-4 h-4 text-[#00B5B8]" />
+              <h3 className="font-bold text-sm text-[#1A2B4A] uppercase tracking-wider">
                 Special Instructions
               </h3>
             </div>
@@ -332,7 +332,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
             type="checkbox"
             checked={isAcknowledged}
             onChange={(e) => setIsAcknowledged(e.target.checked)}
-            className="w-5 h-5 mt-0.5 rounded text-[#0284C7] focus:ring-[#0284C7] border-slate-300"
+            className="w-5 h-5 mt-0.5 rounded text-[#00B5B8] focus:ring-[#00B5B8] border-slate-300"
           />
           <span className="text-xs sm:text-sm text-slate-700 font-medium leading-snug">
             I confirm that the information provided is correct and that appropriate access arrangements have been made for the appointment.
@@ -346,7 +346,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           type="button"
           disabled={isSubmitting}
           onClick={() => onJumpToStep('appointment')}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#0A2540] hover:bg-slate-100 rounded-lg transition-colors w-full sm:w-auto justify-center"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#1A2B4A] hover:bg-slate-100 rounded-lg transition-colors w-full sm:w-auto justify-center"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Appointment Selection</span>
@@ -357,7 +357,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           disabled={!isAcknowledged || isSubmitting}
           className={`inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-lg font-bold text-base transition-all w-full sm:w-auto ${
             isAcknowledged && !isSubmitting
-              ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white shadow-sm cursor-pointer'
+              ? 'bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-sm cursor-pointer'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
