@@ -18,11 +18,11 @@ This repository contains the ProInspect customer booking portal and internal ope
 
 The browser does not write booking records directly to Firestore. Public booking creation and all administrator operations go through the Express API.
 
-## Google AI Studio / Cloud Run configuration
+## Google Cloud Run configuration
 
-Keep application code in GitHub and configure runtime secrets in Google AI Studio or Google Cloud rather than committing them.
+Keep application code in GitHub and deploy the production Docker image to Google Cloud Run. Production authentication to Google services uses the assigned Cloud Run service account through Application Default Credentials rather than committed private keys.
 
-Required server configuration is documented in `.env.example`.
+Required server configuration is documented in `.env.example`; the production deployment runbook is in `CLOUD_RUN_DEPLOYMENT.md`.
 
 For production scheduling:
 
@@ -30,8 +30,8 @@ For production scheduling:
 2. Create or select a dedicated ProInspect Google Calendar.
 3. Set `GOOGLE_CALENDAR_ID` to that calendar ID.
 4. Ensure the runtime service account has write access to the calendar. A common approach is to share the dedicated calendar with the service-account email.
-5. If Application Default Credentials are not available in the AI Studio runtime, provide `GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON` through the AI Studio Secrets panel.
-6. Ensure the Firebase/Google Cloud runtime identity can access the configured Firestore database.
+5. Ensure the Cloud Run runtime identity can access the configured Firestore database.
+6. Leave `FIREBASE_SERVICE_ACCOUNT_JSON` and `GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON` unset in production so the server uses Application Default Credentials.
 7. Enable Google as a Firebase Authentication sign-in provider for the client app.
 
 ## Administrator access
@@ -63,22 +63,22 @@ Sensitive access information such as lockbox codes, alarm details, key reference
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run lint
 npm run build
 npm run dev
 ```
 
-The GitHub Actions workflow in `.github/workflows/verify.yml` performs type-check and production-build verification for the hardening branch and pull requests into `main`.
+The GitHub Actions workflow in `.github/workflows/verify.yml` performs deterministic dependency installation, type-checking, production build verification and a production Docker image build.
 
-## Google AI Studio sync workflow
+## Production deployment workflow
 
 Use GitHub as the source of truth for reviewed code changes:
 
 1. Make and review changes in GitHub.
-2. Merge the approved pull request into `main`.
-3. In the existing Google AI Studio project, use its GitHub integration to pull/synchronise the updated repository.
-4. Keep secrets in AI Studio/Google Cloud configuration rather than in GitHub.
+2. Merge the approved pull request into `main` only after verification passes.
+3. Google Cloud Build detects the `main` update, builds the Dockerfile and deploys a new Cloud Run revision.
+4. Keep runtime configuration in Cloud Run and Google IAM rather than in GitHub.
 
 
 ## Service management
