@@ -417,9 +417,10 @@ async function localConflictForSlot(
   });
 }
 
-function publicBookingView(booking: BookingRecord) {
+function publicBookingView(booking: BookingRecord, includeManagementToken = false) {
   return {
     bookingReference: booking.bookingReference,
+    ...(includeManagementToken ? { managementToken: booking.managementToken } : {}),
     serviceName: booking.serviceName,
     status: booking.status,
     property: {
@@ -430,6 +431,7 @@ function publicBookingView(booking: BookingRecord) {
       postcode: booking.property.postcode,
       propertyType: booking.property.propertyType,
       customerName: booking.property.customerName,
+      customerEmail: booking.property.customerEmail,
     },
     access: {
       method: booking.access.method,
@@ -780,12 +782,14 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
 
+    const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
       id: bookingId,
       bookingReference,
       managementToken: generateManagementToken(),
       serviceId: service.id,
       serviceName: service.name,
+      calendarId: resolvedCalendarId,
       property: {
         streetAddress: normalizeText(property.streetAddress, 150),
         unit: normalizeText(property.unit, 50),
@@ -818,7 +822,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       updatedAt: now,
     };
 
-    const calendarResult = await createEvent(booking, service.calendarId);
+    const calendarResult = await createEvent(booking, resolvedCalendarId);
     calendarEventId = calendarResult.eventId;
     booking.calendarEventId = calendarEventId;
     booking.calendarHtmlLink = calendarResult.htmlLink;
@@ -826,7 +830,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
     try {
       await saveBooking(booking);
     } catch (firestoreError) {
-      await deleteEvent(calendarEventId, service.calendarId).catch((rollbackError) => {
+      await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
         console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
       });
       throw firestoreError;
@@ -839,7 +843,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      booking,
+      booking: publicBookingView(booking, true),
       message: 'Booking confirmed successfully.',
     });
   } catch (error) {
@@ -939,7 +943,10 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
 
     if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
       const service = await getService(booking.serviceId);
-      await deleteEvent(booking.calendarEventId, service?.calendarId);
+      await deleteEvent(
+        booking.calendarEventId,
+        booking.calendarId || service?.calendarId
+      );
     }
 
     const updated = await updateBooking(booking.id, {
