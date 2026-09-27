@@ -242,6 +242,22 @@ export async function updateAdminBooking(
   return data.booking;
 }
 
+export async function cancelBookingByToken(
+  token: string
+): Promise<PublicBookingSummary> {
+  const res = await fetch(
+    `/api/bookings/manage/${encodeURIComponent(token)}/cancel`,
+    { method: 'POST' }
+  );
+  const data = (await res.json()) as PublicBookingResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Unable to cancel this booking.');
+  }
+
+  return data.booking;
+}
+
 export async function fetchBookingByToken(token: string): Promise<PublicBookingSummary> {
   const res = await fetch(`/api/bookings/manage/${encodeURIComponent(token)}`);
   const data = (await res.json()) as PublicBookingResponse;
