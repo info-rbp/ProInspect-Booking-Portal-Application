@@ -1,39 +1,81 @@
-import React, { useState } from 'react';
-import { fetchBookingByToken } from '../../services/api';
+import React, { useEffect, useState } from 'react';
+import {
+  cancelBookingByToken,
+  fetchBookingByToken,
+} from '../../services/api';
 import type { PublicBookingSummary } from '../../types/booking';
 import { Search, X, Calendar, MapPin, KeyRound, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface PublicBookingManageModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialToken?: string | null;
 }
 
 export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> = ({
   isOpen,
   onClose,
+  initialToken,
 }) => {
   const [tokenOrRef, setTokenOrRef] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<PublicBookingSummary | null>(null);
 
-  if (!isOpen) return null;
-
-  const handleLookup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tokenOrRef.trim()) return;
+  const lookupBooking = async (token: string) => {
+    const normalized = token.trim();
+    if (!normalized) return;
 
     setLoading(true);
     setError(null);
     setBooking(null);
 
     try {
-      const data = await fetchBookingByToken(tokenOrRef.trim());
+      const data = await fetchBookingByToken(normalized);
       setBooking(data);
-    } catch (err: any) {
+    } catch {
       setError('No matching booking was found for that secure management code.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !initialToken) return;
+    setTokenOrRef(initialToken);
+    void lookupBooking(initialToken);
+  }, [isOpen, initialToken]);
+
+  if (!isOpen) return null;
+
+  const handleLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await lookupBooking(tokenOrRef);
+  };
+
+  const handleCancelBooking = async () => {
+    const token = tokenOrRef.trim();
+    if (!token || !booking || booking.status !== 'confirmed') return;
+
+    const confirmed = window.confirm(
+      'Cancel this ProInspect booking? The reserved Google Calendar appointment will be released.'
+    );
+    if (!confirmed) return;
+
+    setIsCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelBookingByToken(token);
+      setBooking(updated);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'The booking could not be cancelled. Please contact ProInspect.'
+      );
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -96,6 +138,21 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
 
             <div className="space-y-1.5 text-slate-700">
               <div className="font-bold text-[#1A2B4A] text-sm">{booking.serviceName}</div>
+              <div
+                className={`inline-flex px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                  booking.readinessStatus === 'ready'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : booking.readinessStatus === 'pending_notice'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                {booking.readinessStatus === 'ready'
+                  ? 'Ready for attendance'
+                  : booking.readinessStatus === 'pending_notice'
+                    ? 'Pending tenant notice'
+                    : 'Access action required'}
+              </div>
               <div className="flex items-center gap-1.5 text-slate-800">
                 <Calendar className="w-3.5 h-3.5 text-[#006D70]" />
                 <span>{booking.appointment.dateString} at {booking.appointment.timeString} AWST</span>
@@ -112,11 +169,23 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
-              Need to reschedule or cancel? Contact ProInspect at{' '}
-              <a href="mailto:info@proinspect.systems" className="font-semibold text-[#006D70] underline">
-                info@proinspect.systems
-              </a>
+            <div className="pt-3 border-t border-slate-200 space-y-2">
+              {booking.status === 'confirmed' && (
+                <button
+                  type="button"
+                  disabled={isCancelling}
+                  onClick={handleCancelBooking}
+                  className="w-full h-10 rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 text-xs font-bold disabled:opacity-50"
+                >
+                  {isCancelling ? 'Cancelling booking...' : 'Cancel this booking'}
+                </button>
+              )}
+              <div className="text-[11px] text-slate-500">
+                Need to reschedule or get help? Contact ProInspect at{' '}
+                <a href="mailto:info@proinspect.systems" className="font-semibold text-[#006D70] underline">
+                  info@proinspect.systems
+                </a>
+              </div>
             </div>
           </div>
         )}

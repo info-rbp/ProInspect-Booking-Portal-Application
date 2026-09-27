@@ -8,7 +8,7 @@ import {
   formatAustralianTime,
   getPerthDateKey,
 } from './src/utils/dateTime.js';
-import type { AccessDetails, BookingRecord, BusinessSettings, InspectionService, PropertyType } from './src/types/booking.js';
+import type { BookingRecord, BusinessSettings, InspectionService } from './src/types/booking.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -20,7 +20,7 @@ import {
   getBooking,
   getService,
   getSettings,
-  listBookings,
+  listBookingsWithAccessSecrets,
   listServices,
   newBookingId,
   releaseScheduleLocks,
@@ -37,6 +37,23 @@ import {
   freeBusy,
   getCalendarId,
 } from './src/server/calendar.js';
+import {
+  sanitizeBookingAccess,
+  sanitizeBookingProperty,
+} from './src/server/bookingValidation.js';
+import {
+  addressValidationMode,
+  autocompleteAustralianAddress,
+  validateAustralianAddress,
+} from './src/server/addressValidation.js';
+import {
+  accessEncryptionIsConfigured,
+  encryptAccessSecrets,
+} from './src/server/accessSecrets.js';
+import {
+  bookingEmailIsConfigured,
+  sendBookingConfirmationEmail,
+} from './src/server/email.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -329,123 +346,6 @@ function sanitizeServiceConfiguration(
   };
 }
 
-const PROPERTY_TYPES: PropertyType[] = [
-  'House',
-  'Apartment / Unit',
-  'Townhouse',
-  'Commercial',
-  'Retail',
-  'Office',
-  'Industrial',
-  'Strata / Common Property',
-  'Other',
-];
-
-function sanitizeAccess(input: unknown): AccessDetails | null {
-  if (!input || typeof input !== 'object') return null;
-  const value = input as Record<string, any>;
-  const method = value.method;
-
-  if (!['tenant', 'meet_onsite', 'keys_agency', 'keys_proinspect', 'lockbox', 'vacant', 'other'].includes(method)) {
-    return null;
-  }
-
-  const base: AccessDetails = {
-    method,
-    specialInstructions: normalizeText(value.specialInstructions, 2000) || undefined,
-  };
-
-  if (method === 'tenant') {
-    const tenant = value.tenant || {};
-    const noticeIssued = ['yes', 'no', 'pending'].includes(tenant.noticeIssued)
-      ? tenant.noticeIssued
-      : 'pending';
-
-    if (!normalizeText(tenant.tenantName, 100) || !normalizeText(tenant.tenantPhone, 50)) {
-      return null;
-    }
-
-    base.tenant = {
-      tenantName: normalizeText(tenant.tenantName, 100),
-      tenantPhone: normalizeText(tenant.tenantPhone, 50),
-      tenantEmail: normalizeText(tenant.tenantEmail, 120) || undefined,
-      noticeIssued,
-      noticeDate: normalizeText(tenant.noticeDate, 20) || undefined,
-      accessRestrictions: normalizeText(tenant.accessRestrictions, 1000) || undefined,
-    };
-  }
-
-  if (method === 'meet_onsite') {
-    const contact = value.meetOnsite || {};
-    if (!normalizeText(contact.contactName, 100) || !normalizeText(contact.contactPhone, 50)) {
-      return null;
-    }
-
-    base.meetOnsite = {
-      contactName: normalizeText(contact.contactName, 100),
-      contactPhone: normalizeText(contact.contactPhone, 50),
-      relationship: normalizeText(contact.relationship, 100),
-      specialInstructions: normalizeText(contact.specialInstructions, 1000) || undefined,
-    };
-  }
-
-  if (method === 'keys_agency') {
-    const agency = value.agencyKeys || {};
-    if (!normalizeText(agency.agencyName, 120) || !normalizeText(agency.collectionAddress, 200)) {
-      return null;
-    }
-
-    base.agencyKeys = {
-      agencyName: normalizeText(agency.agencyName, 120),
-      collectionAddress: normalizeText(agency.collectionAddress, 200),
-      keyReference: normalizeText(agency.keyReference, 100) || undefined,
-      keyInstructions: normalizeText(agency.keyInstructions, 1000) || undefined,
-      returnInstructions: normalizeText(agency.returnInstructions, 1000) || undefined,
-    };
-  }
-
-  if (method === 'keys_proinspect') {
-    const keys = value.proInspectKeys || {};
-    base.proInspectKeys = {
-      keyReference: normalizeText(keys.keyReference, 100) || undefined,
-      additionalInstructions: normalizeText(keys.additionalInstructions, 1000) || undefined,
-    };
-  }
-
-  if (method === 'lockbox') {
-    const lockbox = value.lockbox || {};
-    if (!normalizeText(lockbox.location, 200) || !normalizeText(lockbox.code, 100)) {
-      return null;
-    }
-
-    base.lockbox = {
-      location: normalizeText(lockbox.location, 200),
-      instructions: normalizeText(lockbox.instructions, 1000) || undefined,
-      code: normalizeText(lockbox.code, 100),
-    };
-  }
-
-  if (method === 'vacant') {
-    const vacant = value.vacant || {};
-    if (!normalizeText(vacant.accessInstructions, 1000)) return null;
-
-    base.vacant = {
-      accessInstructions: normalizeText(vacant.accessInstructions, 1000),
-      securityAlarm: normalizeText(vacant.securityAlarm, 500) || undefined,
-    };
-  }
-
-  if (method === 'other') {
-    const other = value.other || {};
-    if (!normalizeText(other.instructions, 1000)) return null;
-    base.other = {
-      instructions: normalizeText(other.instructions, 1000),
-    };
-  }
-
-  return base;
-}
-
 function generateManagementToken(): string {
   return `pi_${randomBytes(24).toString('base64url')}`;
 }
@@ -561,12 +461,33 @@ async function localConflictForSlot(
   });
 }
 
-function publicBookingView(booking: BookingRecord, includeManagementToken = false) {
+function publicBaseUrl(req: Request): string {
+  const configured = process.env.APP_URL?.trim().replace(/\/$/, '');
+  if (configured) return configured;
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const protocol =
+    typeof forwardedProto === 'string' && forwardedProto.trim()
+      ? forwardedProto.split(',')[0].trim()
+      : req.protocol;
+  const host = req.get('host');
+
+  return host ? `${protocol}://${host}` : '';
+}
+
+function publicBookingView(
+  booking: BookingRecord,
+  includeManagementToken = false,
+  managementUrl?: string
+) {
   return {
     bookingReference: booking.bookingReference,
     ...(includeManagementToken ? { managementToken: booking.managementToken } : {}),
+    ...(managementUrl ? { managementUrl } : {}),
     serviceName: booking.serviceName,
     status: booking.status,
+    readinessStatus: booking.readinessStatus || 'ready',
+    confirmationEmailStatus: booking.confirmationEmail?.status,
     property: {
       streetAddress: booking.property.streetAddress,
       unit: booking.property.unit || '',
@@ -588,6 +509,9 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     calendarConfigured: calendarIsConfigured(),
+    bookingEmailConfigured: bookingEmailIsConfigured(),
+    sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
+    addressValidationMode: addressValidationMode(),
     timezone: TIMEZONE,
   });
 });
@@ -628,6 +552,43 @@ app.get('/api/calendar/status', (_req, res) => {
     provider: 'Google Calendar API',
     timezone: TIMEZONE,
   });
+});
+
+app.get('/api/address/autocomplete', availabilityRateLimit, async (req, res) => {
+  try {
+    const input = typeof req.query.input === 'string' ? req.query.input.trim() : '';
+    if (input.length < 3) return res.json({ suggestions: [] });
+
+    const suggestions = await autocompleteAustralianAddress(input);
+    return res.json({ suggestions });
+  } catch (error) {
+    console.error('Address autocomplete failed:', error);
+    return res.status(503).json({
+      error: 'Address suggestions are temporarily unavailable. You can continue entering the address manually.',
+    });
+  }
+});
+
+app.post('/api/address/validate', availabilityRateLimit, async (req, res) => {
+  try {
+    const result = await validateAustralianAddress({
+      formattedAddress:
+        typeof req.body?.formattedAddress === 'string'
+          ? req.body.formattedAddress
+          : undefined,
+      property:
+        req.body?.property && typeof req.body.property === 'object'
+          ? req.body.property
+          : undefined,
+    });
+
+    return res.json({ result });
+  } catch (error) {
+    console.error('Address validation failed:', error);
+    return res.status(503).json({
+      error: 'Address validation is temporarily unavailable. Please try again shortly.',
+    });
+  }
 });
 
 app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) => {
@@ -777,25 +738,91 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       return res.status(400).json({ error: 'Missing mandatory booking information.' });
     }
 
-    if (
-      !normalizeText(property.streetAddress, 150) ||
-      !normalizeText(property.suburb, 100) ||
-      !/^\d{4}$/.test(normalizeText(property.postcode, 4))
-    ) {
-      return res.status(400).json({ error: 'A complete Australian property address is required.' });
+    const propertyValidation = sanitizeBookingProperty(property);
+    if (!propertyValidation.property) {
+      return res.status(400).json({
+        error: propertyValidation.error || 'Valid property details are required.',
+      });
     }
 
-    if (
-      !normalizeText(property.customerName, 100) ||
-      !isValidEmail(property.customerEmail) ||
-      !normalizeText(property.customerPhone, 50)
-    ) {
-      return res.status(400).json({ error: 'Valid booking contact details are required.' });
+    const accessValidation = sanitizeBookingAccess(access);
+    if (!accessValidation.access || !accessValidation.readinessStatus) {
+      return res.status(400).json({
+        error: accessValidation.error || 'Valid property access information is required.',
+      });
     }
 
-    const sanitizedAccess = sanitizeAccess(access);
-    if (!sanitizedAccess) {
-      return res.status(400).json({ error: 'Valid property access information is required.' });
+    let validatedProperty = propertyValidation.property;
+
+    if (addressValidationMode() !== 'off') {
+      try {
+        const addressResult = await validateAustralianAddress({
+          property: validatedProperty,
+        });
+
+        if (!addressResult.verified) {
+          return res.status(400).json({
+            error:
+              addressResult.message ||
+              'The property address could not be verified. Review the address and try again.',
+            addressValidation: addressResult,
+          });
+        }
+
+        const canonicalState =
+          addressResult.state &&
+          ['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(
+            addressResult.state.toUpperCase()
+          )
+            ? addressResult.state.toUpperCase()
+            : validatedProperty.state;
+
+        validatedProperty = {
+          ...validatedProperty,
+          streetAddress:
+            addressResult.streetAddress || validatedProperty.streetAddress,
+          unit: addressResult.unit || validatedProperty.unit,
+          suburb: addressResult.suburb || validatedProperty.suburb,
+          state: canonicalState,
+          postcode: addressResult.postcode || validatedProperty.postcode,
+          addressVerification: {
+            status: 'verified',
+            formattedAddress: addressResult.formattedAddress,
+            placeId: addressResult.placeId,
+            latitude: addressResult.latitude,
+            longitude: addressResult.longitude,
+            validationGranularity: addressResult.validationGranularity,
+            possibleNextAction: addressResult.possibleNextAction,
+            addressComplete: addressResult.addressComplete,
+            validatedAt: new Date().toISOString(),
+          },
+        };
+      } catch (error) {
+        if (addressValidationMode() === 'required') {
+          console.error('Required address validation failed:', error);
+          return res.status(503).json({
+            error:
+              'The property address could not be verified right now. Please try again shortly.',
+          });
+        }
+
+        console.warn('Optional address validation unavailable:', error);
+        validatedProperty = {
+          ...validatedProperty,
+          addressVerification: {
+            status: 'unverified',
+            validatedAt: new Date().toISOString(),
+          },
+        };
+      }
+    } else {
+      validatedProperty = {
+        ...validatedProperty,
+        addressVerification: {
+          status: 'unverified',
+          validatedAt: new Date().toISOString(),
+        },
+      };
     }
 
     const [service, settings] = await Promise.all([
@@ -934,22 +961,9 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       serviceId: service.id,
       serviceName: service.name,
       calendarId: resolvedCalendarId,
-      property: {
-        streetAddress: normalizeText(property.streetAddress, 150),
-        unit: normalizeText(property.unit, 50),
-        suburb: normalizeText(property.suburb, 100),
-        state: normalizeText(property.state, 10) || 'WA',
-        postcode: normalizeText(property.postcode, 4),
-        propertyType: PROPERTY_TYPES.includes(property.propertyType)
-          ? property.propertyType
-          : 'Other',
-        clientName: normalizeText(property.clientName, 100),
-        clientReference: normalizeText(property.clientReference, 100),
-        customerName: normalizeText(property.customerName, 100),
-        customerEmail: normalizeText(property.customerEmail, 120),
-        customerPhone: normalizeText(property.customerPhone, 50),
-      },
-      access: sanitizedAccess,
+      property: validatedProperty,
+      access: accessValidation.access,
+      readinessStatus: accessValidation.readinessStatus,
       appointment: {
         start: requestedStart.toISOString(),
         end: canonicalEnd.toISOString(),
@@ -966,13 +980,30 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       updatedAt: now,
     };
 
+    let encryptedAccessSecrets;
+    if (accessValidation.secrets) {
+      if (!accessEncryptionIsConfigured()) {
+        await releaseScheduleLocks(bookingId).catch(() => undefined);
+        lockedBookingId = null;
+        return res.status(503).json({
+          error:
+            'Secure storage for lockbox or alarm details is temporarily unavailable. Please contact ProInspect or choose another access method.',
+        });
+      }
+
+      encryptedAccessSecrets = encryptAccessSecrets(
+        bookingId,
+        accessValidation.secrets
+      );
+    }
+
     const calendarResult = await createEvent(booking, resolvedCalendarId);
     calendarEventId = calendarResult.eventId;
     booking.calendarEventId = calendarEventId;
     booking.calendarHtmlLink = calendarResult.htmlLink;
 
     try {
-      await saveBooking(booking);
+      await saveBooking(booking, encryptedAccessSecrets);
     } catch (firestoreError) {
       await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
         console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
@@ -985,10 +1016,48 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
     });
     lockedBookingId = null;
 
+    const baseUrl = publicBaseUrl(req);
+    const managementUrl = `${baseUrl}/manage/${encodeURIComponent(
+      booking.managementToken
+    )}`;
+    const emailResult = await sendBookingConfirmationEmail({
+      booking,
+      managementUrl,
+    });
+    booking.confirmationEmail = {
+      status: emailResult.status,
+      attemptedAt: new Date().toISOString(),
+      ...(emailResult.providerMessageId
+        ? { providerMessageId: emailResult.providerMessageId }
+        : {}),
+      ...(emailResult.error
+        ? { error: emailResult.error.slice(0, 500) }
+        : {}),
+    };
+
+    await updateBooking(booking.id, {
+      confirmationEmail: booking.confirmationEmail,
+    }).catch((emailStatusError) => {
+      console.error(
+        'Failed to persist booking confirmation-email status:',
+        emailStatusError
+      );
+    });
+
+    if (emailResult.status === 'failed') {
+      console.error(
+        `Booking ${booking.bookingReference} was created but its confirmation email failed:`,
+        emailResult.error
+      );
+    }
+
     return res.status(201).json({
       success: true,
-      booking: publicBookingView(booking, true),
-      message: 'Booking confirmed successfully.',
+      booking: publicBookingView(booking, true, managementUrl),
+      message:
+        emailResult.status === 'sent'
+          ? 'Booking confirmed successfully. A confirmation email has been sent.'
+          : 'Booking confirmed successfully. Keep the secure management link shown on screen.',
     });
   } catch (error) {
     if (lockedBookingId) {
@@ -1016,10 +1085,67 @@ app.get('/api/bookings/manage/:token', manageRateLimit, async (req, res) => {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    return res.json({ booking: publicBookingView(booking) });
+    const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
+    return res.json({ booking: publicBookingView(booking, false, managementUrl) });
   } catch (error) {
     console.error('Public booking lookup failed:', error);
     return res.status(500).json({ error: 'Unable to retrieve this booking.' });
+  }
+});
+
+app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res) => {
+  try {
+    const token = req.params.token;
+    if (!/^pi_[A-Za-z0-9_-]{24,}$/.test(token)) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    const booking = await findBookingByToken(token);
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    if (booking.status === 'cancelled') {
+      const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
+      return res.json({
+        success: true,
+        booking: publicBookingView(booking, false, managementUrl),
+      });
+    }
+
+    if (booking.status === 'completed') {
+      return res.status(409).json({ error: 'Completed bookings cannot be cancelled.' });
+    }
+
+    if (new Date(booking.appointment.start).getTime() <= Date.now()) {
+      return res.status(409).json({
+        error: 'This appointment has already started. Contact ProInspect for assistance.',
+      });
+    }
+
+    if (booking.calendarEventId) {
+      const service = await getService(booking.serviceId);
+      await deleteEvent(
+        booking.calendarEventId,
+        booking.calendarId || service?.calendarId
+      );
+    }
+
+    const updated = await updateBooking(booking.id, { status: 'cancelled' });
+    if (!updated) {
+      throw new Error('Booking disappeared while cancellation was being processed.');
+    }
+
+    const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
+    return res.json({
+      success: true,
+      booking: publicBookingView(updated, false, managementUrl),
+    });
+  } catch (error) {
+    console.error('Public booking cancellation failed:', error);
+    return res.status(500).json({
+      error: 'The booking could not be cancelled. Please contact ProInspect.',
+    });
   }
 });
 
@@ -1029,7 +1155,7 @@ app.get('/api/admin/session', requireAdmin, (_req, res) => {
 
 app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   try {
-    const bookings = await listBookings();
+    const bookings = await listBookingsWithAccessSecrets();
     return res.json({ bookings });
   } catch (error) {
     console.error('Admin bookings load failed:', error);

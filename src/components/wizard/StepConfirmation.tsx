@@ -40,6 +40,13 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
 
   const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
   const fullAddress = `${unitPrefix}${booking.property.streetAddress}, ${booking.property.suburb} ${booking.property.state} ${booking.property.postcode}`;
+  const readinessStatus = booking.readinessStatus || 'ready';
+  const readinessLabel =
+    readinessStatus === 'ready'
+      ? 'Ready for attendance'
+      : readinessStatus === 'pending_notice'
+        ? 'Pending tenant notice'
+        : 'Access action required';
 
   return (
     <div className="space-y-8 animate-fadeIn max-w-2xl mx-auto">
@@ -52,7 +59,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           Booking confirmed
         </h1>
         <p className="text-sm sm:text-base text-slate-600 max-w-md mx-auto">
-          Your inspection appointment has been successfully scheduled and synced to the ProInspect calendar.
+          Your appointment has been successfully scheduled and recorded by ProInspect.
         </p>
       </div>
 
@@ -114,6 +121,21 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           </div>
 
           <div className="space-y-1">
+            <span className="text-xs text-slate-400 font-medium block">Attendance Readiness:</span>
+            <span
+              className={`font-bold ${
+                readinessStatus === 'ready'
+                  ? 'text-emerald-700'
+                  : readinessStatus === 'pending_notice'
+                    ? 'text-amber-700'
+                    : 'text-rose-700'
+              }`}
+            >
+              {readinessLabel}
+            </span>
+          </div>
+
+          <div className="space-y-1">
             <span className="text-xs text-slate-400 font-medium block">Attendee Contact Email:</span>
             <span className="font-semibold text-slate-800 flex items-center gap-1.5">
               <Mail className="w-4 h-4 text-[#006D70]" />
@@ -123,9 +145,13 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
         </div>
 
         <div className="p-3.5 bg-sky-50 border border-sky-100 rounded-lg text-xs text-[#006D70] font-medium space-y-2">
-          <div className="flex items-center gap-2">
-            <Mail className="w-4 h-4 shrink-0" />
-            <span>Your booking has been recorded in the ProInspect scheduling system.</span>
+          <div className="flex items-start gap-2">
+            <Mail className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              {booking.confirmationEmailStatus === 'sent'
+                ? `A confirmation email has been sent to ${booking.property.customerEmail}.`
+                : 'Your booking is confirmed. Save the secure management link below until email delivery is configured or completed.'}
+            </span>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2 border-t border-sky-100">
             <span className="text-slate-600">
@@ -140,6 +166,17 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
               Copy code
             </button>
           </div>
+          {booking.managementUrl && (
+            <div className="pt-2 border-t border-sky-100">
+              <a
+                href={booking.managementUrl}
+                className="inline-flex items-center gap-1.5 font-bold text-[#006D70] hover:underline"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open secure booking management page</span>
+              </a>
+            </div>
+          )}
         </div>
       </div>
 

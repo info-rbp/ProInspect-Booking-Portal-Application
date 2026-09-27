@@ -97,3 +97,23 @@ Supported operations:
 Service IDs are permanent after creation. Services are never deleted through the V1 interface; deactivation preserves historical bookings and prevents new bookings.
 
 Firestore remains the runtime source of truth. Changes made in the Staff Portal are written to `/services/{serviceId}` and active public services update the public booking flow immediately.
+
+
+## Booking reliability and security
+
+Production booking creation is validated and committed server-side. The booking flow now includes:
+
+- server-side Australian property, contact and access validation
+- Google Maps Platform address autocomplete and address validation
+- tenant-access readiness states for issued, pending and missing entry notice
+- Google Calendar availability recheck and transactional Firestore schedule locks
+- field-level AES-256-GCM encryption for lockbox codes and security-alarm details
+- a branded customer confirmation email with a secure booking-management link
+- customer self-service booking lookup and cancellation using an unguessable management token
+- a controlled live end-to-end smoke test for Calendar write/delete and Firestore persistence
+
+Sensitive lockbox/alarm values are not stored in the normal `bookings` document and are not copied to Google Calendar. New sensitive values are written to the separate `bookingAccessSecrets` collection only after encryption and are restored only for authenticated staff API responses.
+
+The application fails closed for new lockbox/alarm bookings when `ACCESS_DATA_ENCRYPTION_KEY` is not configured.
+
+See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration, encryption secret and production verification procedure.

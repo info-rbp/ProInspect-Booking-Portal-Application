@@ -31,6 +31,18 @@ export type PropertyType =
   | 'Strata / Common Property'
   | 'Other';
 
+export interface AddressVerification {
+  status: 'verified' | 'unverified';
+  formattedAddress?: string;
+  placeId?: string;
+  latitude?: number;
+  longitude?: number;
+  validationGranularity?: string;
+  possibleNextAction?: string;
+  addressComplete?: boolean;
+  validatedAt?: string;
+}
+
 export interface PropertyDetails {
   streetAddress: string;
   unit?: string;
@@ -43,6 +55,7 @@ export interface PropertyDetails {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  addressVerification?: AddressVerification;
 }
 
 export type AccessMethod =
@@ -86,11 +99,15 @@ export interface ProInspectKeysDetails {
 export interface LockboxDetails {
   location: string;
   instructions?: string;
-  code: string;
+  // Required in the customer form, but removed from the booking document after
+  // server-side encryption and restored only for authenticated staff responses.
+  code?: string;
 }
 
 export interface VacantDetails {
   accessInstructions: string;
+  // Removed from the booking document after server-side encryption and restored
+  // only for authenticated staff responses.
   securityAlarm?: string;
 }
 
@@ -119,6 +136,8 @@ export interface AppointmentSlot {
 }
 
 export type BookingStatus = 'confirmed' | 'completed' | 'cancelled';
+export type BookingReadinessStatus = 'ready' | 'pending_notice' | 'access_action_required';
+export type ConfirmationEmailStatus = 'sent' | 'failed' | 'not_configured';
 
 export interface BookingRecord {
   id: string;
@@ -131,6 +150,7 @@ export interface BookingRecord {
   calendarHtmlLink?: string;
   property: PropertyDetails;
   access: AccessDetails;
+  readinessStatus: BookingReadinessStatus;
   appointment: {
     start: string; // ISO timestamp
     end: string;   // ISO timestamp
@@ -144,6 +164,12 @@ export interface BookingRecord {
   };
   status: BookingStatus;
   adminNotes?: string;
+  confirmationEmail?: {
+    status: ConfirmationEmailStatus;
+    attemptedAt?: string;
+    providerMessageId?: string;
+    error?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -151,8 +177,11 @@ export interface BookingRecord {
 export interface PublicBookingSummary {
   bookingReference: string;
   managementToken?: string;
+  managementUrl?: string;
   serviceName: string;
   status: BookingStatus;
+  readinessStatus: BookingReadinessStatus;
+  confirmationEmailStatus?: ConfirmationEmailStatus;
   property: {
     streetAddress: string;
     unit?: string;
@@ -167,6 +196,31 @@ export interface PublicBookingSummary {
     method: AccessMethod;
   };
   appointment: BookingRecord['appointment'];
+}
+
+export interface AddressSuggestion {
+  placeId: string;
+  text: string;
+  mainText?: string;
+  secondaryText?: string;
+}
+
+export interface AddressValidationResult {
+  verified: boolean;
+  requiresConfirmation: boolean;
+  message?: string;
+  formattedAddress?: string;
+  placeId?: string;
+  latitude?: number;
+  longitude?: number;
+  validationGranularity?: string;
+  possibleNextAction?: string;
+  addressComplete?: boolean;
+  streetAddress?: string;
+  unit?: string;
+  suburb?: string;
+  state?: string;
+  postcode?: string;
 }
 
 export interface OperatingHours {

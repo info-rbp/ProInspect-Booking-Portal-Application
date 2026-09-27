@@ -23,6 +23,11 @@ import { initAuthListener, logoutAdmin } from './services/firebase';
 import { User } from 'firebase/auth';
 import { Search, ShieldAlert, CalendarClock } from 'lucide-react';
 
+function manageTokenFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export default function App() {
   // Navigation / View State
   const [activeView, setActiveView] = useState<'booking' | 'admin'>('booking');
@@ -68,7 +73,12 @@ export default function App() {
   // Admin & Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+  const [directManageToken, setDirectManageToken] = useState<string | null>(
+    () => manageTokenFromPath()
+  );
+  const [isManageModalOpen, setIsManageModalOpen] = useState(
+    () => Boolean(manageTokenFromPath())
+  );
 
   // Load initial services on mount
   useEffect(() => {
@@ -217,6 +227,15 @@ export default function App() {
     });
   };
 
+  const handleCloseManageModal = () => {
+    setIsManageModalOpen(false);
+    setDirectManageToken(null);
+
+    if (window.location.pathname.startsWith('/manage/')) {
+      window.history.replaceState({}, '', '/');
+    }
+  };
+
   const handleAdminLogout = async () => {
     await logoutAdmin();
     setCurrentUser(null);
@@ -275,7 +294,10 @@ export default function App() {
               </span>
               <button
                 type="button"
-                onClick={() => setIsManageModalOpen(true)}
+                onClick={() => {
+                  setDirectManageToken(null);
+                  setIsManageModalOpen(true);
+                }}
                 className="text-[#006D70] hover:underline flex items-center gap-1 font-semibold"
               >
                 <Search className="w-3.5 h-3.5" />
@@ -359,7 +381,8 @@ export default function App() {
       {/* Public Self-service Booking Lookup Modal */}
       <PublicBookingManageModal
         isOpen={isManageModalOpen}
-        onClose={() => setIsManageModalOpen(false)}
+        onClose={handleCloseManageModal}
+        initialToken={directManageToken}
       />
 
       {/* Website Consistent Footer */}

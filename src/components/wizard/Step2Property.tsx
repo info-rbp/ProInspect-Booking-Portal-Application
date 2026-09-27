@@ -1,5 +1,13 @@
-import React, { useState } from 'react';
-import { PropertyDetails, PropertyType } from '../../types/booking';
+import React, { useEffect, useState } from 'react';
+import {
+  AddressSuggestion,
+  PropertyDetails,
+  PropertyType,
+} from '../../types/booking';
+import {
+  fetchAddressSuggestions,
+  validateAddress,
+} from '../../services/api';
 import {
   isValidAustralianPostcode,
   isValidAustralianPhone,
@@ -7,7 +15,18 @@ import {
   POPULAR_WA_SUBURBS,
   AUSTRALIAN_STATES,
 } from '../../utils/australianValidation';
-import { MapPin, User, Mail, Phone, Building, ArrowRight, ArrowLeft, AlertCircle } from 'lucide-react';
+import {
+  MapPin,
+  User,
+  Mail,
+  Phone,
+  Building,
+  ArrowRight,
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+} from 'lucide-react';
 
 interface Step2PropertyProps {
   initialData: PropertyDetails;
@@ -50,6 +69,44 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [isValidatingAddress, setIsValidatingAddress] = useState(false);
+  const [addressVerificationMessage, setAddressVerificationMessage] = useState<string | null>(
+    initialData.addressVerification?.status === 'verified'
+      ? 'Address verified by Google Maps.'
+      : null
+  );
+
+  useEffect(() => {
+    const input = formData.streetAddress.trim();
+
+    if (
+      input.length < 3 ||
+      formData.addressVerification?.status === 'verified'
+    ) {
+      setAddressSuggestions([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setIsSearchingAddress(true);
+      try {
+        const suggestions = await fetchAddressSuggestions(input);
+        if (!cancelled) setAddressSuggestions(suggestions);
+      } catch {
+        if (!cancelled) setAddressSuggestions([]);
+      } finally {
+        if (!cancelled) setIsSearchingAddress(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [formData.streetAddress, formData.addressVerification?.status]);
 
   const validateField = (name: keyof PropertyDetails, value: string): string => {
     switch (name) {
@@ -77,9 +134,20 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
   };
 
   const handleChange = (name: keyof PropertyDetails, value: string) => {
-    const updated = { ...formData, [name]: value };
+    const addressField = ['streetAddress', 'unit', 'suburb', 'state', 'postcode'].includes(
+      String(name)
+    );
+    const updated = {
+      ...formData,
+      [name]: value,
+      ...(addressField ? { addressVerification: undefined } : {}),
+    };
     setFormData(updated);
     onUpdate(updated);
+
+    if (addressField) {
+      setAddressVerificationMessage(null);
+    }
 
     if (touched[name]) {
       const err = validateField(name, value);
@@ -89,12 +157,17 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
   const handleBlur = (name: keyof PropertyDetails) => {
     setTouched((prev) => ({ ...prev, [name]: true }));
-    const err = validateField(name, formData[name] || '');
+    const currentValue = formData[name];
+    const err = validateField(
+      name,
+      typeof currentValue === 'string' ? currentValue : ''
+    );
     setErrors((prev) => ({ ...prev, [name]: err }));
   };
 
   const handleSelectSuburb = (suburb: string) => {
-    const updated = { ...formData, suburb };
+    const updated = { ...formData, suburb, addressVerification: undefined };
+    setAddressVerificationMessage(null);
     // Suggest standard postcodes for common Perth suburbs if empty
     if (suburb === 'Cloverdale' && !formData.postcode) updated.postcode = '6105';
     if (suburb === 'Perth' && !formData.postcode) updated.postcode = '6000';
@@ -104,7 +177,69 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
     onUpdate(updated);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const applyValidatedAddress = (
+    result: Awaited<ReturnType<typeof validateAddress>>
+  ): PropertyDetails => {
+    const state =
+      result.state &&
+      AUSTRALIAN_STATES.some((item) => item.code === result.state?.toUpperCase())
+        ? result.state.toUpperCase()
+        : formData.state;
+
+    return {
+      ...formData,
+      streetAddress: result.streetAddress || formData.streetAddress,
+      unit: result.unit || formData.unit,
+      suburb: result.suburb || formData.suburb,
+      state,
+      postcode: result.postcode || formData.postcode,
+      addressVerification: {
+        status: result.verified ? 'verified' : 'unverified',
+        formattedAddress: result.formattedAddress,
+        placeId: result.placeId,
+        latitude: result.latitude,
+        longitude: result.longitude,
+        validationGranularity: result.validationGranularity,
+        possibleNextAction: result.possibleNextAction,
+        addressComplete: result.addressComplete,
+        validatedAt: new Date().toISOString(),
+      },
+    };
+  };
+
+  const handleAddressSuggestion = async (suggestion: AddressSuggestion) => {
+    setIsValidatingAddress(true);
+    setErrors((prev) => ({ ...prev, streetAddress: '' }));
+
+    try {
+      const result = await validateAddress({ formattedAddress: suggestion.text });
+
+      if (!result.verified) {
+        setAddressVerificationMessage(
+          result.message || 'Google Maps could not verify this property address.'
+        );
+        return;
+      }
+
+      const updated = applyValidatedAddress(result);
+      setFormData(updated);
+      onUpdate(updated);
+      setAddressSuggestions([]);
+      setAddressVerificationMessage(
+        result.requiresConfirmation
+          ? 'Google Maps standardized this address. Review the details below before continuing.'
+          : 'Address verified by Google Maps.'
+      );
+    } catch {
+      setAddressVerificationMessage(
+        'Address verification is temporarily unavailable. You can continue entering the address manually.'
+      );
+    } finally {
+      setIsValidatingAddress(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const newErrors: Record<string, string> = {
@@ -127,8 +262,47 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
     });
 
     const hasErrors = Object.values(newErrors).some((msg) => Boolean(msg));
-    if (!hasErrors) {
+    if (hasErrors) return;
+
+    if (formData.addressVerification?.status === 'verified') {
       onNext();
+      return;
+    }
+
+    setIsValidatingAddress(true);
+    try {
+      const result = await validateAddress({ property: formData });
+
+      if (!result.verified) {
+        setAddressVerificationMessage(
+          result.message ||
+            'Google Maps could not verify this address to a specific property. Review it and try again.'
+        );
+        setErrors((prev) => ({
+          ...prev,
+          streetAddress: 'Please verify the property address before continuing.',
+        }));
+        return;
+      }
+
+      const updated = applyValidatedAddress(result);
+      setFormData(updated);
+      onUpdate(updated);
+      setAddressVerificationMessage(
+        result.requiresConfirmation
+          ? 'Google Maps standardized this address. The standardized address will be used for the booking.'
+          : 'Address verified by Google Maps.'
+      );
+      onNext();
+    } catch {
+      // Production server validation remains authoritative. Optional mode allows
+      // the customer to continue if Google Maps Platform is temporarily unavailable.
+      setAddressVerificationMessage(
+        'Address verification is temporarily unavailable. The address will be checked again when the booking is confirmed.'
+      );
+      onNext();
+    } finally {
+      setIsValidatingAddress(false);
     }
   };
 
@@ -169,18 +343,50 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
               Street Address <span className="text-rose-500">*</span>
             </label>
-            <input
-              type="text"
-              placeholder="e.g. 27 Example Street"
-              value={formData.streetAddress}
-              onChange={(e) => handleChange('streetAddress', e.target.value)}
-              onBlur={() => handleBlur('streetAddress')}
-              className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
-                errors.streetAddress && touched.streetAddress
-                  ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                  : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
-              }`}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                autoComplete="off"
+                placeholder="Start typing the property address"
+                value={formData.streetAddress}
+                onChange={(e) => handleChange('streetAddress', e.target.value)}
+                onBlur={() => window.setTimeout(() => setAddressSuggestions([]), 180)}
+                className={`w-full h-11 px-3.5 pr-10 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
+                  errors.streetAddress && touched.streetAddress
+                    ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
+                    : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
+                }`}
+              />
+              {isSearchingAddress && (
+                <Loader2 className="absolute right-3 top-3.5 w-4 h-4 text-[#006D70] animate-spin" />
+              )}
+
+              {addressSuggestions.length > 0 && (
+                <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden">
+                  {addressSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleAddressSuggestion(suggestion)}
+                      className="w-full text-left px-3.5 py-2.5 border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    >
+                      <span className="text-sm font-semibold text-[#1A2B4A] block">
+                        {suggestion.mainText || suggestion.text}
+                      </span>
+                      {suggestion.secondaryText && (
+                        <span className="text-xs text-slate-500 block mt-0.5">
+                          {suggestion.secondaryText}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  <div className="px-3 py-1.5 text-[10px] text-slate-400 text-right bg-slate-50">
+                    Google Maps
+                  </div>
+                </div>
+              )}
+            </div>
             {errors.streetAddress && touched.streetAddress && (
               <p className="mt-1 text-xs text-rose-600 flex items-center gap-1 font-medium">
                 <AlertCircle className="w-3.5 h-3.5" />
@@ -257,6 +463,23 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
             )}
           </div>
         </div>
+
+        {addressVerificationMessage && (
+          <div
+            className={`p-3 rounded-lg border text-xs font-medium flex items-start gap-2 ${
+              formData.addressVerification?.status === 'verified'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}
+          >
+            {formData.addressVerification?.status === 'verified' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            )}
+            <span>{addressVerificationMessage}</span>
+          </div>
+        )}
 
         {/* Popular WA suburbs quick chips */}
         <div className="pt-1">
@@ -447,10 +670,20 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
         <button
           type="submit"
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs transition-colors cursor-pointer"
+          disabled={isValidatingAddress}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait"
         >
-          <span>Continue to Property Access</span>
-          <ArrowRight className="w-4 h-4" />
+          {isValidatingAddress ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Verifying address...</span>
+            </>
+          ) : (
+            <>
+              <span>Continue to Property Access</span>
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
         </button>
       </div>
     </form>

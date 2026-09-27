@@ -5,6 +5,9 @@ import type {
   BookingRecord,
   PublicBookingSummary,
   ServiceAdminInput,
+  AddressSuggestion,
+  AddressValidationResult,
+  PropertyDetails,
 } from '../types/booking';
 import { getAdminIdToken } from './firebase';
 
@@ -28,6 +31,8 @@ type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
 type AdminServiceMutationResponse = { service: InspectionService } & ApiErrorResponse;
 type AdminServiceReorderResponse = { services: InspectionService[] } & ApiErrorResponse;
 type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
+type AddressAutocompleteResponse = { suggestions: AddressSuggestion[] } & ApiErrorResponse;
+type AddressValidationResponse = { result: AddressValidationResult } & ApiErrorResponse;
 
 export async function fetchServices(): Promise<InspectionService[]> {
   const res = await fetch('/api/services');
@@ -41,6 +46,38 @@ export async function fetchSettings(): Promise<BusinessSettings> {
   if (!res.ok) throw new Error('Failed to fetch settings.');
   const data = (await res.json()) as SettingsResponse;
   return data.settings;
+}
+
+export async function fetchAddressSuggestions(
+  input: string
+): Promise<AddressSuggestion[]> {
+  const query = new URLSearchParams({ input });
+  const res = await fetch(`/api/address/autocomplete?${query.toString()}`);
+  const data = (await res.json()) as AddressAutocompleteResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Address suggestions are unavailable.');
+  }
+
+  return data.suggestions || [];
+}
+
+export async function validateAddress(input: {
+  formattedAddress?: string;
+  property?: Partial<PropertyDetails>;
+}): Promise<AddressValidationResult> {
+  const res = await fetch('/api/address/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as AddressValidationResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Address validation is unavailable.');
+  }
+
+  return data.result;
 }
 
 export async function fetchAvailability(
@@ -200,6 +237,22 @@ export async function updateAdminBooking(
 
   if (!res.ok) {
     throw new Error(data.error || 'Failed to update booking.');
+  }
+
+  return data.booking;
+}
+
+export async function cancelBookingByToken(
+  token: string
+): Promise<PublicBookingSummary> {
+  const res = await fetch(
+    `/api/bookings/manage/${encodeURIComponent(token)}/cancel`,
+    { method: 'POST' }
+  );
+  const data = (await res.json()) as PublicBookingResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Unable to cancel this booking.');
   }
 
   return data.booking;

@@ -114,6 +114,9 @@ function calendarDescription(booking: BookingRecord): string {
     'ACCESS',
     booking.access.method.replaceAll('_', ' '),
     '',
+    'ACCESS READINESS',
+    (booking.readinessStatus || 'ready').replaceAll('_', ' '),
+    '',
     'IMPORTANT',
     'Sensitive access information is stored in the ProInspect Operations Portal and is not included in this calendar event.',
   ];

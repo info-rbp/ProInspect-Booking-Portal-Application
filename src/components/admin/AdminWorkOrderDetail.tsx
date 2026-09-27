@@ -133,13 +133,28 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
 
         {/* Access Arrangement & Codes */}
         <div className="bg-white border border-slate-200 p-4 rounded-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2 gap-3">
             <div className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-[#006D70]" />
               <h4 className="font-bold text-xs uppercase tracking-wider text-[#1A2B4A]">
                 Access Arrangement ({booking.access.method.replace('_', ' ')})
               </h4>
             </div>
+            <span
+              className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${
+                (booking.readinessStatus || 'ready') === 'ready'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : booking.readinessStatus === 'pending_notice'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-rose-100 text-rose-700'
+              }`}
+            >
+              {(booking.readinessStatus || 'ready') === 'ready'
+                ? 'Ready'
+                : booking.readinessStatus === 'pending_notice'
+                  ? 'Pending notice'
+                  : 'Access action required'}
+            </span>
           </div>
 
           {/* Tenant Details */}
@@ -160,8 +175,20 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
               </div>
               <div>
                 <span className="text-slate-400 block">Entry Notice:</span>
-                <span className="font-bold text-emerald-700">
-                  {booking.access.tenant.noticeIssued === 'yes' ? 'Notice Issued' : 'Pending'}
+                <span
+                  className={`font-bold ${
+                    booking.access.tenant.noticeIssued === 'yes'
+                      ? 'text-emerald-700'
+                      : booking.access.tenant.noticeIssued === 'pending'
+                        ? 'text-amber-700'
+                        : 'text-rose-700'
+                  }`}
+                >
+                  {booking.access.tenant.noticeIssued === 'yes'
+                    ? 'Notice Issued'
+                    : booking.access.tenant.noticeIssued === 'pending'
+                      ? 'Notice Pending'
+                      : 'Notice Not Issued'}
                   {booking.access.tenant.noticeDate ? ` on ${booking.access.tenant.noticeDate}` : ''}
                 </span>
               </div>
@@ -185,7 +212,9 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
                 <div className="flex items-center gap-2 bg-slate-100 p-2 rounded-lg border border-slate-200">
                   <span className="text-slate-500 font-medium">Safe Code:</span>
                   <span className="font-mono font-black text-sm text-[#1A2B4A]">
-                    {showLockboxCode ? booking.access.lockbox.code : '••••'}
+                    {showLockboxCode
+                      ? booking.access.lockbox.code || 'Unavailable'
+                      : '••••'}
                   </span>
                   <button
                     type="button"
@@ -200,6 +229,23 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
               {booking.access.lockbox.instructions && (
                 <div className="text-slate-600">
                   <span>Instructions: {booking.access.lockbox.instructions}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {booking.access.method === 'vacant' && booking.access.vacant && (
+            <div className="text-xs space-y-1 text-slate-700">
+              <div>
+                <span className="text-slate-400 block">Access Instructions:</span>
+                <span className="font-semibold">{booking.access.vacant.accessInstructions}</span>
+              </div>
+              {booking.access.vacant.securityAlarm && (
+                <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200">
+                  <span className="text-rose-600 block font-bold">Security Alarm Details:</span>
+                  <span className="font-mono text-rose-900">
+                    {booking.access.vacant.securityAlarm}
+                  </span>
                 </div>
               )}
             </div>
