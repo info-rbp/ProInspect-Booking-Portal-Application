@@ -13,14 +13,34 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveView,
 }) => {
   const [hoursSummary, setHoursSummary] = useState('Availability shown from live booking settings');
+  const [calendarConnected, setCalendarConnected] = useState(false);
 
   useEffect(() => {
     fetchSettings()
       .then((settings) => {
+        setCalendarConnected(Boolean(settings.calendarConnected));
+
         const monday = settings.operatingHours.monday;
-        const weekday = settings.operatingHours.tuesday;
-        if (monday?.active && weekday?.active) {
-          setHoursSummary(`Mon ${monday.open}-${monday.close} · Tue-Fri ${weekday.open}-${weekday.close}`);
+        const weekdays = [
+          settings.operatingHours.tuesday,
+          settings.operatingHours.wednesday,
+          settings.operatingHours.thursday,
+          settings.operatingHours.friday,
+        ];
+        const weekdaysMatch =
+          weekdays.every((day) => day.active) &&
+          weekdays.every(
+            (day) =>
+              day.open === weekdays[0].open &&
+              day.close === weekdays[0].close
+          );
+
+        if (monday?.active && weekdaysMatch) {
+          setHoursSummary(
+            `Mon ${monday.open}-${monday.close} · Tue-Fri ${weekdays[0].open}-${weekdays[0].close}`
+          );
+        } else {
+          setHoursSummary('Operating hours vary by day · see live availability');
         }
       })
       .catch(() => undefined);
@@ -32,9 +52,13 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="bg-[#1A2B4A] text-slate-300 text-xs py-1.5 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span
+              className={`inline-block w-2 h-2 rounded-full ${
+                calendarConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+              }`}
+            />
             <span className="font-medium text-slate-200">
-              Live Scheduling Engine &bull; Western Australia (AWST UTC+8)
+              {calendarConnected ? 'Live Scheduling' : 'Scheduling Setup Required'} &bull; Western Australia (AWST UTC+8)
             </span>
           </div>
 
