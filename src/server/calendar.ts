@@ -24,7 +24,10 @@ async function getAuthClient() {
 
     const auth = new GoogleAuth({
       credentials,
-      scopes: ['https://www.googleapis.com/auth/calendar'],
+      scopes: [
+        'https://www.googleapis.com/auth/calendar.events',
+        'https://www.googleapis.com/auth/calendar.events.freebusy',
+      ],
     });
     authClientPromise = auth.getClient();
   }
