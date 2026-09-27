@@ -95,12 +95,21 @@ export async function freeBusy(params: {
 }
 
 function calendarDescription(booking: BookingRecord): string {
+  const categoryLabel =
+    booking.serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : booking.serviceCategory
+        ? booking.serviceCategory.charAt(0).toUpperCase() + booking.serviceCategory.slice(1)
+        : 'Legacy / uncategorised';
+
   const lines = [
     'BOOKING REFERENCE',
     booking.bookingReference,
     '',
     'SERVICE',
     booking.serviceName,
+    'CATEGORY',
+    categoryLabel,
     '',
     'PROPERTY',
     `${booking.property.unit ? `${booking.property.unit}, ` : ''}${booking.property.streetAddress}`,
