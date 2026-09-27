@@ -363,6 +363,7 @@ export default function App() {
                   services={filteredServices}
                   selectedServiceId={selectedServiceId}
                   onSelectService={handleSelectService}
+                  onBack={() => setCurrentStep('service-type')}
                   onNext={handleStep1Next}
                 />
               )}
