@@ -4,11 +4,8 @@ build
 coverage
 .git
 .github
-.wrangler
 *.log
 .env
 .env.*
-.dev.vars
-.dev.vars.*
 Dockerfile*
 README.md

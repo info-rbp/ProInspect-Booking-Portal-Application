@@ -9,10 +9,7 @@
     "preview": "vite preview",
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
-    "lint": "npm run cf:types && tsc --noEmit",
-    "cf:types": "wrangler types",
-    "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy",
+    "lint": "tsc --noEmit",
     "container:build": "docker build -t proinspect-booking-portal ."
   },
   "dependencies": {
@@ -38,9 +35,7 @@
     "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "@types/express": "^4.17.21",
-    "wrangler": "^4.141.0",
-    "@cloudflare/containers": "^0.3.7"
+    "@types/express": "^4.17.21"
   },
   "packageManager": "npm@10.9.2",
   "engines": {
