@@ -122,7 +122,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           </div>
         </div>
 
-        <div className="p-3.5 bg-sky-50 border border-sky-100 rounded-lg text-xs text-[#008B8E] font-medium space-y-2">
+        <div className="p-3.5 bg-sky-50 border border-sky-100 rounded-lg text-xs text-[#006D70] font-medium space-y-2">
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 shrink-0" />
             <span>Your booking has been recorded in the ProInspect scheduling system.</span>
@@ -135,7 +135,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
             <button
               type="button"
               onClick={handleCopyManageCode}
-              className="sm:ml-auto px-2.5 py-1.5 rounded-md bg-white border border-sky-200 text-[#008B8E] font-bold"
+              className="sm:ml-auto px-2.5 py-1.5 rounded-md bg-white border border-sky-200 text-[#006D70] font-bold"
             >
               Copy code
             </button>
