@@ -74,7 +74,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
   const [isValidatingAddress, setIsValidatingAddress] = useState(false);
   const [addressVerificationMessage, setAddressVerificationMessage] = useState<string | null>(
     initialData.addressVerification?.status === 'verified'
-      ? 'Address verified by Google.'
+      ? 'Address verified by Google Maps.'
       : null
   );
 
@@ -216,7 +216,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
       if (!result.verified) {
         setAddressVerificationMessage(
-          result.message || 'Google could not verify this property address.'
+          result.message || 'Google Maps could not verify this property address.'
         );
         return;
       }
@@ -227,8 +227,8 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       setAddressSuggestions([]);
       setAddressVerificationMessage(
         result.requiresConfirmation
-          ? 'Google standardized this address. Review the details below before continuing.'
-          : 'Address verified by Google.'
+          ? 'Google Maps standardized this address. Review the details below before continuing.'
+          : 'Address verified by Google Maps.'
       );
     } catch {
       setAddressVerificationMessage(
@@ -276,7 +276,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       if (!result.verified) {
         setAddressVerificationMessage(
           result.message ||
-            'Google could not verify this address to a specific property. Review it and try again.'
+            'Google Maps could not verify this address to a specific property. Review it and try again.'
         );
         setErrors((prev) => ({
           ...prev,
@@ -290,8 +290,8 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       onUpdate(updated);
       setAddressVerificationMessage(
         result.requiresConfirmation
-          ? 'Google standardized this address. The standardized address will be used for the booking.'
-          : 'Address verified by Google.'
+          ? 'Google Maps standardized this address. The standardized address will be used for the booking.'
+          : 'Address verified by Google Maps.'
       );
       onNext();
     } catch {
@@ -382,7 +382,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                     </button>
                   ))}
                   <div className="px-3 py-1.5 text-[10px] text-slate-400 text-right bg-slate-50">
-                    Powered by Google
+                    Google Maps
                   </div>
                 </div>
               )}
