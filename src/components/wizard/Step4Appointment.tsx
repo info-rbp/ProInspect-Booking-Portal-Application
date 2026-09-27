@@ -186,7 +186,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
         <div className="lg:col-span-7 bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-[#00B5B8]" />
+              <CalendarIcon className="w-5 h-5 text-[#006D70]" />
               <h2 className="font-bold text-base text-[#1A2B4A] capitalize">{monthName}</h2>
             </div>
 
@@ -241,7 +241,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
                   onClick={() => setSelectedDateKey(day.dateKey)}
                   className={`h-10 rounded-lg text-xs sm:text-sm font-semibold flex items-center justify-center transition-all ${
                     isSelected
-                      ? 'bg-[#00B5B8] text-white shadow-xs font-bold ring-2 ring-sky-200'
+                      ? 'bg-[#007F82] text-white shadow-xs font-bold ring-2 ring-sky-200'
                       : isDisabled
                       ? 'text-slate-300 bg-transparent cursor-not-allowed'
                       : 'text-[#1A2B4A] hover:bg-slate-100 cursor-pointer'
@@ -256,7 +256,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           {/* Legend & Operating Notice */}
           <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#00B5B8]" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#007F82]" />
               Selected Date
             </span>
             <span>Operating hours are based on the current ProInspect booking settings.</span>
@@ -267,7 +267,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
         <div className="lg:col-span-5 bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
           <div className="border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#00B5B8]" />
+              <Clock className="w-4 h-4 text-[#006D70]" />
               <h3 className="font-bold text-sm text-[#1A2B4A]">Available Times</h3>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">{selectedDateFormatted}</p>
@@ -276,7 +276,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           {/* Slots Content State */}
           {isLoadingSlots ? (
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
-              <Loader2 className="w-6 h-6 text-[#00B5B8] animate-spin" />
+              <Loader2 className="w-6 h-6 text-[#006D70] animate-spin" />
               <span className="text-xs font-semibold text-slate-600">
                 Checking Google Calendar availability...
               </span>
@@ -312,7 +312,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
                       onClick={() => onSelectSlot(slot)}
                       className={`py-3 px-3 rounded-lg text-xs sm:text-sm font-semibold border text-center transition-all cursor-pointer ${
                         isSelected
-                          ? 'border-[#00B5B8] bg-[#00B5B8] text-white shadow-xs font-bold ring-2 ring-sky-200'
+                          ? 'border-[#00B5B8] bg-[#007F82] text-white shadow-xs font-bold ring-2 ring-sky-200'
                           : 'border-slate-200 bg-slate-50 text-[#1A2B4A] hover:bg-slate-100 hover:border-slate-300'
                       }`}
                     >
@@ -335,7 +335,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
       {selectedSlot && (
         <div className="bg-[#F0F9FF] border border-sky-200 rounded-xl p-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#00B5B8] text-white flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-[#007F82] text-white flex items-center justify-center shrink-0">
               <CheckCircle className="w-5 h-5" />
             </div>
             <div>
@@ -367,7 +367,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
           onClick={onNext}
           className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm transition-all ${
             selectedSlot
-              ? 'bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs cursor-pointer'
+              ? 'bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs cursor-pointer'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
