@@ -1,7 +1,10 @@
+export type ServiceCategory = 'residential' | 'commercial' | 'strata-building';
+
 export interface InspectionService {
   id: string;
   name: string;
   publicDescription: string;
+  categories: ServiceCategory[];
   duration: number; // in minutes (e.g. 45, 60, 90, 120)
   bufferBefore: number; // in minutes (default 15)
   bufferAfter: number; // in minutes (default 15)
