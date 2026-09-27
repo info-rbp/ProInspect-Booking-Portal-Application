@@ -189,7 +189,7 @@ export default function App() {
   // Confirm and Submit Booking with Server-side Availability Conflict Recheck
   const handleConfirmBooking = async () => {
     const selectedService = services.find((s) => s.id === selectedServiceId);
-    if (!selectedService || !selectedSlot) return;
+    if (!selectedService || !selectedCategory || !selectedSlot) return;
 
     setIsSubmitting(true);
     setConflictError(null);
@@ -197,6 +197,7 @@ export default function App() {
     try {
       const payload = {
         serviceId: selectedService.id,
+        serviceCategory: selectedCategory,
         property: propertyData,
         access: accessData,
         appointment: {
@@ -399,6 +400,7 @@ export default function App() {
               {currentStep === 'confirm' && selectedService && selectedSlot && (
                 <Step5Review
                   service={selectedService}
+                  serviceCategory={selectedCategory}
                   property={propertyData}
                   access={accessData}
                   appointment={selectedSlot}
