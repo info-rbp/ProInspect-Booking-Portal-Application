@@ -122,11 +122,13 @@ export interface BookingRecord {
   serviceId: string;
   serviceName: string;
   calendarEventId?: string;
+  calendarHtmlLink?: string;
   property: PropertyDetails;
   access: AccessDetails;
   appointment: {
-    start: string; // ISO string in Australia/Perth
-    end: string;   // ISO string
+    start: string; // ISO timestamp
+    end: string;   // ISO timestamp
+    dateKey: string; // YYYY-MM-DD in Australia/Perth
     dateString: string;
     timeString: string;
     durationMinutes: number;
