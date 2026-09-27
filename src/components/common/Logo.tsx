@@ -47,7 +47,7 @@ export const Logo: React.FC<LogoProps> = ({ variant = 'dark', size = 'md' }) => 
     <div className="flex items-center gap-2.5 select-none group">
       {/* Fallback mark used only when VITE_PROINSPECT_LOGO_URL is not configured. */}
       <div
-        className={`${iconSizes[size]} bg-gradient-to-br from-[#0A2540] to-[#0284C7] rounded-lg p-1.5 flex items-center justify-center shadow-sm transition-transform duration-200 group-hover:scale-105`}
+        className={`${iconSizes[size]} bg-gradient-to-br from-[#1A2B4A] to-[#00B5B8] rounded-lg p-1.5 flex items-center justify-center shadow-sm transition-transform duration-200 group-hover:scale-105`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -66,10 +66,10 @@ export const Logo: React.FC<LogoProps> = ({ variant = 'dark', size = 'md' }) => 
 
       <div className="flex flex-col leading-none">
         <div className="flex items-center tracking-tight font-extrabold">
-          <span className={`${titleSizes[size]} font-bold tracking-tight ${isLight ? 'text-white' : 'text-[#0A2540]'}`}>
+          <span className={`${titleSizes[size]} font-bold tracking-tight ${isLight ? 'text-white' : 'text-[#1A2B4A]'}`}>
             PRO
           </span>
-          <span className={`${titleSizes[size]} font-extrabold tracking-tight ${isLight ? 'text-[#38BDF8]' : 'text-[#0284C7]'}`}>
+          <span className={`${titleSizes[size]} font-extrabold tracking-tight ${isLight ? 'text-[#00B5B8]' : 'text-[#00B5B8]'}`}>
             INSPECT
           </span>
         </div>
