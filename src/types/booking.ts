@@ -121,6 +121,7 @@ export interface BookingRecord {
   managementToken: string;  // secure random token for self-service or direct access
   serviceId: string;
   serviceName: string;
+  calendarId?: string;
   calendarEventId?: string;
   calendarHtmlLink?: string;
   property: PropertyDetails;
@@ -140,6 +141,27 @@ export interface BookingRecord {
   adminNotes?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicBookingSummary {
+  bookingReference: string;
+  managementToken?: string;
+  serviceName: string;
+  status: BookingStatus;
+  property: {
+    streetAddress: string;
+    unit?: string;
+    suburb: string;
+    state: string;
+    postcode: string;
+    propertyType: PropertyType;
+    customerName: string;
+    customerEmail: string;
+  };
+  access: {
+    method: AccessMethod;
+  };
+  appointment: BookingRecord['appointment'];
 }
 
 export interface OperatingHours {
