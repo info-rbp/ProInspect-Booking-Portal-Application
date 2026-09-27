@@ -198,6 +198,30 @@
       "required": [
         "email"
       ]
+    },
+    "ScheduleLock": {
+      "title": "ScheduleLock",
+      "description": "Short-lived internal Firestore lock used to prevent concurrent booking confirmations from reserving overlapping times.",
+      "type": "object",
+      "properties": {
+        "bookingId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "expiresAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "bookingId",
+        "expiresAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -216,6 +240,10 @@
     "/adminUsers/{firebaseUid}": {
       "schema": "AdminUser",
       "description": "Optional Firebase UID based administrator allow-list."
+    },
+    "/scheduleLocks/{lockId}": {
+      "schema": "ScheduleLock",
+      "description": "Internal transient concurrency locks. Server-only; never exposed to the browser."
     }
   },
   "security": {
