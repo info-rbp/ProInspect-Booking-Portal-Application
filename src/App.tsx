@@ -262,7 +262,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsManageModalOpen(true)}
-                className="text-[#0284C7] hover:underline flex items-center gap-1 font-semibold"
+                className="text-[#00B5B8] hover:underline flex items-center gap-1 font-semibold"
               >
                 <Search className="w-3.5 h-3.5" />
                 <span>Existing booking? Use secure code</span>
