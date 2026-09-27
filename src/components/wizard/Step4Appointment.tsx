@@ -103,7 +103,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [selectedDateKey, service.duration, service.bufferBefore, service.bufferAfter]);
+  }, [selectedDateKey, service.id]);
 
   // Month navigation
   const handlePrevMonth = () => {
