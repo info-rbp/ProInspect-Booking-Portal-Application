@@ -13,6 +13,23 @@ Create/import a Worker from this GitHub repository and use:
 
 Cloudflare Workers Builds can build the Dockerfile automatically when `wrangler deploy` runs.
 
+## Workers Builds API token permissions
+
+The production deploy command uses Cloudflare Containers. The API token used by **Settings > Builds** must be allowed to manage Containers as well as the Worker.
+
+If deployment reaches image upload and then fails on an endpoint such as `/accounts/<account-id>/containers/me`, replace the automatically generated Workers Builds token with a user API token that includes:
+
+- Workers Scripts: Edit
+- Containers: Edit / Write
+- Account Settings: Read
+- User Details: Read
+- Memberships: Read
+- Workers Routes: Edit for the relevant zone if the deployment manages a route or custom domain
+
+The repository pins the production account with `account_id` in `wrangler.jsonc` so Wrangler cannot accidentally target another Cloudflare account.
+
+After changing the Builds API token, retry the failed production deployment. No application-code change is required for a Containers permission failure.
+
 ## Runtime Variables
 
 Configure this under **Workers & Pages > proinspect-booking-portal > Settings > Variables and Secrets** as a normal Variable:
