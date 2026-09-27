@@ -5,8 +5,8 @@ The production hosting target is Google Cloud Run. The existing React/Vite front
 ## Production configuration
 
 - Google Cloud project: `business-plan-applicatio-17047`
-- Cloud Run service: `proinspect-booking-portal`
-- Region: `australia-southeast1`
+- Cloud Run service: `proinspect-booking-portal-application`
+- Region: `europe-west1`
 - Runtime service account: `proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com`
 - Public access: enabled
 - Minimum instances: 0
@@ -186,3 +186,42 @@ shown on the confirmation screen.
 
 Do not perform the final production booking test until all of the configuration
 flags above show the expected values.
+
+
+## Controlled live booking test
+
+The repository includes a deliberately gated production smoke test:
+
+```bash
+npm run test:e2e:booking
+```
+
+It will not create anything unless `E2E_ALLOW_LIVE_WRITE=YES` is explicitly set. The test creates one clearly identified real booking and then immediately cancels it.
+
+Required test environment values:
+
+```text
+E2E_BASE_URL=https://proinspect-booking-portal-application-696236368989.europe-west1.run.app
+E2E_ALLOW_LIVE_WRITE=YES
+E2E_STREET_ADDRESS=<controlled test property street address>
+E2E_SUBURB=<test property suburb>
+E2E_POSTCODE=<test property postcode>
+E2E_TEST_EMAIL=<email inbox used to verify confirmation delivery>
+E2E_TEST_PHONE=<valid Australian test contact phone>
+```
+
+Optional values include `E2E_UNIT`, `E2E_STATE`, `E2E_PROPERTY_TYPE` and `E2E_SERVICE_ID`.
+
+The smoke test verifies, in sequence:
+
+1. Cloud Run health.
+2. Firestore-backed service catalogue.
+3. Google Calendar availability.
+4. Google Calendar event creation.
+5. Firestore booking persistence.
+6. Secure management-token lookup.
+7. Customer cancellation.
+8. Google Calendar event deletion.
+9. Persisted Firestore cancelled status.
+
+Because this is a live-write test, run it only after the production encryption, email and address-validation configuration is complete. If the script exits after a booking was created but before cancellation, it prints the secure management URL needed for manual cleanup.
