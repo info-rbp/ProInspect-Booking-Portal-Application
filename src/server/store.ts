@@ -2,6 +2,11 @@ import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { adminDb } from './firebaseAdmin.js';
+import {
+  decryptAccessSecrets,
+  restoreSensitiveAccess,
+  type EncryptedAccessSecretsDocument,
+} from './accessSecrets.js';
 
 const SETTINGS_ID = 'business';
 let seeded: Promise<void> | null = null;
@@ -128,14 +133,60 @@ export async function bookingReferenceExists(reference: string): Promise<boolean
   return !snapshot.empty;
 }
 
-export async function saveBooking(booking: BookingRecord): Promise<BookingRecord> {
-  await adminDb.collection('bookings').doc(booking.id).set(booking);
+export async function saveBooking(
+  booking: BookingRecord,
+  encryptedAccessSecrets?: EncryptedAccessSecretsDocument
+): Promise<BookingRecord> {
+  const bookingRef = adminDb.collection('bookings').doc(booking.id);
+  const batch = adminDb.batch();
+  batch.set(bookingRef, booking);
+
+  if (encryptedAccessSecrets) {
+    batch.set(
+      adminDb.collection('bookingAccessSecrets').doc(booking.id),
+      encryptedAccessSecrets
+    );
+  }
+
+  await batch.commit();
   return booking;
 }
 
 export async function listBookings(): Promise<BookingRecord[]> {
   const snapshot = await adminDb.collection('bookings').orderBy('appointment.start', 'desc').limit(500).get();
   return snapshot.docs.map((doc) => ({ ...(doc.data() as BookingRecord), id: doc.id }));
+}
+
+export async function listBookingsWithAccessSecrets(): Promise<BookingRecord[]> {
+  const bookings = await listBookings();
+  if (bookings.length === 0) return bookings;
+
+  const refs = bookings.map((booking) =>
+    adminDb.collection('bookingAccessSecrets').doc(booking.id)
+  );
+  const secretDocs = await adminDb.getAll(...refs);
+
+  return bookings.map((booking, index) => {
+    const secretDoc = secretDocs[index];
+    if (!secretDoc?.exists) return booking;
+
+    try {
+      const secrets = decryptAccessSecrets(
+        booking.id,
+        secretDoc.data() as EncryptedAccessSecretsDocument
+      );
+      return {
+        ...booking,
+        access: restoreSensitiveAccess(booking.access, secrets),
+      };
+    } catch (error) {
+      console.error(
+        `Failed to decrypt sensitive access details for booking ${booking.id}:`,
+        error
+      );
+      return booking;
+    }
+  });
 }
 
 export async function getBooking(bookingId: string): Promise<BookingRecord | null> {
