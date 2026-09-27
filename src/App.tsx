@@ -223,6 +223,22 @@ export default function App() {
     setActiveView('booking');
   };
 
+  const handleAdminServicesChanged = (publicServices: InspectionService[]) => {
+    setServices(publicServices);
+
+    setSelectedServiceId((current) => {
+      if (current && publicServices.some((service) => service.id === current)) {
+        return current;
+      }
+
+      setSelectedSlot(null);
+      setConflictError(null);
+      setCompletedSteps([]);
+      setCurrentStep('service');
+      return publicServices[0]?.id || null;
+    });
+  };
+
   const selectedService = services.find((s) => s.id === selectedServiceId) || services[0];
 
   return (
@@ -241,6 +257,7 @@ export default function App() {
             currentUser={currentUser}
             onLogout={handleAdminLogout}
             onBackToBooking={() => setActiveView('booking')}
+            onServicesChanged={handleAdminServicesChanged}
           />
         ) : confirmedBooking ? (
           // Dedicated Booking Confirmation Screen
