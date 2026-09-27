@@ -16,7 +16,7 @@ import {
   PropertyDetails,
   AccessDetails,
   AppointmentSlot,
-  BookingRecord,
+  PublicBookingSummary,
 } from './types/booking';
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin } from './services/firebase';
@@ -59,7 +59,7 @@ export default function App() {
   });
 
   const [selectedSlot, setSelectedSlot] = useState<AppointmentSlot | null>(null);
-  const [confirmedBooking, setConfirmedBooking] = useState<BookingRecord | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<PublicBookingSummary | null>(null);
 
   // Submission & Conflict State
   const [isSubmitting, setIsSubmitting] = useState(false);
