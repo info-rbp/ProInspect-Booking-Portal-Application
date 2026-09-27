@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookingRecord } from '../../types/booking';
+import { PublicBookingSummary } from '../../types/booking';
 import {
   CheckCircle2,
   Calendar,
@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 interface StepConfirmationProps {
-  booking: BookingRecord;
+  booking: PublicBookingSummary;
   onReset: () => void;
 }
 
@@ -33,7 +33,9 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
   };
 
   const handleCopyManageCode = () => {
-    navigator.clipboard.writeText(booking.managementToken);
+    if (booking.managementToken) {
+      navigator.clipboard.writeText(booking.managementToken);
+    }
   };
 
   const unitPrefix = booking.property.unit ? `${booking.property.unit}, ` : '';
@@ -128,7 +130,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 pt-2 border-t border-sky-100">
             <span className="text-slate-600">
               Keep this secure management code private:
-              <strong className="font-mono text-[#1A2B4A] ml-1">{booking.managementToken}</strong>
+              <strong className="font-mono text-[#1A2B4A] ml-1">{booking.managementToken || 'Unavailable'}</strong>
             </span>
             <button
               type="button"
