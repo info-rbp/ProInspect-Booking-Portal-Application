@@ -51,7 +51,10 @@ import {
   accessEncryptionIsConfigured,
   encryptAccessSecrets,
 } from './src/server/accessSecrets.js';
-import { sendBookingConfirmationEmail } from './src/server/email.js';
+import {
+  bookingEmailIsConfigured,
+  sendBookingConfirmationEmail,
+} from './src/server/email.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -507,6 +510,9 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     calendarConfigured: calendarIsConfigured(),
+    bookingEmailConfigured: bookingEmailIsConfigured(),
+    sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
+    addressValidationMode: addressValidationMode(),
     timezone: TIMEZONE,
   });
 });
