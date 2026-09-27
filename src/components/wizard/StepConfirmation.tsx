@@ -90,7 +90,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="space-y-1">
             <span className="text-xs text-slate-400 font-medium block">Scheduled Time:</span>
             <span className="font-bold text-[#1A2B4A] flex items-center gap-1.5">
-              <Calendar className="w-4 h-4 text-[#00B5B8]" />
+              <Calendar className="w-4 h-4 text-[#006D70]" />
               {booking.appointment.dateString} at {booking.appointment.timeString} AWST
             </span>
           </div>
@@ -98,7 +98,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="space-y-1 sm:col-span-2">
             <span className="text-xs text-slate-400 font-medium block">Property Address:</span>
             <span className="font-semibold text-slate-800 flex items-start gap-1.5">
-              <MapPin className="w-4 h-4 text-[#00B5B8] shrink-0 mt-0.5" />
+              <MapPin className="w-4 h-4 text-[#006D70] shrink-0 mt-0.5" />
               {fullAddress}
             </span>
           </div>
@@ -106,7 +106,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="space-y-1">
             <span className="text-xs text-slate-400 font-medium block">Access Method:</span>
             <span className="font-semibold text-slate-800 flex items-center gap-1.5 capitalize">
-              <KeyRound className="w-4 h-4 text-[#00B5B8]" />
+              <KeyRound className="w-4 h-4 text-[#006D70]" />
               {booking.access.method.replace('_', ' ')}
             </span>
           </div>
@@ -114,7 +114,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
           <div className="space-y-1">
             <span className="text-xs text-slate-400 font-medium block">Attendee Contact Email:</span>
             <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-              <Mail className="w-4 h-4 text-[#00B5B8]" />
+              <Mail className="w-4 h-4 text-[#006D70]" />
               {booking.property.customerEmail}
             </span>
           </div>
@@ -156,7 +156,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
         <button
           type="button"
           onClick={onReset}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs transition-colors cursor-pointer"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs transition-colors cursor-pointer"
         >
           <RotateCcw className="w-4 h-4" />
           <span>Make another booking</span>
