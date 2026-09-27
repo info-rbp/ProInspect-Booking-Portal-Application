@@ -238,19 +238,23 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#006D70]" />
             <span className="text-slate-600">
-              Google Calendar Event ID: <code className="font-mono text-slate-800">{booking.calendarEventId || 'gcal_event_synced'}</code>
+              Google Calendar Event ID: <code className="font-mono text-slate-800">{booking.calendarEventId || 'Not available'}</code>
             </span>
           </div>
 
-          <a
-            href="https://calendar.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 font-bold text-[#006D70] hover:underline"
-          >
-            <span>Open in Google Calendar</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          {booking.calendarHtmlLink ? (
+            <a
+              href={booking.calendarHtmlLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-bold text-[#006D70] hover:underline"
+            >
+              <span>Open Calendar Event</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          ) : (
+            <span className="text-slate-400">Calendar event link unavailable</span>
+          )}
         </div>
 
         {/* Status Switcher & Inspector Operational Notes */}
@@ -262,13 +266,19 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
               </label>
               <select
                 value={currentStatus}
+                disabled={booking.status === 'cancelled'}
                 onChange={(e) => setCurrentStatus(e.target.value as BookingStatus)}
-                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-bold text-[#1A2B4A] outline-none"
+                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-bold text-[#1A2B4A] outline-none disabled:bg-slate-100 disabled:text-slate-500"
               >
                 <option value="confirmed">Confirmed</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+              {booking.status === 'cancelled' && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Cancelled bookings cannot be reactivated. Create a new booking instead.
+                </p>
+              )}
             </div>
 
             <div className="sm:col-span-2">
