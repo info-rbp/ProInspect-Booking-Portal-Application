@@ -7,17 +7,36 @@ import type {
 } from '../types/booking';
 import { getAdminIdToken } from './firebase';
 
+type ApiErrorResponse = {
+  error?: string;
+  conflict?: boolean;
+};
+
+type ServicesResponse = { services: InspectionService[] };
+type SettingsResponse = { settings: BusinessSettings };
+type AvailabilityResponse = { slots: AppointmentSlot[]; message?: string };
+type BookingCreateResponse = {
+  success: boolean;
+  booking: PublicBookingSummary;
+  message?: string;
+} & ApiErrorResponse;
+type AdminBookingsResponse = { bookings: BookingRecord[] };
+type AdminServicesResponse = { services: InspectionService[] };
+type AdminSettingsResponse = { settings: BusinessSettings };
+type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
+type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
+
 export async function fetchServices(): Promise<InspectionService[]> {
   const res = await fetch('/api/services');
   if (!res.ok) throw new Error('Failed to fetch services.');
-  const data = await res.json();
+  const data = (await res.json()) as ServicesResponse;
   return data.services;
 }
 
 export async function fetchSettings(): Promise<BusinessSettings> {
   const res = await fetch('/api/settings');
   if (!res.ok) throw new Error('Failed to fetch settings.');
-  const data = await res.json();
+  const data = (await res.json()) as SettingsResponse;
   return data.settings;
 }
 
@@ -27,7 +46,7 @@ export async function fetchAvailability(
 ): Promise<{ slots: AppointmentSlot[]; message?: string }> {
   const query = new URLSearchParams({ date, serviceId });
   const res = await fetch(`/api/calendar/availability?${query.toString()}`);
-  const data = await res.json();
+  const data = (await res.json()) as AvailabilityResponse & ApiErrorResponse;
 
   if (!res.ok) {
     throw new Error(data.error || 'Failed to fetch availability.');
@@ -48,7 +67,7 @@ export async function submitBooking(payload: {
     body: JSON.stringify(payload),
   });
 
-  const data = await res.json();
+  const data = (await res.json()) as BookingCreateResponse;
 
   if (!res.ok) {
     const error = new Error(data.error || 'Failed to confirm booking.');
@@ -88,21 +107,21 @@ export async function verifyAdminSession(): Promise<void> {
 export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   const res = await adminFetch('/api/admin/bookings');
   if (!res.ok) throw new Error('Failed to load bookings.');
-  const data = await res.json();
+  const data = (await res.json()) as AdminBookingsResponse;
   return data.bookings;
 }
 
 export async function fetchAdminServices(): Promise<InspectionService[]> {
   const res = await adminFetch('/api/admin/services');
   if (!res.ok) throw new Error('Failed to load services.');
-  const data = await res.json();
+  const data = (await res.json()) as AdminServicesResponse;
   return data.services;
 }
 
 export async function fetchAdminSettings(): Promise<BusinessSettings> {
   const res = await adminFetch('/api/admin/settings');
   if (!res.ok) throw new Error('Failed to load settings.');
-  const data = await res.json();
+  const data = (await res.json()) as AdminSettingsResponse;
   return data.settings;
 }
 
@@ -116,7 +135,7 @@ export async function updateAdminBooking(
     body: JSON.stringify(updates),
   });
 
-  const data = await res.json();
+  const data = (await res.json()) as AdminBookingUpdateResponse;
 
   if (!res.ok) {
     throw new Error(data.error || 'Failed to update booking.');
@@ -127,7 +146,7 @@ export async function updateAdminBooking(
 
 export async function fetchBookingByToken(token: string): Promise<PublicBookingSummary> {
   const res = await fetch(`/api/bookings/manage/${encodeURIComponent(token)}`);
-  const data = await res.json();
+  const data = (await res.json()) as PublicBookingResponse;
 
   if (!res.ok) {
     throw new Error(data.error || 'Booking not found.');
