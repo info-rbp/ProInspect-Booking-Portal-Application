@@ -397,7 +397,7 @@ export default function App() {
                 />
               )}
 
-              {currentStep === 'confirm' && selectedService && selectedSlot && (
+              {currentStep === 'confirm' && selectedService && selectedCategory && selectedSlot && (
                 <Step5Review
                   service={selectedService}
                   serviceCategory={selectedCategory}
