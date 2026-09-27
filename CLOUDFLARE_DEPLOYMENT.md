@@ -62,6 +62,12 @@ npx wrangler deploy
 
 For Git-connected Workers Builds, pushing to `main` is sufficient after the production branch and deploy command have been configured.
 
+## Firebase Authentication authorised domains
+
+Because the administrator login uses Firebase Google Authentication, add the deployed Cloudflare hostname to **Firebase Authentication > Settings > Authorized domains** before testing staff login.
+
+For production, add the final custom hostname (for example `bookings.proinspect.systems`). If the temporary `workers.dev` URL will be used for authentication testing, add that exact hostname as well.
+
 ## Custom domain
 
 Initially the Worker can run on its generated `workers.dev` hostname. After verification, attach the intended ProInspect hostname in Cloudflare under **Settings > Domains & Routes**. A suitable production hostname is `bookings.proinspect.systems` if that subdomain is available.
