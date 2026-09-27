@@ -1,5 +1,5 @@
 import React from 'react';
-import { InspectionService } from '../../types/booking';
+import { InspectionService, ServiceCategory } from '../../types/booking';
 import {
   ClipboardCheck,
   FileSpreadsheet,
@@ -20,6 +20,7 @@ import {
 
 interface Step1ServiceProps {
   services: InspectionService[];
+  serviceCategory: ServiceCategory;
   selectedServiceId: string | null;
   onSelectService: (service: InspectionService) => void;
   onBack: () => void;
@@ -44,22 +45,27 @@ const iconMap: Record<string, React.ElementType> = {
 
 export const Step1Service: React.FC<Step1ServiceProps> = ({
   services,
+  serviceCategory,
   selectedServiceId,
   onSelectService,
   onBack,
   onNext,
 }) => {
   const selectedService = services.find((s) => s.id === selectedServiceId);
+  const categoryLabel =
+    serviceCategory === 'strata-building'
+      ? 'Strata / Building'
+      : serviceCategory.charAt(0).toUpperCase() + serviceCategory.slice(1);
 
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Step Header */}
       <div className="border-b border-slate-200 pb-5">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
-          What service do you need?
+          Select a {categoryLabel} Service
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
-          Select the service you would like ProInspect to attend.
+          Showing services available for {categoryLabel} properties.
         </p>
       </div>
 
@@ -141,7 +147,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           <strong className="block">Online booking is temporarily unavailable.</strong>
           <span className="text-xs">
-            No services are currently enabled for this property category. Choose another service type or contact ProInspect to arrange an attendance.
+            No services are currently enabled for this property category. Choose another category or contact ProInspect to arrange an attendance.
           </span>
         </div>
       )}
@@ -154,7 +160,7 @@ export const Step1Service: React.FC<Step1ServiceProps> = ({
             onClick={onBack}
             className="px-4 py-3 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 hover:bg-slate-50"
           >
-            &larr; Change Service Type
+            &larr; Change Category
           </button>
           <div className="text-xs text-slate-500">
           {selectedService ? (
