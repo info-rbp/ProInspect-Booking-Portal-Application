@@ -328,7 +328,15 @@ export default function App() {
       />
 
       {/* Website Consistent Footer */}
-      <Footer />
+      <Footer
+        onOpenAdmin={() => {
+          if (currentUser) {
+            setActiveView('admin');
+          } else {
+            setIsAdminLoginOpen(true);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -2,7 +2,11 @@ import React from 'react';
 import { Logo } from './Logo';
 import { ShieldCheck, MapPin, Mail, Phone, ExternalLink } from 'lucide-react';
 
-export const Footer: React.FC = () => {
+interface FooterProps {
+  onOpenAdmin?: () => void;
+}
+
+export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
   return (
     <footer className="bg-[#0A2540] text-slate-300 mt-20 border-t border-slate-800">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
@@ -74,6 +78,18 @@ export const Footer: React.FC = () => {
             </a>
             <span>&bull;</span>
             <span>Australian Privacy &amp; Tenancy Standards</span>
+            {onOpenAdmin && (
+              <>
+                <span>&bull;</span>
+                <button
+                  type="button"
+                  onClick={onOpenAdmin}
+                  className="hover:text-slate-300 text-slate-500 transition-colors"
+                >
+                  Staff Portal
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

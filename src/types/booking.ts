@@ -134,6 +134,8 @@ export interface BookingRecord {
   };
   status: BookingStatus;
   adminNotes?: string;
+  emailReceiptHtml?: string;
+  calendarInviteUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
