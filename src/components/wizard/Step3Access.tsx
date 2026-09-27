@@ -221,7 +221,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   <div
                     className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                       isSelected
-                        ? 'bg-[#00B5B8] text-white'
+                        ? 'bg-[#007F82] text-white'
                         : 'bg-slate-100 text-slate-700 group-hover:bg-slate-200'
                     }`}
                   >
@@ -230,7 +230,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                   <div
                     className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                       isSelected
-                        ? 'border-[#00B5B8] bg-[#00B5B8] text-white'
+                        ? 'border-[#00B5B8] bg-[#007F82] text-white'
                         : 'border-slate-300 bg-white'
                     }`}
                   >
@@ -323,7 +323,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                       value="yes"
                       checked={tenant.noticeIssued === 'yes'}
                       onChange={() => setTenant({ ...tenant, noticeIssued: 'yes' })}
-                      className="text-[#00B5B8] focus:ring-[#00B5B8]"
+                      className="text-[#006D70] focus:ring-[#00B5B8]"
                     />
                     <span>Yes, notice issued</span>
                   </label>
@@ -334,7 +334,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
                       value="no"
                       checked={tenant.noticeIssued === 'no'}
                       onChange={() => setTenant({ ...tenant, noticeIssued: 'no' })}
-                      className="text-[#00B5B8] focus:ring-[#00B5B8]"
+                      className="text-[#006D70] focus:ring-[#00B5B8]"
                     />
                     <span>No / Pending</span>
                   </label>
@@ -751,7 +751,7 @@ export const Step3Access: React.FC<Step3AccessProps> = ({
         <button
           type="button"
           onClick={handleSaveAndProceed}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#007F82] hover:bg-[#006D70] text-white shadow-xs transition-colors cursor-pointer"
         >
           <span>Continue to Choose Appointment</span>
           <ArrowRight className="w-4 h-4" />
