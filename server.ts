@@ -8,7 +8,7 @@ import {
   formatAustralianTime,
   getPerthDateKey,
 } from './src/utils/dateTime.js';
-import type { AccessDetails, BookingRecord, BusinessSettings, InspectionService, PropertyType } from './src/types/booking.js';
+import type { BookingRecord, BusinessSettings, InspectionService } from './src/types/booking.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -20,7 +20,6 @@ import {
   getBooking,
   getService,
   getSettings,
-  listBookings,
   listBookingsWithAccessSecrets,
   listServices,
   newBookingId,
