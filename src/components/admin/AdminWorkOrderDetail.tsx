@@ -98,11 +98,11 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
             </span>
             <div className="font-bold text-[#1A2B4A] text-base">{booking.serviceName}</div>
             <div className="flex items-center gap-2 text-slate-700 font-medium">
-              <Calendar className="w-4 h-4 text-[#00B5B8]" />
+              <Calendar className="w-4 h-4 text-[#006D70]" />
               <span>{booking.appointment.dateString}</span>
             </div>
             <div className="flex items-center gap-2 text-slate-700 font-medium">
-              <Clock className="w-4 h-4 text-[#00B5B8]" />
+              <Clock className="w-4 h-4 text-[#006D70]" />
               <span>{booking.appointment.timeString} AWST ({booking.appointment.durationMinutes} mins)</span>
             </div>
           </div>
@@ -113,7 +113,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
               Property Location
             </span>
             <div className="font-bold text-[#1A2B4A] text-base flex items-start gap-1.5">
-              <MapPin className="w-4 h-4 text-[#00B5B8] shrink-0 mt-1" />
+              <MapPin className="w-4 h-4 text-[#006D70] shrink-0 mt-1" />
               <span>{fullAddress}</span>
             </div>
             <div className="text-xs text-slate-600">
@@ -132,7 +132,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
         <div className="bg-white border border-slate-200 p-4 rounded-xl space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#00B5B8]" />
+              <KeyRound className="w-4 h-4 text-[#006D70]" />
               <h4 className="font-bold text-xs uppercase tracking-wider text-[#1A2B4A]">
                 Access Arrangement ({booking.access.method.replace('_', ' ')})
               </h4>
@@ -150,7 +150,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
                 <span className="text-slate-400 block">Mobile:</span>
                 <a
                   href={`tel:${booking.access.tenant.tenantPhone}`}
-                  className="font-bold text-[#00B5B8] hover:underline"
+                  className="font-bold text-[#006D70] hover:underline"
                 >
                   {booking.access.tenant.tenantPhone}
                 </a>
@@ -236,7 +236,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
         {/* Google Calendar Link & Event Reference */}
         <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[#00B5B8]" />
+            <Calendar className="w-4 h-4 text-[#006D70]" />
             <span className="text-slate-600">
               Google Calendar Event ID: <code className="font-mono text-slate-800">{booking.calendarEventId || 'gcal_event_synced'}</code>
             </span>
@@ -246,7 +246,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
             href="https://calendar.google.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 font-bold text-[#00B5B8] hover:underline"
+            className="inline-flex items-center gap-1 font-bold text-[#006D70] hover:underline"
           >
             <span>Open in Google Calendar</span>
             <ExternalLink className="w-3.5 h-3.5" />
@@ -304,7 +304,7 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
                 type="button"
                 disabled={isSaving}
                 onClick={handleSave}
-                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold bg-[#00B5B8] hover:bg-[#008B8E] text-white rounded-lg shadow-xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold bg-[#007F82] hover:bg-[#006D70] text-white rounded-lg shadow-xs cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5" />
                 <span>{isSaving ? 'Saving...' : 'Save Updates'}</span>
