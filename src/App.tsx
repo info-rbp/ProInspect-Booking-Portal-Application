@@ -224,14 +224,6 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
       {/* Top Application Header */}
       <Header
-        onOpenAdmin={() => {
-          if (currentUser) {
-            setActiveView('admin');
-          } else {
-            setIsAdminLoginOpen(true);
-          }
-        }}
-        isAdminLoggedIn={Boolean(currentUser)}
         activeView={activeView}
         setActiveView={setActiveView}
       />
@@ -349,7 +341,15 @@ export default function App() {
       />
 
       {/* Website Consistent Footer */}
-      <Footer />
+      <Footer
+        onOpenAdmin={() => {
+          if (currentUser) {
+            setActiveView('admin');
+          } else {
+            setIsAdminLoginOpen(true);
+          }
+        }}
+      />
     </div>
   );
 }
