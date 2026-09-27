@@ -136,7 +136,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
     <form onSubmit={handleSubmit} className="space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0A2540] tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A] tracking-tight">
           Property details
         </h1>
         <p className="mt-1.5 text-sm sm:text-base text-slate-600">
@@ -147,8 +147,8 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 1: Property Location */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-5">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <MapPin className="w-5 h-5 text-[#0284C7]" />
-          <h2 className="font-bold text-base text-[#0A2540]">Property Address</h2>
+          <MapPin className="w-5 h-5 text-[#00B5B8]" />
+          <h2 className="font-bold text-base text-[#1A2B4A]">Property Address</h2>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -161,7 +161,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               placeholder="e.g. Unit 4, Lot 12"
               value={formData.unit || ''}
               onChange={(e) => handleChange('unit', e.target.value)}
-              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20 outline-none transition-all"
+              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20 outline-none transition-all"
             />
           </div>
 
@@ -178,7 +178,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                 errors.streetAddress && touched.streetAddress
                   ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                  : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                  : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
               }`}
             />
             {errors.streetAddress && touched.streetAddress && (
@@ -204,7 +204,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                 errors.suburb && touched.suburb
                   ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                  : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                  : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
               }`}
             />
             {errors.suburb && touched.suburb && (
@@ -222,7 +222,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
             <select
               value={formData.state}
               onChange={(e) => handleChange('state', e.target.value)}
-              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20 outline-none transition-all font-medium"
+              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20 outline-none transition-all font-medium"
             >
               {AUSTRALIAN_STATES.map((st) => (
                 <option key={st.code} value={st.code}>
@@ -246,7 +246,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                 errors.postcode && touched.postcode
                   ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                  : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                  : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
               }`}
             />
             {errors.postcode && touched.postcode && (
@@ -267,7 +267,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                 key={sub}
                 type="button"
                 onClick={() => handleSelectSuburb(sub)}
-                className="text-xs px-2.5 py-1 rounded bg-slate-100 hover:bg-sky-50 hover:text-[#0284C7] text-slate-700 transition-colors"
+                className="text-xs px-2.5 py-1 rounded bg-slate-100 hover:bg-sky-50 hover:text-[#00B5B8] text-slate-700 transition-colors"
               >
                 {sub}
               </button>
@@ -290,7 +290,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                   onClick={() => handleChange('propertyType', type)}
                   className={`text-xs sm:text-sm font-medium py-2.5 px-3 rounded-lg border text-left transition-all ${
                     isSelected
-                      ? 'border-[#0284C7] bg-[#F0F9FF] text-[#0A2540] font-bold ring-1 ring-[#0284C7]'
+                      ? 'border-[#00B5B8] bg-[#F0FBFB] text-[#1A2B4A] font-bold ring-1 ring-[#00B5B8]'
                       : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
                   }`}
                 >
@@ -305,9 +305,9 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 2: Client / Agency Reference (Optional) */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <Building className="w-5 h-5 text-[#0284C7]" />
+          <Building className="w-5 h-5 text-[#00B5B8]" />
           <div>
-            <h2 className="font-bold text-base text-[#0A2540]">Agency / Client Reference</h2>
+            <h2 className="font-bold text-base text-[#1A2B4A]">Agency / Client Reference</h2>
             <span className="text-xs text-slate-500">Optional for real estate agencies or landlords</span>
           </div>
         </div>
@@ -322,7 +322,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               placeholder="e.g. Ray White, Acton | Belle, Private"
               value={formData.clientName || ''}
               onChange={(e) => handleChange('clientName', e.target.value)}
-              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
             />
           </div>
 
@@ -335,7 +335,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
               placeholder="e.g. File #, Key Tag, or Work Order ID"
               value={formData.clientReference || ''}
               onChange={(e) => handleChange('clientReference', e.target.value)}
-              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#0284C7] outline-none transition-all"
+              className="w-full h-11 px-3.5 bg-slate-50 border border-slate-300 rounded-lg text-sm text-[#0F172A] focus:bg-white focus:border-[#00B5B8] outline-none transition-all"
             />
           </div>
         </div>
@@ -344,9 +344,9 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       {/* Section 3: Customer / Booking Contact */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-5 sm:p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-          <User className="w-5 h-5 text-[#0284C7]" />
+          <User className="w-5 h-5 text-[#00B5B8]" />
           <div>
-            <h2 className="font-bold text-base text-[#0A2540]">Booking Contact Details</h2>
+            <h2 className="font-bold text-base text-[#1A2B4A]">Booking Contact Details</h2>
             <span className="text-xs text-slate-500">
               Who should receive the calendar invitation and inspection confirmation?
             </span>
@@ -368,7 +368,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                 className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                   errors.customerName && touched.customerName
                     ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                    : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                    : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
                 }`}
               />
             </div>
@@ -394,7 +394,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                 className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                   errors.customerEmail && touched.customerEmail
                     ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                    : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                    : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
                 }`}
               />
             </div>
@@ -420,7 +420,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
                 className={`w-full h-11 px-3.5 bg-slate-50 border rounded-lg text-sm text-[#0F172A] focus:bg-white outline-none transition-all ${
                   errors.customerPhone && touched.customerPhone
                     ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 bg-rose-50/30'
-                    : 'border-slate-300 focus:border-[#0284C7] focus:ring-2 focus:ring-[#0284C7]/20'
+                    : 'border-slate-300 focus:border-[#00B5B8] focus:ring-2 focus:ring-[#00B5B8]/20'
                 }`}
               />
             </div>
@@ -439,7 +439,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#0A2540] hover:bg-slate-100 rounded-lg transition-colors"
+          className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-[#1A2B4A] hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Services</span>
@@ -447,7 +447,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
 
         <button
           type="submit"
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#0284C7] hover:bg-[#0369A1] text-white shadow-xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm bg-[#00B5B8] hover:bg-[#008B8E] text-white shadow-xs transition-colors cursor-pointer"
         >
           <span>Continue to Property Access</span>
           <ArrowRight className="w-4 h-4" />
