@@ -9,7 +9,7 @@ import {
   getPerthDateKey,
 } from './src/utils/dateTime.js';
 import type { BookingRecord, BusinessSettings, InspectionService } from './src/types/booking.js';
-import { adminAuth, getFirebaseRuntimeInfo } from './src/server/firebaseAdmin.js';
+import { adminAuth, adminDb, getFirebaseRuntimeInfo } from './src/server/firebaseAdmin.js';
 import {
   activeBookingsForDate,
   bookingReferenceExists,
@@ -75,7 +75,18 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
     }
 
     const configuredAdmins = parseAdminEmails();
-    if (!configuredAdmins.has(email)) {
+    let authorised = configuredAdmins.has(email);
+
+    if (!authorised) {
+      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
+      const data = adminUser.exists ? adminUser.data() : null;
+      authorised =
+        Boolean(data) &&
+        data?.active !== false &&
+        (!data?.email || String(data.email).trim().toLowerCase() === email);
+    }
+
+    if (!authorised) {
       return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
     }
 
