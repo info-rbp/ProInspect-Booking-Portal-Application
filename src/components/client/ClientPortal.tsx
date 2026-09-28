@@ -12,12 +12,15 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { UnifiedClientDashboard } from '../../types/platform';
+import type { DocumentProduct as PublicDocumentProduct } from '../../types/documentRequest';
 import { ClientOnboarding } from './ClientOnboarding';
 import {
   createClientPropertySelf,
   createClientRequest,
+  createClientDocumentRequest,
   createClientTeamUser,
   fetchClientDashboard,
+  fetchDocumentProducts,
   updateClientTeamMembership,
   getClientDocumentDownloadUrl,
   markClientNotificationRead,
@@ -43,12 +46,18 @@ export const ClientPortal: React.FC<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [composer, setComposer] = useState<'maintenance' | 'general' | null>(null);
+  const [composer, setComposer] = useState<'maintenance' | 'general' | 'document' | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [title, setTitle] = useState('');
   const [details, setDetails] = useState('');
   const [priority, setPriority] = useState<'routine' | 'priority' | 'urgent'>('routine');
+  const [documentProducts, setDocumentProducts] = useState<PublicDocumentProduct[]>([]);
+  const [documentProductId, setDocumentProductId] = useState('');
+  const [documentInstructions, setDocumentInstructions] = useState('');
+  const [documentCounterparty, setDocumentCounterparty] = useState('');
+  const [documentEffectiveDate, setDocumentEffectiveDate] = useState('');
+  const [documentDueDate, setDocumentDueDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [showProperty, setShowProperty] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
@@ -99,6 +108,30 @@ export const ClientPortal: React.FC<{
     void load();
   }, [user.uid]);
 
+  useEffect(() => {
+    if (composer !== 'document' || documentProducts.length > 0) return;
+    let cancelled = false;
+    fetchDocumentProducts()
+      .then((products) => {
+        if (cancelled) return;
+        const eligible = products.filter((product) =>
+          product.categories.some(
+            (category) => category === 'commercial' || category === 'strata-building'
+          )
+        );
+        setDocumentProducts(eligible);
+        setDocumentProductId((current) => current || eligible[0]?.id || '');
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load document products.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [composer, documentProducts.length]);
+
   const selectedClient = useMemo(
     () => data?.clients.find((client) => client.id === selectedClientId) || data?.clients[0],
     [data, selectedClientId]
@@ -140,6 +173,8 @@ export const ClientPortal: React.FC<{
 
   const selectedRequests =
     data?.requests.filter((request) => request.clientId === selectedClient?.id) || [];
+  const selectedDocumentRequests =
+    data?.documentRequests.filter((request) => request.clientId === selectedClient?.id) || [];
   const selectedApprovals =
     data?.approvals.filter((approval) => approval.clientId === selectedClient?.id) || [];
   const selectedPayments =
@@ -171,27 +206,46 @@ export const ClientPortal: React.FC<{
   const unread = selectedNotifications.filter((notification) => !notification.readAt).length;
 
   const submit = async () => {
-    if (
-      !data ||
-      !composer ||
-      !selectedClient ||
-      !canCreateRequest ||
-      !title.trim() ||
-      !details.trim()
-    ) {
+    if (!data || !composer || !selectedClient || !canCreateRequest) return;
+
+    if (composer === 'document') {
+      if (!propertyId || !documentProductId || documentInstructions.trim().length < 5) {
+        setError('Select a property and document type, then provide drafting instructions.');
+        return;
+      }
+    } else if (!title.trim() || !details.trim()) {
+      setError('Request title and details are required.');
       return;
     }
+
     setBusy(true);
     setError(null);
     try {
-      await createClientRequest({
-        clientId: selectedClient.id,
-        propertyId: propertyId || undefined,
-        type: composer,
-        title,
-        details,
-        priority,
-      });
+      if (composer === 'document') {
+        await createClientDocumentRequest({
+          clientId: selectedClient.id,
+          propertyId,
+          documentProductId,
+          instructions: documentInstructions,
+          counterpartyName: documentCounterparty || undefined,
+          effectiveDate: documentEffectiveDate || undefined,
+          dueDate: documentDueDate || undefined,
+        });
+        setDocumentInstructions('');
+        setDocumentCounterparty('');
+        setDocumentEffectiveDate('');
+        setDocumentDueDate('');
+      } else {
+        await createClientRequest({
+          clientId: selectedClient.id,
+          propertyId: propertyId || undefined,
+          type: composer,
+          title,
+          details,
+          priority,
+        });
+      }
+
       setComposer(null);
       setTitle('');
       setDetails('');
@@ -329,7 +383,10 @@ export const ClientPortal: React.FC<{
                 'Open requests',
                 selectedRequests.filter(
                   (request) => !['completed', 'cancelled'].includes(request.status)
-                ).length,
+                ).length +
+                  selectedDocumentRequests.filter(
+                    (request) => !['completed', 'cancelled'].includes(request.status)
+                  ).length,
                 Wrench,
               ],
               ['Documents', selectedDocuments.length, FileText],
@@ -343,7 +400,7 @@ export const ClientPortal: React.FC<{
           </div>
 
           {canCreateRequest ? (
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-3 gap-4">
               <button
                 onClick={() => {
                   setComposer('maintenance');
@@ -368,6 +425,19 @@ export const ClientPortal: React.FC<{
                 <div className="mt-3 font-extrabold text-[#1A2B4A]">Make a Request</div>
                 <div className="mt-1 text-xs text-slate-500">
                   Send an instruction or operational request linked to a property.
+                </div>
+              </button>
+              <button
+                onClick={() => {
+                  setComposer('document');
+                  setError(null);
+                }}
+                className="rounded-xl border border-slate-200 bg-white p-5 text-left hover:border-[#00B5B8]"
+              >
+                <FileText className="w-5 h-5 text-[#007F82]" />
+                <div className="mt-3 font-extrabold text-[#1A2B4A]">Request Document</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Request a Commercial or Strata document linked directly to this client and property.
                 </div>
               </button>
             </div>
@@ -475,28 +545,62 @@ export const ClientPortal: React.FC<{
       )}
 
       {tab === 'requests' && (
-        <div className="space-y-3">
-          {selectedRequests.map((request) => (
-            <div key={request.id} className="rounded-xl border border-slate-200 bg-white p-5">
-              <div className="flex justify-between gap-3">
-                <div>
-                  <div className="font-bold text-[#1A2B4A]">{request.title}</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {request.reference} · {request.type}
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+              Document requests
+            </h2>
+            {selectedDocumentRequests.map((request) => (
+              <div key={request.id} className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-[#1A2B4A]">{request.documentName}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {request.reference} · {request.documentCategory.replaceAll('-', ' ')}
+                    </div>
                   </div>
+                  <span className="text-[10px] uppercase font-bold text-slate-600">
+                    {request.status.replaceAll('_', ' ')}
+                  </span>
                 </div>
-                <span className="text-[10px] uppercase font-bold text-slate-600">
-                  {request.status.replaceAll('_', ' ')}
-                </span>
+                {request.notes && (
+                  <p className="mt-3 text-sm text-slate-700">{request.notes}</p>
+                )}
               </div>
-              <p className="mt-3 text-sm text-slate-700">{request.details}</p>
-            </div>
-          ))}
-          {!selectedRequests.length && (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-              No requests yet.
-            </div>
-          )}
+            ))}
+            {!selectedDocumentRequests.length && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                No document requests yet.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+              Operational requests
+            </h2>
+            {selectedRequests.map((request) => (
+              <div key={request.id} className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-[#1A2B4A]">{request.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {request.reference} · {request.type}
+                    </div>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-slate-600">
+                    {request.status.replaceAll('_', ' ')}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-700">{request.details}</p>
+              </div>
+            ))}
+            {!selectedRequests.length && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                No operational requests yet.
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -864,32 +968,126 @@ export const ClientPortal: React.FC<{
         <div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto">
           <div className="max-w-xl mx-auto my-8 rounded-2xl bg-white p-6">
             <h2 className="text-xl font-extrabold text-[#1A2B4A]">
-              {composer === 'maintenance' ? 'Maintenance Request' : 'Property Operations Request'}
+              {composer === 'maintenance'
+                ? 'Maintenance Request'
+                : composer === 'document'
+                  ? 'Document Request'
+                  : 'Property Operations Request'}
             </h2>
             <p className="mt-1 text-xs text-slate-500">{selectedClient.name}</p>
             <div className="mt-5 space-y-4">
-              <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)} className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm">
-                <option value="">No property selected</option>
+              <select
+                value={propertyId}
+                onChange={(event) => setPropertyId(event.target.value)}
+                className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                <option value="">
+                  {composer === 'document' ? 'Select property' : 'No property selected'}
+                </option>
                 {selectedProperties.map((property) => (
                   <option key={property.id} value={property.id}>
                     {property.streetAddress}, {property.suburb}
                   </option>
                 ))}
               </select>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Request title" />
-              <textarea value={details} onChange={(event) => setDetails(event.target.value)} rows={6} className="w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Describe what you need." />
-              <select value={priority} onChange={(event) => setPriority(event.target.value as 'routine' | 'priority' | 'urgent')} className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm">
-                <option value="routine">Routine</option>
-                <option value="priority">Priority</option>
-                <option value="urgent">Urgent</option>
-              </select>
+
+              {composer === 'document' ? (
+                <>
+                  <select
+                    value={documentProductId}
+                    onChange={(event) => setDocumentProductId(event.target.value)}
+                    className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                  >
+                    <option value="">Select document type</option>
+                    {documentProducts.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={documentCounterparty}
+                    onChange={(event) => setDocumentCounterparty(event.target.value)}
+                    className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                    placeholder="Other party / counterparty (optional)"
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="text-xs font-bold text-slate-600">
+                      Effective / issue date
+                      <input
+                        type="date"
+                        value={documentEffectiveDate}
+                        onChange={(event) => setDocumentEffectiveDate(event.target.value)}
+                        className="mt-1 w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                      />
+                    </label>
+                    <label className="text-xs font-bold text-slate-600">
+                      Required by
+                      <input
+                        type="date"
+                        value={documentDueDate}
+                        onChange={(event) => setDocumentDueDate(event.target.value)}
+                        className="mt-1 w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                      />
+                    </label>
+                  </div>
+                  <textarea
+                    value={documentInstructions}
+                    onChange={(event) => setDocumentInstructions(event.target.value)}
+                    rows={7}
+                    className="w-full rounded-lg border border-slate-300 p-3 text-sm"
+                    placeholder="Detailed drafting instructions"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Residential prescribed forms continue through the guided Residential workflow so statutory fields and timing rules are validated before submission.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                    placeholder="Request title"
+                  />
+                  <textarea
+                    value={details}
+                    onChange={(event) => setDetails(event.target.value)}
+                    rows={6}
+                    className="w-full rounded-lg border border-slate-300 p-3 text-sm"
+                    placeholder="Describe what you need."
+                  />
+                  <select
+                    value={priority}
+                    onChange={(event) =>
+                      setPriority(event.target.value as 'routine' | 'priority' | 'urgent')
+                    }
+                    className="w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
+                  >
+                    <option value="routine">Routine</option>
+                    <option value="priority">Priority</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </>
+              )}
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setComposer(null)} className="px-4 py-2 text-sm font-bold text-slate-600">
+              <button
+                onClick={() => setComposer(null)}
+                className="px-4 py-2 text-sm font-bold text-slate-600"
+              >
                 Cancel
               </button>
-              <button disabled={busy} onClick={() => void submit()} className="px-5 py-2 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">
-                {busy ? 'Submitting…' : 'Submit Request'}
+              <button
+                disabled={busy}
+                onClick={() => void submit()}
+                className="px-5 py-2 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50"
+              >
+                {busy
+                  ? 'Submitting…'
+                  : composer === 'document'
+                    ? 'Submit Document Request'
+                    : 'Submit Request'}
               </button>
             </div>
           </div>
