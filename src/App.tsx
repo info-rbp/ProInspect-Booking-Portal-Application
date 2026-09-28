@@ -15,6 +15,7 @@ import { PublicBookingManageModal } from './components/manage/PublicBookingManag
 import { ClientHub } from './components/hub/ClientHub';
 import { ClientSignIn } from './components/client/ClientSignIn';
 import { ClientPortal, ClientPortalSection } from './components/client/ClientPortal';
+import { DocumentRequestFlow } from './components/documents/DocumentRequestFlow';
 import {
   InspectionService,
   ServiceCategory,
@@ -42,7 +43,8 @@ type PublicRoute =
   | 'portal-approvals'
   | 'portal-account'
   | 'portal-onboarding'
-  | 'portal-maintenance-request';
+  | 'portal-maintenance-request'
+  | 'portal-document-request';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
@@ -60,6 +62,7 @@ function publicRouteFromPath(): PublicRoute {
   if (pathname === '/portal/properties') return 'portal-properties';
   if (pathname === '/portal/bookings') return 'portal-bookings';
   if (pathname === '/portal/requests/maintenance') return 'portal-maintenance-request';
+  if (pathname === '/portal/requests/document') return 'portal-document-request';
   if (pathname === '/portal/requests') return 'portal-requests';
   if (pathname === '/portal/documents') return 'portal-documents';
   if (pathname === '/portal/approvals') return 'portal-approvals';
@@ -403,8 +406,10 @@ export default function App() {
             ? 'requests'
             : publicRoute === 'portal-maintenance-request'
               ? 'maintenance-request'
-              : publicRoute === 'portal-documents'
-                ? 'documents'
+              : publicRoute === 'portal-document-request'
+                ? 'document-request'
+                : publicRoute === 'portal-documents'
+                  ? 'documents'
                 : publicRoute === 'portal-approvals'
                   ? 'approvals'
                   : publicRoute === 'portal-account'
@@ -461,23 +466,7 @@ export default function App() {
         ) : publicRoute === 'hub' ? (
           <ClientHub onNavigate={navigatePublic} />
         ) : publicRoute === 'request-document' ? (
-          authUser ? (
-            <ClientPortal
-              user={authUser}
-              section="document-request"
-              onNavigate={navigatePublic}
-              onSignOut={handleClientLogout}
-              onBookProperty={handleBookClientProperty}
-            />
-          ) : (
-            <ClientSignIn
-              onSignedIn={(user) => {
-                setAuthUser(user);
-                navigatePublic('/request-document');
-              }}
-              onBack={() => navigatePublic('/')}
-            />
-          )
+          <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
         ) : publicRoute === 'signin' ? (
           authUser ? (
             <ClientPortal
