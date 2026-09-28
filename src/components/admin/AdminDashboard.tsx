@@ -14,6 +14,7 @@ import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
 import { AdminServiceEditor } from './AdminServiceEditor';
 import { AdminTenantPortal } from './AdminTenantPortal';
 import { AdminClientArchitecture } from './AdminClientArchitecture';
+import { AdminOperations } from './AdminOperations';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar,
@@ -53,7 +54,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToBooking,
   onServicesChanged,
 }) => {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'tenants' | 'clients' | 'settings'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'operations' | 'tenants' | 'clients' | 'settings'>('bookings');
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [services, setServices] = useState<InspectionService[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -297,6 +298,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Building className="w-4 h-4" />
           <span>Tenant Portal</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('operations')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
+            activeTab === 'operations'
+              ? 'bg-[#007F82] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Operations</span>
         </button>
 
         <button
@@ -738,7 +751,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB 3: TENANT PORTAL */}
       {activeTab === 'tenants' && <AdminTenantPortal />}
 
-      {/* TAB 4: CLIENTS & PROPERTIES */}
+      {/* TAB 4: OPERATIONS */}
+      {activeTab === 'operations' && <AdminOperations />}
+
+      {/* TAB 5: CLIENTS & PROPERTIES */}
       {activeTab === 'clients' && <AdminClientArchitecture />}
 
       {/* TAB 5: CALENDAR & SETTINGS */}
