@@ -12,6 +12,10 @@ export const TENANT_FILE_TYPES = new Set([
 
 export const TENANT_FILE_MAX_BYTES = 20 * 1024 * 1024;
 
+export function tenantStorageIsConfigured(): boolean {
+  return Boolean(adminBucket);
+}
+
 function requireBucket() {
   if (!adminBucket) {
     throw new Error('TENANT_STORAGE_NOT_CONFIGURED');
