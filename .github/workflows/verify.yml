@@ -44,10 +44,10 @@ jobs:
       - name: Verify migration dry-run is read-only
         timeout-minutes: 8
         env:
-          FIREBASE_PROJECT_ID: demo-tenant-stage1
-          GCLOUD_PROJECT: demo-tenant-stage1
+          FIREBASE_PROJECT_ID: demo-platform-stage2
+          GCLOUD_PROJECT: demo-platform-stage2
           FIRESTORE_DATABASE_ID: '(default)'
-        run: npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-tenant-stage1 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
+        run: npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-platform-stage2 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
       - name: Stage 2 integration architecture gate
         run: npm run stage2:check
       - name: Build
@@ -56,11 +56,11 @@ jobs:
         run: docker build -t proinspect-booking-portal:verify .
       - name: Record exact tested commit
         if: always()
-        run: git rev-parse HEAD > tenant-stage1-source-sha.txt
+        run: git rev-parse HEAD > stage2-platform-unification-sha.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: tenant-stage1-evidence
-          path: tenant-stage1-source-sha.txt
+          name: stage2-platform-unification-evidence
+          path: stage2-platform-unification-sha.txt
           retention-days: 14
           if-no-files-found: error
