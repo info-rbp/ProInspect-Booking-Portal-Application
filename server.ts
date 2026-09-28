@@ -80,6 +80,7 @@ import {
   getTenantDocumentForUser,
   getTenantPortalDashboard,
   getTenantRequestAttachmentForUser,
+  getTenantUserById,
   getTenantRequestForUser,
   getTenancyById,
   listAdminTenantPortal,
@@ -92,6 +93,11 @@ import {
   signedTenantFileUrl,
   tenantStorageIsConfigured,
 } from './src/server/tenantFiles.js';
+import {
+  sendTenantRequestReceiptEmail,
+  sendTenantRequestStatusEmail,
+  tenantPortalEmailIsConfigured,
+} from './src/server/tenantEmail.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -730,6 +736,7 @@ app.get('/api/health', (_req, res) => {
     sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
     addressValidationMode: addressValidationMode(),
     tenantStorageConfigured: tenantStorageIsConfigured(),
+    tenantPortalEmailConfigured: tenantPortalEmailIsConfigured(),
     timezone: TIMEZONE,
   });
 });
@@ -1412,6 +1419,15 @@ app.post('/api/tenant/requests', tenantWriteRateLimit, requireTenant, async (req
     }
 
     const request = await createTenantRequest(tenant, parsed.request);
+
+    sendTenantRequestReceiptEmail({
+      tenant,
+      request,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    }).catch((emailError) => {
+      console.error('Tenant request receipt email failed:', emailError);
+    });
+
     return res.status(201).json({ success: true, request });
   } catch (error) {
     if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
@@ -1857,6 +1873,20 @@ app.patch('/api/admin/tenant-requests/:id', requireAdmin, async (req, res) => {
     });
 
     if (!request) return res.status(404).json({ error: 'Tenant request not found.' });
+
+    if (status) {
+      const tenant = await getTenantUserById(request.tenantUserId);
+      if (tenant?.active) {
+        sendTenantRequestStatusEmail({
+          tenant,
+          request,
+          portalUrl: `${publicBaseUrl(req)}/tenant`,
+        }).catch((emailError) => {
+          console.error('Tenant request status email failed:', emailError);
+        });
+      }
+    }
+
     return res.json({ success: true, request });
   } catch (error) {
     console.error('Admin tenant request update failed:', error);
