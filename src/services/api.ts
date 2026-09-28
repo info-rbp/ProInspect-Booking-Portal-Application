@@ -12,7 +12,6 @@ import type {
 } from '../types/booking';
 import type {
   AdminTenantPortalSnapshot,
-  ClientPortalDashboard,
   ClientPropertyLink,
   ClientPropertyRole,
   ClientRecord,
@@ -30,6 +29,17 @@ import type {
   TenantRequestStatus,
   TenantUserRecord,
 } from '../types/tenant';
+import type {
+  ClientApproval,
+  ClientRequest,
+  Contractor,
+  DocumentProduct,
+  DocumentRequest,
+  OperationsQueueItem,
+  PaymentRecord,
+  UnifiedClientDashboard,
+  WorkOrder,
+} from '../types/platform';
 import { getAdminIdToken, getCurrentIdToken } from './firebase';
 
 type ApiErrorResponse = {
@@ -676,9 +686,9 @@ export async function verifyClientSession(): Promise<{
   return { clientUser: data.clientUser };
 }
 
-export async function fetchClientDashboard(): Promise<ClientPortalDashboard> {
+export async function fetchClientDashboard(): Promise<UnifiedClientDashboard> {
   const res = await clientFetch('/api/client/dashboard');
-  const data = (await res.json()) as { dashboard?: ClientPortalDashboard; error?: string };
+  const data = (await res.json()) as { dashboard?: UnifiedClientDashboard; error?: string };
   if (!res.ok || !data.dashboard) throw new Error(data.error || 'Unable to load the client portal.');
   return data.dashboard;
 }
@@ -690,4 +700,213 @@ export async function getClientDocumentDownloadUrl(documentId: string): Promise<
   const data = (await res.json()) as { url?: string; error?: string };
   if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open the document.');
   return data.url;
+}
+
+
+export async function fetchDocumentProducts(): Promise<DocumentProduct[]> {
+  const res = await fetch('/api/document-products');
+  const data = (await res.json()) as { documents?: DocumentProduct[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Unable to load document products.');
+  return data.documents || [];
+}
+
+export async function submitDocumentRequest(input: {
+  documentId: string;
+  documentCategory: ServiceCategory;
+  details: {
+    streetAddress: string;
+    unit?: string;
+    suburb: string;
+    state: string;
+    postcode: string;
+    customerName: string;
+    customerEmail: string;
+    customerPhone: string;
+    propertyId?: string;
+    clientId?: string;
+    clientUserId?: string;
+    notes?: string;
+  };
+}): Promise<DocumentRequest> {
+  const res = await fetch('/api/document-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: DocumentRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to submit document request.');
+  return data.request;
+}
+
+export async function createClientRequest(input: {
+  clientId: string;
+  propertyId?: string;
+  type: 'maintenance' | 'document' | 'general';
+  title: string;
+  details: string;
+  priority?: 'routine' | 'priority' | 'urgent';
+  payload?: Record<string, string | number | boolean | null>;
+}): Promise<ClientRequest> {
+  const res = await clientFetch('/api/client/requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: ClientRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to submit request.');
+  return data.request;
+}
+
+export async function respondClientApproval(
+  approvalId: string,
+  input: { status: 'approved' | 'changes_requested' | 'declined'; comment?: string }
+): Promise<ClientApproval> {
+  const res = await clientFetch(`/api/client/approvals/${encodeURIComponent(approvalId)}/respond`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { approval?: ClientApproval; error?: string };
+  if (!res.ok || !data.approval) throw new Error(data.error || 'Unable to save approval response.');
+  return data.approval;
+}
+
+export async function markClientNotificationRead(notificationId: string): Promise<void> {
+  const res = await clientFetch(`/api/client/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || 'Unable to update notification.');
+  }
+}
+
+export async function fetchAdminOperations(): Promise<{
+  queue: OperationsQueueItem[];
+  workOrders: WorkOrder[];
+  contractors: Contractor[];
+  approvals: ClientApproval[];
+  clientRequests: ClientRequest[];
+  documentRequests: DocumentRequest[];
+}> {
+  const res = await adminFetch('/api/admin/operations');
+  const data = (await res.json()) as any;
+  if (!res.ok) throw new Error(data.error || 'Unable to load operations.');
+  return data;
+}
+
+export async function createAdminContractor(input: {
+  name: string;
+  trade?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}): Promise<Contractor> {
+  const res = await adminFetch('/api/admin/contractors', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(input),
+  });
+  const data = (await res.json()) as { contractor?: Contractor; error?: string };
+  if (!res.ok || !data.contractor) throw new Error(data.error || 'Unable to create contractor.');
+  return data.contractor;
+}
+
+export async function createAdminWorkOrder(input: {
+  sourceType?: WorkOrder['sourceType'];
+  sourceId?: string;
+  propertyId: string;
+  clientId?: string;
+  tenancyId?: string;
+  title: string;
+  description: string;
+  priority?: WorkOrder['priority'];
+  accessNotes?: string;
+}): Promise<WorkOrder> {
+  const res = await adminFetch('/api/admin/work-orders', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(input),
+  });
+  const data = (await res.json()) as { workOrder?: WorkOrder; error?: string };
+  if (!res.ok || !data.workOrder) throw new Error(data.error || 'Unable to create work order.');
+  return data.workOrder;
+}
+
+export async function updateAdminWorkOrder(
+  id: string,
+  changes: Partial<Pick<WorkOrder,
+    'status' | 'contractorId' | 'quoteAmountExGst' | 'quoteDocumentId' |
+    'invoiceDocumentId' | 'scheduledStart' | 'scheduledEnd' | 'accessNotes' |
+    'completionNotes' | 'completionDocumentIds'>>
+): Promise<WorkOrder> {
+  const res = await adminFetch(`/api/admin/work-orders/${encodeURIComponent(id)}`, {
+    method:'PATCH',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(changes),
+  });
+  const data = (await res.json()) as { workOrder?: WorkOrder; error?: string };
+  if (!res.ok || !data.workOrder) throw new Error(data.error || 'Unable to update work order.');
+  return data.workOrder;
+}
+
+export async function createAdminApproval(input: {
+  clientId: string;
+  propertyId?: string;
+  clientUserId?: string;
+  workOrderId?: string;
+  documentId?: string;
+  requestId?: string;
+  type: ClientApproval['type'];
+  title: string;
+  summary?: string;
+  amountExGst?: number;
+}): Promise<ClientApproval> {
+  const res = await adminFetch('/api/admin/approvals', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(input),
+  });
+  const data = (await res.json()) as { approval?: ClientApproval; error?: string };
+  if (!res.ok || !data.approval) throw new Error(data.error || 'Unable to create approval.');
+  return data.approval;
+}
+
+export async function updateAdminClientRequest(
+  id: string,
+  changes: { status?: ClientRequest['status']; adminNotes?: string }
+): Promise<ClientRequest> {
+  const res = await adminFetch(`/api/admin/client-requests/${encodeURIComponent(id)}`, {
+    method:'PATCH',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(changes),
+  });
+  const data = (await res.json()) as { request?: ClientRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to update client request.');
+  return data.request;
+}
+
+export async function updateAdminDocumentRequest(
+  id: string,
+  changes: Partial<Pick<DocumentRequest, 'status' | 'generatedDocumentId' | 'propertyId' | 'clientId'>>
+): Promise<DocumentRequest> {
+  const res = await adminFetch(`/api/admin/document-requests/${encodeURIComponent(id)}`, {
+    method:'PATCH',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify(changes),
+  });
+  const data = (await res.json()) as { request?: DocumentRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to update document request.');
+  return data.request;
+}
+
+export async function updateAdminPayment(id: string, status: PaymentRecord['status']): Promise<PaymentRecord> {
+  const res = await adminFetch(`/api/admin/payments/${encodeURIComponent(id)}`, {
+    method:'PATCH',
+    headers:{ 'Content-Type':'application/json' },
+    body:JSON.stringify({ status }),
+  });
+  const data = (await res.json()) as { payment?: PaymentRecord; error?: string };
+  if (!res.ok || !data.payment) throw new Error(data.error || 'Unable to update payment.');
+  return data.payment;
 }
