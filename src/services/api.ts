@@ -1388,6 +1388,33 @@ export async function fetchAdminReportSummary(): Promise<AdminReportSummary> {
   return data.report;
 }
 
+export async function createAdminReportHandoff(input: {
+  propertyId: string;
+  clientId?: string;
+  tenancyId?: string;
+  bookingId?: string;
+  workOrderId?: string;
+  reportType: string;
+}): Promise<{ url: string; expiresInSeconds: number }> {
+  const res = await adminFetch('/api/admin/reports/handoff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as {
+    url?: string;
+    expiresInSeconds?: number;
+    error?: string;
+  };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || 'Unable to open the Property Report Tool.');
+  }
+  return {
+    url: data.url,
+    expiresInSeconds: data.expiresInSeconds || 300,
+  };
+}
+
 export async function fetchAdminIntegrations(): Promise<AdminIntegrationStatus[]> {
   const res = await adminFetch('/api/admin/integrations');
   const data = await res.json() as { integrations?: AdminIntegrationStatus[]; error?: string };
