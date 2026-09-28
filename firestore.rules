@@ -10,7 +10,7 @@ service cloud.firestore {
     // - bookings and tenant contact information
     // - lockbox / key / alarm access details
     // - administrator notes
-    // - tenant portal properties, tenancies, requests and documents
+    // - client and tenant portal clients, properties, tenancies, requests and documents
     // - service and scheduling configuration writes
     match /{document=**} {
       allow read, write: if false;
