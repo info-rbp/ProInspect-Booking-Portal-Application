@@ -154,6 +154,18 @@
         },
         "confirmationEmail": {
           "type": "object"
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "clientId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "assignedStaffId": {
+          "type": "string",
+          "maxLength": 128
         }
       },
       "required": [
@@ -210,7 +222,7 @@
     },
     "AdminUser": {
       "title": "AdminUser",
-      "description": "Optional Firebase UID based administrator allow-list entry.",
+      "description": "Staff access profile with role, explicit permissions and resource scope. Invited email records bind to Firebase UID on first Google sign-in.",
       "type": "object",
       "properties": {
         "email": {
@@ -225,6 +237,55 @@
           "type": "boolean"
         },
         "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "resourceScope": {
+          "type": "string",
+          "enum": [
+            "global",
+            "assigned"
+          ]
+        },
+        "assignedServiceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assignedPropertyIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assignedClientIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permissionGrants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permissionRevokes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
           "type": "string",
           "maxLength": 50
         }
@@ -368,24 +429,20 @@
     },
     "DocumentRequest": {
       "title": "DocumentRequest",
-      "description": "Persistent customer document request submitted through the ProInspect Client Hub.",
+      "description": "Canonical document request shared by public, client and admin workflows.",
       "type": "object",
       "properties": {
         "id": {
-          "type": "string",
-          "maxLength": 128
+          "type": "string"
         },
-        "requestReference": {
-          "type": "string",
-          "maxLength": 32
+        "reference": {
+          "type": "string"
         },
-        "documentId": {
-          "type": "string",
-          "maxLength": 100
+        "documentProductId": {
+          "type": "string"
         },
         "documentName": {
-          "type": "string",
-          "maxLength": 250
+          "type": "string"
         },
         "documentCategory": {
           "type": "string",
@@ -395,70 +452,113 @@
             "strata-building"
           ]
         },
+        "pricingMode": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "quote"
+          ]
+        },
         "priceExGst": {
           "type": "number"
         },
-        "details": {
+        "propertyId": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientUserId": {
+          "type": "string"
+        },
+        "assignedStaffId": {
+          "type": "string"
+        },
+        "requesterName": {
+          "type": "string"
+        },
+        "requesterEmail": {
+          "type": "string"
+        },
+        "requesterPhone": {
+          "type": "string"
+        },
+        "address": {
           "type": "object"
+        },
+        "notes": {
+          "type": "string"
         },
         "status": {
           "type": "string",
           "enum": [
             "submitted",
-            "in_review",
+            "under_review",
+            "awaiting_information",
+            "in_preparation",
+            "review",
+            "ready",
             "completed",
             "cancelled"
           ]
         },
+        "generatedDocumentId": {
+          "type": "string"
+        },
+        "paymentId": {
+          "type": "string"
+        },
         "createdAt": {
-          "type": "string",
-          "maxLength": 50
+          "type": "string"
         },
         "updatedAt": {
-          "type": "string",
-          "maxLength": 50
+          "type": "string"
         }
       },
       "required": [
         "id",
-        "requestReference",
-        "documentId",
+        "reference",
+        "documentProductId",
         "documentName",
         "documentCategory",
-        "priceExGst",
-        "details",
+        "pricingMode",
+        "requesterName",
+        "requesterEmail",
+        "requesterPhone",
+        "address",
         "status",
         "createdAt",
         "updatedAt"
       ]
     },
-    "AdminOperationalRecord": {
+    "Client": {
       "type": "object",
-      "description": "Shared admin operational record used by client, property, tenancy, document, maintenance, communication and subscription modules.",
+      "description": "Canonical client or organisation.",
       "properties": {
+        "id": {
+          "type": "string"
+        },
         "name": {
           "type": "string"
         },
-        "title": {
+        "clientType": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "externalReference": {
           "type": "string"
         },
         "status": {
-          "type": "string"
-        },
-        "active": {
-          "type": "boolean"
-        },
-        "clientId": {
-          "type": "string"
-        },
-        "propertyId": {
-          "type": "string"
-        },
-        "tenantId": {
-          "type": "string"
-        },
-        "assignedStaffId": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
         },
         "createdAt": {
           "type": "string",
@@ -469,48 +569,849 @@
           "format": "date-time"
         },
         "archivedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "clientType",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientUser": {
+      "type": "object",
+      "description": "Authenticated or invited client identity.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "emailLower": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "firebaseUid": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "clientIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "clientRoles": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastLoginAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "emailLower",
+        "displayName",
+        "active",
+        "clientIds",
+        "clientRoles",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientMembership": {
+      "type": "object",
+      "description": "Explicit relationship between a client user and client organisation.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "clientUserId": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "member",
+            "viewer"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "invited",
+            "revoked"
+          ]
+        },
+        "invitedBy": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
           "type": "string",
           "format": "date-time"
         }
-      }
-    },
-    "AdminAuditEvent": {
-      "type": "object",
-      "description": "Immutable audit trail entry for privileged staff actions.",
+      },
       "required": [
-        "actorUid",
-        "actorEmail",
-        "action",
-        "resourceType",
-        "createdAt"
-      ],
+        "id",
+        "clientId",
+        "clientUserId",
+        "email",
+        "role",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Property": {
+      "type": "object",
+      "description": "Canonical property record reused by bookings, tenancies, work orders and portals.",
       "properties": {
-        "actorUid": {
+        "id": {
           "type": "string"
         },
-        "actorEmail": {
+        "streetAddress": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "suburb": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "postcode": {
+          "type": "string"
+        },
+        "propertyType": {
+          "type": "string"
+        },
+        "addressKey": {
+          "type": "string"
+        },
+        "placeId": {
+          "type": "string"
+        },
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        },
+        "primaryClientId": {
+          "type": "string"
+        },
+        "clientName": {
+          "type": "string"
+        },
+        "clientReference": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archivedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "streetAddress",
+        "suburb",
+        "state",
+        "postcode",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientPropertyLink": {
+      "type": "object",
+      "description": "Explicit client-to-property relationship.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "clientId",
+        "propertyId",
+        "role",
+        "primary",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Tenancy": {
+      "type": "object",
+      "description": "Tenancy relationship connecting a property, client and tenant identities.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "active",
+            "ended"
+          ]
+        },
+        "startDate": {
+          "type": "string"
+        },
+        "endDate": {
+          "type": "string"
+        },
+        "rentAmount": {
+          "type": "number"
+        },
+        "rentFrequency": {
+          "type": "string"
+        },
+        "bondReference": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "propertyId",
+        "status",
+        "startDate",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TenantUser": {
+      "type": "object",
+      "description": "Authenticated or invited tenant identity linked to tenancy IDs.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "emailLower": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "firebaseUid": {
+          "type": "string"
+        },
+        "tenancyIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastLoginAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "emailLower",
+        "displayName",
+        "tenancyIds",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PropertyDocument": {
+      "type": "object",
+      "description": "Canonical stored or generated property document.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "clientIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tenancyId": {
+          "type": "string"
+        },
+        "bookingId": {
+          "type": "string"
+        },
+        "workOrderId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "audiences": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "client",
+              "staff"
+            ]
+          }
+        },
+        "title": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "storagePath": {
+          "type": "string"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        },
+        "version": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "generated",
+            "review",
+            "approved",
+            "issued",
+            "archived"
+          ]
+        },
+        "uploadedAt": {
+          "type": "string"
+        },
+        "uploadedBy": {
+          "type": "string"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "approvedAt": {
+          "type": "string"
+        },
+        "approvedBy": {
+          "type": "string"
+        },
+        "issuedAt": {
+          "type": "string"
+        },
+        "issuedBy": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "propertyId",
+        "clientIds",
+        "audiences",
+        "title",
+        "category",
+        "fileName",
+        "contentType",
+        "size",
+        "version",
+        "status",
+        "uploadedAt",
+        "uploadedBy",
+        "updatedAt"
+      ]
+    },
+    "WorkOrder": {
+      "type": "object",
+      "description": "Canonical operational work order created from bookings, requests or manually.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "sourceType": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "tenancyId": {
+          "type": "string"
+        },
+        "assignedStaffId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "contractorId": {
+          "type": "string"
+        },
+        "quoteAmountExGst": {
+          "type": "number"
+        },
+        "quoteDocumentId": {
+          "type": "string"
+        },
+        "invoiceDocumentId": {
+          "type": "string"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "scheduledStart": {
+          "type": "string"
+        },
+        "scheduledEnd": {
+          "type": "string"
+        },
+        "accessNotes": {
+          "type": "string"
+        },
+        "completionNotes": {
+          "type": "string"
+        },
+        "completionDocumentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "assignedAt": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "reference",
+        "sourceType",
+        "propertyId",
+        "title",
+        "description",
+        "priority",
+        "status",
+        "completionDocumentIds",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Subscription": {
+      "type": "object",
+      "description": "Client/property subscription with allowance tracking.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "planCode": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "monthlyFeeExGst": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "startDate": {
+          "type": "string"
+        },
+        "endDate": {
+          "type": "string"
+        },
+        "allowances": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "xeroContactId": {
+          "type": "string"
+        },
+        "invoiceReference": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "clientId",
+        "planCode",
+        "name",
+        "monthlyFeeExGst",
+        "status",
+        "startDate",
+        "allowances",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Payment": {
+      "type": "object",
+      "description": "Operational payment/charge record linked to a source entity.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "sourceType": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "amountExGst": {
+          "type": "number"
+        },
+        "gstAmount": {
+          "type": "number"
+        },
+        "totalAmount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "AUD"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "checkoutUrl": {
+          "type": "string"
+        },
+        "providerOrderId": {
+          "type": "string"
+        },
+        "invoiceReference": {
+          "type": "string"
+        },
+        "paidAt": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "reference",
+        "sourceType",
+        "sourceId",
+        "description",
+        "amountExGst",
+        "gstAmount",
+        "totalAmount",
+        "currency",
+        "status",
+        "provider",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Communication": {
+      "type": "object",
+      "description": "Canonical communication history linked to platform entities.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "tenancyId": {
+          "type": "string"
+        },
+        "bookingId": {
+          "type": "string"
+        },
+        "workOrderId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "providerMessageId": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "recipient",
+        "channel",
+        "direction",
+        "status",
+        "body",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AuditEvent": {
+      "type": "object",
+      "description": "Unified immutable audit event for staff, client, tenant, system and integration actors.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "entityType": {
+          "type": "string"
+        },
+        "entityId": {
           "type": "string"
         },
         "action": {
           "type": "string"
         },
-        "resourceType": {
-          "type": "string"
-        },
-        "resourceId": {
-          "type": "string"
-        },
         "summary": {
+          "type": "string"
+        },
+        "actor": {
+          "type": "object"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "tenancyId": {
           "type": "string"
         },
         "metadata": {
           "type": "object"
         },
         "createdAt": {
-          "type": "string",
-          "format": "date-time"
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "id",
+        "entityType",
+        "entityId",
+        "action",
+        "summary",
+        "actor",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -544,45 +1445,67 @@
     },
     "/documentRequests/{requestId}": {
       "schema": "DocumentRequest",
-      "description": "Customer document requests created by the trusted server API."
+      "description": "Canonical document request."
     },
     "/clients/{clientId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Client and organisation records shared by admin and client portal workflows."
+      "schema": "Client",
+      "description": "Canonical client/organisation record."
     },
     "/properties/{propertyId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Canonical property records linking clients, bookings, tenants, documents and maintenance."
-    },
-    "/tenants/{tenantId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Tenant and occupant records linked to properties."
+      "schema": "Property",
+      "description": "Canonical property record."
     },
     "/propertyDocuments/{documentId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Generated, reviewed and issued property documents and reports."
-    },
-    "/maintenanceRequests/{requestId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Property maintenance requests, approvals, assignments and completion status."
+      "schema": "PropertyDocument",
+      "description": "Canonical document/report record."
     },
     "/communications/{communicationId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Communication history linked to clients, properties and operational work."
+      "schema": "Communication",
+      "description": "Communication history."
     },
     "/subscriptions/{subscriptionId}": {
-      "schema": "AdminOperationalRecord",
-      "description": "Client/property subscription and commercial arrangement records."
+      "schema": "Subscription",
+      "description": "Canonical subscription/commercial arrangement."
     },
     "/auditEvents/{eventId}": {
-      "schema": "AdminAuditEvent",
-      "description": "Server-written audit trail for privileged admin actions."
+      "schema": "AuditEvent",
+      "description": "Unified immutable audit trail."
+    },
+    "/clientUsers/{clientUserId}": {
+      "schema": "ClientUser",
+      "description": "Client identity record."
+    },
+    "/clientMemberships/{membershipId}": {
+      "schema": "ClientMembership",
+      "description": "Explicit client user membership."
+    },
+    "/clientPropertyLinks/{linkId}": {
+      "schema": "ClientPropertyLink",
+      "description": "Explicit client-property relationship."
+    },
+    "/tenancies/{tenancyId}": {
+      "schema": "Tenancy",
+      "description": "Canonical tenancy record."
+    },
+    "/tenantUsers/{tenantUserId}": {
+      "schema": "TenantUser",
+      "description": "Tenant identity record."
+    },
+    "/workOrders/{workOrderId}": {
+      "schema": "WorkOrder",
+      "description": "Canonical operational work order."
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Operational charge/payment record."
     }
   },
   "security": {
     "clientFirestoreAccess": "denied",
     "trustedServerAccess": "Firebase Admin SDK",
     "adminAuthentication": "Firebase Authentication ID token verified by Express server",
-    "sensitiveAccessStorage": "AES-256-GCM encrypted bookingAccessSecrets collection; authenticated staff API only"
+    "sensitiveAccessStorage": "AES-256-GCM encrypted bookingAccessSecrets collection; authenticated staff API only",
+    "resourceScoping": "Inspectors default to assigned-only access based on assignedStaffId, assignedPropertyIds and assignedClientIds; global scope is reserved for explicitly authorised users.",
+    "referentialIntegrity": "Trusted server validates referenced clients, properties, tenancies, staff, work orders, documents and source records before writes."
   }
 }
