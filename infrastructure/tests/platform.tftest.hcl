@@ -69,6 +69,10 @@ run "isolated_private_platform" {
     condition     = contains(keys(local.secret_environment), "REPORT_HANDOFF_SIGNING_KEY") && contains(keys(local.secret_environment), "REPORT_INGEST_TOKEN")
     error_message = "Report integration secrets must be required, not silently skipped."
   }
+  assert {
+    condition     = length(google_iam_workload_identity_pool_provider.github) == 1 && length(google_service_account_iam_member.github_terraform) == 1 && length(google_service_account_iam_member.terraform_self_impersonation) == 1
+    error_message = "Staging GitHub automation must use constrained Workload Identity Federation through the Terraform identity."
+  }
 }
 run "reject_production_as_staging" {
   command = plan

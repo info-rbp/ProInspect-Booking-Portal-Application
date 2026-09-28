@@ -61,6 +61,82 @@ normal GitHub workflow also checks the original migration preflight, performs th
 runtime dependency audit and builds the production container. Do not interpret
 emulator tests as a completed live staging deployment.
 
+## GitHub live-staging automation
+
+The repository includes a protected push-triggered workflow at
+`.github/workflows/stage3-live-staging.yml`. It deliberately does **not** use
+`workflow_dispatch` because this release workflow is not on the default branch.
+Instead, an authorized maintainer changes only
+`ops/stage3-live-request.json`; pushes affecting that file on
+`release/platform-unification` trigger the live-staging workflow. The request
+contains no credentials.
+
+Before enabling it, create a GitHub environment named `staging`, restrict it to
+`release/platform-unification`, and configure a required reviewer. Add these
+environment variables:
+
+- `STAGE3_ENVIRONMENT_GUARD=PROTECTED_STAGING`
+- `GCP_STAGING_PROJECT_ID=<dedicated staging project ID>`
+- `GCP_TERRAFORM_SERVICE_ACCOUNT=<staging Terraform service-account email>`
+- after the first reviewed Terraform apply,
+  `GCP_WORKLOAD_IDENTITY_PROVIDER=<provider resource name emitted by Terraform>`
+
+Add `STAGE3_STAGING_CONFIG_B64` as an environment secret. It is the base64
+encoding of the completed ignored `staging.local.json`; the workflow decodes
+it only on the runner and never commits it. Application secret payloads remain
+in Google Secret Manager, not GitHub.
+
+### First-run authentication
+
+The preferred steady state is GitHub OIDC + Google Workload Identity Federation.
+No Google service-account key is required after federation exists. The Terraform
+configuration binds the constrained staging GitHub provider to the staging
+Terraform identity, and that identity may impersonate only the stage-specific
+runtime/build/deploy/migration/gateway accounts needed by the control plane.
+
+There is an intentional bootstrap problem on the first run: Terraform cannot
+create the Workload Identity Provider until GitHub can authenticate to apply the
+Terraform plan. For that first `bootstrap-plan` and `apply` only, the workflow
+accepts the environment secret `GCP_BOOTSTRAP_CREDENTIALS_JSON`. This must be a
+dedicated **staging-only service-account key**, never personal Google credentials
+and never a production service-account key. Set the descriptor's top-level
+`operatorPrincipal` to `serviceAccount:<bootstrap service account email>`.
+The bootstrap identity must have the staging-project permissions needed by
+`control.py bootstrap`.
+
+Immediately after the reviewed apply creates Workload Identity Federation:
+
+1. copy the emitted provider resource name into the environment variable
+   `GCP_WORKLOAD_IDENTITY_PROVIDER`;
+2. verify the next `status` request authenticates keylessly;
+3. delete `GCP_BOOTSTRAP_CREDENTIALS_JSON` from GitHub; and
+4. disable/delete that Google service-account key.
+
+The workflow refuses to use the bootstrap JSON for later auth, migration,
+deployment, acceptance, promotion or rollback actions.
+
+### Request actions
+
+`ops/stage3-live-request.json` supports the following staged actions:
+`status`, `bootstrap-plan`, `apply`, `auth`, `migration-plan`,
+`migration-apply`, `deploy`, `record-companion`, `close`, `promote`
+and `rollback`. `disabled` performs no cloud action.
+
+The `sourceSha` must be an ancestor of the request commit and must already have
+a successful permanent **Verify booking portal** run. The workflow checks out
+that exact SHA rather than deploying the request commit itself. Infrastructure
+and migration plan digests and staging revisions are passed through the
+non-secret `approve` field; the workflow rechecks them before mutation.
+
+Private plans and evidence are never uploaded as public GitHub artifacts. They
+are synchronised under `stage3-live-private/<sourceSha>` in the private,
+versioned staging Terraform-state bucket so successive protected requests can
+continue the same rehearsal.
+
+For the real Report Tool round trip, base64-encode the private companion receipt
+into the temporary environment secret `STAGE3_REPORT_COMPANION_RECEIPT_B64`,
+run `record-companion`, then remove that secret.
+
 ## Reviewed staging sequence
 
 Run from a clean committed checkout whose exact SHA passed normal CI. Export no

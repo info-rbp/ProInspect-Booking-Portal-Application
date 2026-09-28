@@ -299,6 +299,37 @@ resource "google_service_account_iam_member" "github_deploy" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository_id/${var.github_repository_id}"
 }
+
+# GitHub staging automation authenticates keylessly as the Terraform identity
+# after the first reviewed apply. The Terraform identity may then impersonate
+# only the stage-specific identities used by the Stage 3 control plane.
+resource "google_service_account_iam_member" "github_terraform" {
+  count              = var.enable_github_federation && var.environment == "staging" ? 1 : 0
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${var.terraform_service_account_email}"
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github[0].name}/attribute.repository_id/${var.github_repository_id}"
+}
+
+resource "google_service_account_iam_member" "terraform_self_impersonation" {
+  count              = var.environment == "staging" ? 1 : 0
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${var.terraform_service_account_email}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${var.terraform_service_account_email}"
+}
+
+resource "google_service_account_iam_member" "terraform_platform_impersonation" {
+  for_each           = var.environment == "staging" ? google_service_account.platform : {}
+  service_account_id = each.value.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${var.terraform_service_account_email}"
+}
+
+resource "google_service_account_iam_member" "terraform_runtime_impersonation" {
+  count              = var.environment == "staging" ? 1 : 0
+  service_account_id = google_service_account.runtime.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${var.terraform_service_account_email}"
+}
 output "stage3_manifest" {
   value = {
     schemaVersion      = 1
