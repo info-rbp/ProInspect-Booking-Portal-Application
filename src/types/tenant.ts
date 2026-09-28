@@ -81,6 +81,7 @@ export interface ClientPropertyLink {
 
 export interface TenantProperty {
   id: string;
+  addressKey?: string;
   streetAddress: string;
   unit?: string;
   suburb: string;
@@ -210,12 +211,23 @@ export interface TenantTenancyView {
   property: TenantProperty;
 }
 
+export interface TenantPortalNotification {
+  id: string;
+  title: string;
+  message: string;
+  link?: string;
+  readAt?: string;
+  createdAt: string;
+}
+
 export interface TenantPortalDashboard {
   tenant: Pick<TenantUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
   tenancies: TenantTenancyView[];
+  pastTenancies: TenantTenancyView[];
   requests: TenantRequest[];
   documents: TenantDocument[];
   inspections: TenantInspection[];
+  notifications: TenantPortalNotification[];
 }
 
 export interface ClientPortalDashboard {
