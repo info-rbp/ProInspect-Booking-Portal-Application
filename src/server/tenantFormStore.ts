@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { getPerthDateKey } from '../utils/dateTime.js';
 import type { DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
 import type {
@@ -167,13 +168,14 @@ function publicFormRequest(
 
 async function loadAuthorisedTenancy(
   tenant: TenantUserRecord,
-  tenancyId: string
+  tenancyId: string,
+  options: { allowEnded?: boolean } = {}
 ): Promise<{ tenancy: TenancyRecord; property: TenantProperty }> {
   if (!tenant.tenancyIds.includes(tenancyId)) throw new Error('TENANCY_NOT_AUTHORISED');
   const tenancyDoc = await adminDb.collection('tenancies').doc(tenancyId).get();
   if (!tenancyDoc.exists) throw new Error('TENANCY_NOT_FOUND');
   const tenancy = docWithId<TenancyRecord>(tenancyDoc);
-  if (tenancy.status === 'ended') throw new Error('TENANCY_ENDED');
+  if (tenancy.status === 'ended' && !options.allowEnded) throw new Error('TENANCY_ENDED');
 
   const propertyDoc = await adminDb.collection('properties').doc(tenancy.propertyId).get();
   if (!propertyDoc.exists) throw new Error('PROPERTY_NOT_FOUND');
@@ -308,8 +310,12 @@ export async function createTenantFormRequest(
     throw new Error('FORM_NOT_AVAILABLE');
   }
 
-  const { tenancy, property } = await loadAuthorisedTenancy(tenant, input.tenancyId);
   const workflowType = definition.workflowType as TenantFormRequest['workflowType'];
+  const { tenancy, property } = await loadAuthorisedTenancy(
+    tenant,
+    input.tenancyId,
+    { allowEnded: workflowType === 'bond_release' }
+  );
   validateNormalPayload(workflowType, input.payload);
 
   let sourceDocument: TenantDocument | undefined;
@@ -466,11 +472,11 @@ export async function createSensitiveTenantFormDraft(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(proposedTerminationDate)) {
     throw new Error('FORM_FIELD_REQUIRED:Proposed termination date');
   }
-  const minimumTermination = new Date();
-  minimumTermination.setUTCHours(0, 0, 0, 0);
+  const perthToday = getPerthDateKey(new Date());
+  const minimumTermination = new Date(`${perthToday}T00:00:00+08:00`);
   minimumTermination.setUTCDate(minimumTermination.getUTCDate() + 7);
-  const proposed = new Date(`${proposedTerminationDate}T00:00:00.000Z`);
-  if (Number.isNaN(proposed.getTime()) || proposed < minimumTermination) {
+  const minimumKey = getPerthDateKey(minimumTermination);
+  if (proposedTerminationDate < minimumKey) {
     throw new Error('FAMILY_VIOLENCE_NOTICE_TOO_SHORT');
   }
 
@@ -611,7 +617,9 @@ export async function listAdminTenantForms(): Promise<TenantFormRequest[]> {
     .orderBy('updatedAt', 'desc')
     .limit(500)
     .get();
-  return snapshot.docs.map((doc) => docWithId<TenantFormRequest>(doc));
+  return snapshot.docs.map((doc) =>
+    publicFormRequest(docWithId<TenantFormRequest>(doc))
+  );
 }
 
 export async function updateAdminTenantForm(
