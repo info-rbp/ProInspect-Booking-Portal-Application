@@ -1628,6 +1628,10 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     const bookingId = normalizeText(req.headers['x-booking-id'],128) || undefined;
     const workOrderId = normalizeText(req.headers['x-work-order-id'],128) || undefined;
     const requestId = normalizeText(req.headers['x-request-id'],128) || undefined;
+    const reportSourceId = normalizeText(req.headers['x-report-source-id'],128) || undefined;
+    const documentId = reportSourceId
+      ? `report_${reportSourceId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      : undefined;
     const audiences = normalizeText(req.headers['x-document-audiences'],100)
       .split(',').map((v)=>v.trim()).filter((v):v is PortalAudience => ['client','tenant','staff'].includes(v));
 
@@ -1650,6 +1654,7 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     savedPath = stored.storagePath;
 
     const document = await createTenantDocumentRecord({
+      documentId,
       propertyId,
       tenancyId,
       bookingId,
@@ -1673,13 +1678,18 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
       actor:{ type:'integration', id:'report-generator' },
       propertyId,
       tenancyId,
-      metadata: { ...(bookingId ? { bookingId } : {}), ...(workOrderId ? { workOrderId } : {}), ...(requestId ? { requestId } : {}) },
+      metadata: {
+        ...(bookingId ? { bookingId } : {}),
+        ...(workOrderId ? { workOrderId } : {}),
+        ...(requestId ? { requestId } : {}),
+        ...(reportSourceId ? { reportSourceId } : {}),
+      },
     });
 
     return res.status(201).json({ success:true, document });
   } catch (error) {
     if (savedPath) await deleteTenantFile(savedPath).catch(()=>undefined);
-    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH','BOOKING_PROPERTY_MISMATCH','WORK_ORDER_PROPERTY_MISMATCH'].includes(error.message)) {
+    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH','BOOKING_PROPERTY_MISMATCH','WORK_ORDER_PROPERTY_MISMATCH','DOCUMENT_IDEMPOTENCY_CONFLICT'].includes(error.message)) {
       return res.status(400).json({ error:'The report property, tenancy or client relationship is invalid.' });
     }
     if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
