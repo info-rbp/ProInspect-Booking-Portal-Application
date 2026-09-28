@@ -336,7 +336,8 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               <p className="mt-2 text-sm text-slate-600">Your properties, bookings, requests, documents and approvals in one place.</p>
             </div>
 
-            {data.profile.onboardingStatus !== 'complete' && (
+            {data.profile.onboardingStatus !== 'complete' &&
+              ['owner', 'admin'].includes(data.membership.role) && (
               <div className="rounded-2xl border border-[#00B5B8]/40 bg-[#F0FBFB] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="font-bold text-[#1A2B4A]">Complete your client onboarding</div>
