@@ -27,7 +27,7 @@ import {
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin, logoutUser } from './services/firebase';
 import { User } from 'firebase/auth';
-import { Search } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 
 type PublicRoute =
   | 'hub'
@@ -124,6 +124,7 @@ export default function App() {
   // Authentication State
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [adminUser, setAdminUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [directManageToken, setDirectManageToken] = useState<string | null>(
     () => manageTokenFromPath()
@@ -191,6 +192,7 @@ export default function App() {
     const unsubscribe = initAuthListener(
       (user) => {
         setAuthUser(user);
+        setAuthReady(true);
         verifyAdminSession()
           .then(() => setAdminUser(user))
           .catch(() => setAdminUser(null));
@@ -198,6 +200,7 @@ export default function App() {
       () => {
         setAuthUser(null);
         setAdminUser(null);
+        setAuthReady(true);
       }
     );
     return () => unsubscribe();
@@ -468,7 +471,12 @@ export default function App() {
         ) : publicRoute === 'request-document' ? (
           <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
         ) : publicRoute === 'signin' ? (
-          authUser ? (
+          !authReady ? (
+            <div className="py-20 flex items-center justify-center text-slate-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              Checking your session…
+            </div>
+          ) : authUser ? (
             <ClientPortal
               user={authUser}
               section="dashboard"
@@ -486,7 +494,12 @@ export default function App() {
             />
           )
         ) : isClientPortalRoute ? (
-          authUser ? (
+          !authReady ? (
+            <div className="py-20 flex items-center justify-center text-slate-500">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              Checking your session…
+            </div>
+          ) : authUser ? (
             <ClientPortal
               user={authUser}
               section={clientPortalSection}
@@ -499,7 +512,10 @@ export default function App() {
             <ClientSignIn
               onSignedIn={(user) => {
                 setAuthUser(user);
-                navigatePublic('/portal');
+                navigatePublic(
+                  `${window.location.pathname}${window.location.search}`,
+                  true
+                );
               }}
               onBack={() => navigatePublic('/')}
             />
