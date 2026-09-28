@@ -2,6 +2,8 @@ const baseUrl = (process.env.PORTAL_TEST_BASE_URL || '').replace(/\/$/, '');
 const tenantToken = process.env.PORTAL_TEST_TENANT_TOKEN || '';
 const clientToken = process.env.PORTAL_TEST_CLIENT_TOKEN || '';
 const adminToken = process.env.PORTAL_TEST_ADMIN_TOKEN || '';
+const readOnlyAdminToken = process.env.PORTAL_TEST_READ_ONLY_ADMIN_TOKEN || '';
+const viewerClientToken = process.env.PORTAL_TEST_VIEWER_CLIENT_TOKEN || '';
 
 if (!baseUrl) {
   console.error('Set PORTAL_TEST_BASE_URL to a deployed ProInspect environment.');
@@ -74,6 +76,51 @@ async function main() {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     await expect('Admin token opens operations', admin.response.ok, `status ${admin.response.status}`);
+  }
+
+  if (readOnlyAdminToken) {
+    const session = await request('/api/admin/session', {
+      headers: { Authorization: `Bearer ${readOnlyAdminToken}` },
+    });
+    await expect('Read-only staff token opens admin session', session.response.ok, `status ${session.response.status}`);
+    await expect('Read-only staff role is reported correctly', session.parsed?.role === 'read_only', `role ${session.parsed?.role}`);
+
+    const mutation = await request('/api/admin/contractors', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${readOnlyAdminToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'SECURITY TEST MUST NOT CREATE' }),
+    });
+    await expect('Read-only staff cannot mutate operations', mutation.response.status === 403, `status ${mutation.response.status}`);
+  }
+
+  if (viewerClientToken) {
+    const client = await request('/api/client/dashboard', {
+      headers: { Authorization: `Bearer ${viewerClientToken}` },
+    });
+    await expect('Viewer client token opens client dashboard', client.response.ok, `status ${client.response.status}`);
+    const viewerClientId = client.parsed?.dashboard?.clientUser?.memberships?.find(
+      (membership) => membership.role === 'viewer'
+    )?.clientId;
+    await expect('Viewer client token has a viewer membership', Boolean(viewerClientId), 'viewer membership not found');
+
+    const mutation = await request('/api/client/requests', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${viewerClientToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        clientId: viewerClientId,
+        type: 'general',
+        title: 'Security test request',
+        details: 'This request must be rejected because the user is a viewer.',
+        priority: 'routine',
+      }),
+    });
+    await expect('Viewer client cannot submit instructions', mutation.response.status === 403, `status ${mutation.response.status}`);
   }
 
   console.log('Portal security smoke tests completed.');
