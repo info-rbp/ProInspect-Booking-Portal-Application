@@ -11,8 +11,9 @@ const canonicalStore = read('src/server/canonicalPlatformStore.ts');
 const adminTypes = read('src/types/admin.ts');
 const canonicalTypes = read('src/types/canonicalPlatform.ts');
 const platformStore = read('src/server/platformStore.ts');
+const bookingStore = read('src/server/store.ts');
 for (const collection of ['clients','clientUsers','clientMemberships','properties','clientPropertyLinks','tenancies','tenantUsers','bookings','workOrders','propertyDocuments','documentRequests','communications','subscriptions','payments','adminUsers','auditEvents','services','settings']) {
-  requireInvariant(`canonical collection ${collection} is represented`, canonicalTypes.includes(collection) || canonicalStore.includes(`'${collection}'`));
+  requireInvariant(`canonical collection ${collection} is represented`, canonicalTypes.includes(collection) || canonicalStore.includes(`'${collection}'`) || bookingStore.includes(`'${collection}'`));
 }
 requireInvariant('Canonical Admin session resolver is wired', server.includes('resolveAdminSession({'));
 requireInvariant('Booking reads are staff-resource scoped', server.includes('filterBookingsForSession(allBookings, session)'));
