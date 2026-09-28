@@ -741,9 +741,9 @@ export async function buildUnifiedClientDashboard(params: {
         }))
     : [];
 
-  const memberships: ClientMembership[] = params.user.clientIds.map((clientId, index) => ({
+  const memberships: ClientMembership[] = params.user.clientIds.map((clientId) => ({
     clientId,
-    role: index === 0 ? 'owner' : 'member',
+    role: params.user.clientRoles?.[clientId] || 'owner',
     status: 'active',
   }));
 
