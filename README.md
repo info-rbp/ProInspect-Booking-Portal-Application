@@ -135,8 +135,9 @@ Client routes include:
 - `/portal/properties` and `/portal/properties/:id` - saved property workspaces
 - `/portal/bookings` - linked booking history
 - `/portal/requests` - document and maintenance request tracking
-- `/portal/requests/maintenance` - maintenance intake
-- `/request-document` - structured document request intake
+- `/portal/requests/maintenance` - authenticated maintenance intake
+- `/portal/requests/document` - authenticated custom document drafting intake
+- `/request-document` - public category-first document product catalogue retained from `main`
 - `/portal/documents` - uploaded and generated documents
 - `/portal/approvals` - client decisions and draft approvals
 - `/portal/account` - organisation details, roles and invited users
@@ -165,9 +166,11 @@ Saved properties can launch the existing booking wizard with the property addres
 
 ### Requests, files and document drafts
 
-Maintenance requests and document requests are stored as first-class records linked to the active organisation and property. Supporting files are uploaded through authenticated server endpoints to the configured Firebase Storage bucket, with Firestore storing metadata only.
+Maintenance requests and authenticated custom document requests are stored as first-class records linked to the active organisation and property. Supporting files are uploaded through authenticated server endpoints to the configured Firebase Storage bucket, with Firestore storing metadata only.
 
-The document-request workflow can generate a structured HTML working draft from approved portal fields. Generated output is always marked **DRAFT - REVIEW REQUIRED** and creates a client approval record. This provides an operational drafting workflow without treating automatically generated content as ready for execution.
+The public document-product catalogue from `main` remains available at `/request-document`. If a signed-in client submits one of those public catalogue requests using the same verified email address, the server mirrors it into that client's organisation request workspace without changing the anonymous/public flow.
+
+The authenticated custom document-request workflow can generate a structured HTML working draft from approved portal fields. Generated output is always marked **DRAFT - REVIEW REQUIRED** and creates a client approval record. This provides an operational drafting workflow without treating automatically generated content as ready for execution.
 
 Client files are limited to 10 MB each and accepted formats are constrained server-side. Direct browser access to Firestore remains denied.
 
