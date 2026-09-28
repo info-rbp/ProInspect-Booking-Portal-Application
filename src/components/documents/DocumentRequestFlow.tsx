@@ -316,6 +316,10 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
       setErrors({});
       setSubmitError(null);
       setIsAcknowledged(false);
+
+      if (nextDocumentId === 'termination-family-violence-form-2') {
+        setDetails((current) => ({ ...current, notes: '' }));
+      }
     }
   };
 
@@ -448,11 +452,111 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
 
     for (const field of currentSection.fields) {
       if (!isWorkflowFieldVisible(field, answers)) continue;
-      if (
-        field.required &&
-        !isWorkflowAnswerPresent(field, answers[field.id])
-      ) {
+      const value = answers[field.id];
+
+      if (field.required && !isWorkflowAnswerPresent(field, value)) {
         nextErrors[field.id] = 'This information is required.';
+        continue;
+      }
+
+      if (
+        field.type === 'email' &&
+        typeof value === 'string' &&
+        value.trim() &&
+        !isValidEmail(value)
+      ) {
+        nextErrors[field.id] = 'Enter a valid email address.';
+      }
+
+      if (
+        field.type === 'phone' &&
+        typeof value === 'string' &&
+        value.trim() &&
+        !isValidAustralianPhone(value)
+      ) {
+        nextErrors[field.id] = 'Enter a valid Australian phone number.';
+      }
+
+      if (
+        field.type === 'party-electronic-consents' &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        const map = value as Record<string, unknown>;
+        const namedParties = [
+          ...lessors.filter((party) => party.name.trim()),
+          ...tenants.filter((party) => party.name.trim()),
+        ];
+
+        const incomplete = namedParties.some((party) => {
+          const entry =
+            map[party.id] &&
+            typeof map[party.id] === 'object' &&
+            !Array.isArray(map[party.id])
+              ? (map[party.id] as Record<string, unknown>)
+              : {};
+
+          if (
+            !['yes', 'no'].includes(String(entry.email || '')) ||
+            !['yes', 'no'].includes(String(entry.fax || ''))
+          ) {
+            return true;
+          }
+
+          if (entry.email === 'yes' && !party.email?.trim()) return true;
+          if (
+            entry.fax === 'yes' &&
+            !String(entry.faxNumber || '').trim()
+          ) {
+            return true;
+          }
+
+          return false;
+        });
+
+        if (incomplete) {
+          nextErrors[field.id] =
+            'Complete email and fax preferences for every named party. An email address is required when email notices are accepted, and a fax number is required when fax notices are accepted.';
+        }
+      }
+
+      if (
+        field.type === 'party-payouts' &&
+        value &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        const map = value as Record<string, unknown>;
+        const namedParties = [
+          ...tenants.filter((party) => party.name.trim()),
+          ...lessors.filter((party) => party.name.trim()),
+        ];
+
+        const incomplete = namedParties.some((party) => {
+          const entry =
+            map[party.id] &&
+            typeof map[party.id] === 'object' &&
+            !Array.isArray(map[party.id])
+              ? (map[party.id] as Record<string, unknown>)
+              : {};
+          const amount = Number(entry.amount);
+
+          if (!Number.isFinite(amount) || amount < 0) return true;
+          if (amount === 0) return false;
+
+          return !(
+            String(entry.accountName || '').trim() &&
+            String(entry.bsb || '').trim() &&
+            String(entry.accountNumber || '').trim() &&
+            String(entry.institution || '').trim()
+          );
+        });
+
+        if (incomplete) {
+          nextErrors[field.id] =
+            'Enter a payment amount for every named party. For each party receiving bond money, complete the Australian bank account details.';
+        }
       }
     }
 
@@ -938,19 +1042,21 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
               </div>
             </div>
 
-            <div className="pt-5 border-t border-slate-100">
-              <Field label="Additional instructions">
-                <textarea
-                  rows={3}
-                  value={details.notes || ''}
-                  onChange={(event) =>
-                    updateDetail('notes', event.target.value)
-                  }
-                  className="field resize-y"
-                  placeholder="Optional instructions for ProInspect."
-                />
-              </Field>
-            </div>
+            {documentId !== 'termination-family-violence-form-2' && (
+              <div className="pt-5 border-t border-slate-100">
+                <Field label="Additional instructions">
+                  <textarea
+                    rows={3}
+                    value={details.notes || ''}
+                    onChange={(event) =>
+                      updateDetail('notes', event.target.value)
+                    }
+                    className="field resize-y"
+                    placeholder="Optional instructions for ProInspect."
+                  />
+                </Field>
+              </div>
+            )}
           </div>
 
           <WizardActions
@@ -1565,6 +1671,21 @@ const WorkflowFieldControl: React.FC<{
                       <option value="no">No</option>
                     </select>
                   </Field>
+                  {current.fax === 'yes' && (
+                    <Field label="Fax number">
+                      <input
+                        value={String(current.faxNumber || '')}
+                        onChange={(event) =>
+                          updateConsent(
+                            party.id,
+                            'faxNumber',
+                            event.target.value
+                          )
+                        }
+                        className="field"
+                      />
+                    </Field>
+                  )}
                 </div>
               </div>
             );
@@ -1893,7 +2014,11 @@ const WorkflowFieldControl: React.FC<{
             ? 'date'
             : field.type === 'number' || field.type === 'currency'
               ? 'number'
-              : 'text'
+              : field.type === 'email'
+                ? 'email'
+                : field.type === 'phone'
+                  ? 'tel'
+                  : 'text'
         }
         min={field.min}
         max={field.max}
