@@ -68,6 +68,7 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendDocumentRequestEmails,
 } from './src/server/email.js';
 import {
   isValidAustralianPhone,
@@ -936,11 +937,27 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     await saveDocumentRequest(request);
 
+    const emailResult = await sendDocumentRequestEmails(request);
+    if (emailResult.customer.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} customer confirmation email failed:`,
+        emailResult.customer.error
+      );
+    }
+    if (emailResult.internal.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} internal notification email failed:`,
+        emailResult.internal.error
+      );
+    }
+
     return res.status(201).json({
       success: true,
       request: publicDocumentRequestView(request),
       message:
-        'Document request submitted successfully. ProInspect will review the supplied details before preparation or distribution.',
+        emailResult.customer.status === 'sent'
+          ? 'Document request submitted successfully. A confirmation email has been sent.'
+          : 'Document request submitted successfully. ProInspect will review the supplied details before preparation or distribution.',
     });
   } catch (error) {
     console.error('Document request creation failed:', error);
