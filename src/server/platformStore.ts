@@ -541,8 +541,10 @@ export async function listAdminOperations(): Promise<{
   approvals: ClientApproval[];
   clientRequests: ClientRequest[];
   documentRequests: DocumentRequest[];
+  payments: PaymentRecord[];
+  auditEvents: AuditEvent[];
 }> {
-  const [bookingSnap, tenantSnap, clientSnap, documentSnap, workOrders, contractors, approvalSnap, propertiesSnap, clientsSnap] =
+  const [bookingSnap, tenantSnap, clientSnap, documentSnap, workOrders, contractors, approvalSnap, propertiesSnap, clientsSnap, paymentSnap, auditSnap] =
     await Promise.all([
       adminDb.collection('bookings').orderBy('updatedAt', 'desc').limit(200).get(),
       adminDb.collection('tenantRequests').orderBy('updatedAt', 'desc').limit(200).get(),
@@ -553,6 +555,8 @@ export async function listAdminOperations(): Promise<{
       adminDb.collection('clientApprovals').orderBy('updatedAt', 'desc').limit(200).get(),
       adminDb.collection('properties').limit(500).get(),
       adminDb.collection('clients').limit(500).get(),
+      adminDb.collection('payments').orderBy('updatedAt', 'desc').limit(200).get(),
+      adminDb.collection('auditEvents').orderBy('createdAt', 'desc').limit(100).get(),
     ]);
 
   const properties = new Map(
@@ -571,6 +575,8 @@ export async function listAdminOperations(): Promise<{
   const clientRequests = clientSnap.docs.map((doc) => docWithId<ClientRequest>(doc));
   const documentRequests = documentSnap.docs.map((doc) => docWithId<DocumentRequest>(doc));
   const approvals = approvalSnap.docs.map((doc) => docWithId<ClientApproval>(doc));
+  const payments = paymentSnap.docs.map((doc) => docWithId<PaymentRecord>(doc));
+  const auditEvents = auditSnap.docs.map((doc) => docWithId<AuditEvent>(doc));
 
   const labelProperty = (id?: string) => {
     if (!id) return undefined;
@@ -691,7 +697,7 @@ export async function listAdminOperations(): Promise<{
     return rank(b.priority) - rank(a.priority) || b.updatedAt.localeCompare(a.updatedAt);
   });
 
-  return { queue, workOrders, contractors, approvals, clientRequests, documentRequests };
+  return { queue, workOrders, contractors, approvals, clientRequests, documentRequests, payments, auditEvents };
 }
 
 export async function buildUnifiedClientDashboard(params: {
