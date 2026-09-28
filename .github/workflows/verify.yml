@@ -28,6 +28,8 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run lint
+      - name: Verify platform architecture
+        run: npm run test:architecture
       - name: Build
         run: npm run build
       - name: Build production container image
