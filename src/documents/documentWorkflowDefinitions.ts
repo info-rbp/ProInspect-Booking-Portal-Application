@@ -1871,3 +1871,342 @@ export function sensitiveWorkflowFieldIds(
       .map((field) => field.id)
   );
 }
+
+
+export interface DocumentWorkflowRuleError {
+  fieldId: string;
+  message: string;
+}
+
+function answerString(
+  answers: Record<string, DocumentWorkflowAnswer>,
+  fieldId: string
+): string {
+  const value = answers[fieldId];
+  return typeof value === 'string' ? value : '';
+}
+
+function answerNumber(
+  answers: Record<string, DocumentWorkflowAnswer>,
+  fieldId: string
+): number | null {
+  const value = answers[fieldId];
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dateAtMidnight(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function daysBetween(from: string, to: string): number | null {
+  const fromDate = dateAtMidnight(from);
+  const toDate = dateAtMidnight(to);
+  if (!fromDate || !toDate) return null;
+  return Math.floor(
+    (toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000)
+  );
+}
+
+function addCalendarMonths(value: string, months: number): Date | null {
+  const date = dateAtMidnight(value);
+  if (!date) return null;
+  const result = new Date(date);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  return result;
+}
+
+function dateBefore(value: string, minimum: Date | null): boolean {
+  const date = dateAtMidnight(value);
+  return Boolean(date && minimum && date.getTime() < minimum.getTime());
+}
+
+export function validateDocumentWorkflowRules(
+  documentId: string,
+  answers: Record<string, DocumentWorkflowAnswer>
+): DocumentWorkflowRuleError[] {
+  const errors: DocumentWorkflowRuleError[] = [];
+
+  if (documentId === 'residential-tenancy-lease-agreement-form-1aa') {
+    const type = answerString(answers, 'agreementType');
+    const start = answerString(answers, 'tenancyStartDate');
+    const end = answerString(answers, 'tenancyEndDate');
+    if (type === 'fixed' && start && end) {
+      const days = daysBetween(start, end);
+      if (days !== null && days <= 0) {
+        errors.push({
+          fieldId: 'tenancyEndDate',
+          message: 'The fixed-term end date must be after the tenancy start date.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'notice-rent-increase-form-10') {
+    const notice = answerString(answers, 'noticeDate');
+    const effective = answerString(answers, 'increaseEffectiveDate');
+    const start = answerString(answers, 'tenancyStartDate');
+    const lastIncrease = answerString(answers, 'lastRentIncreaseDate');
+
+    if (notice && effective) {
+      const days = daysBetween(notice, effective);
+      if (days !== null && days < 60) {
+        errors.push({
+          fieldId: 'increaseEffectiveDate',
+          message:
+            'The proposed rent increase date must allow at least 60 days after the notice date.',
+        });
+      }
+    }
+
+    const baseDate = lastIncrease || start;
+    if (baseDate && effective) {
+      const earliest = addCalendarMonths(baseDate, 12);
+      if (dateBefore(effective, earliest)) {
+        errors.push({
+          fieldId: 'increaseEffectiveDate',
+          message:
+            'The proposed increase is earlier than 12 months after the tenancy commencement or last rent increase date entered.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'notice-rent-increase-income-form-11') {
+    const notice = answerString(answers, 'noticeDate');
+    const effective = answerString(answers, 'increaseEffectiveDate');
+    const start = answerString(answers, 'tenancyStartDate');
+    const lastChange = answerString(answers, 'lastCalculationChangeDate');
+
+    if (notice && effective) {
+      const days = daysBetween(notice, effective);
+      if (days !== null && days < 60) {
+        errors.push({
+          fieldId: 'increaseEffectiveDate',
+          message:
+            'The proposed variation date must allow at least 60 days after the notice date.',
+        });
+      }
+    }
+
+    const baseDate = lastChange || start;
+    if (baseDate && effective) {
+      const earliest = addCalendarMonths(baseDate, 12);
+      if (dateBefore(effective, earliest)) {
+        errors.push({
+          fieldId: 'increaseEffectiveDate',
+          message:
+            'The proposed variation is earlier than 12 months after the tenancy commencement or last calculation-method change entered.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'notice-proposed-entry-form-19') {
+    const notice = answerString(answers, 'noticeDate');
+    const entry = answerString(answers, 'entryDate');
+    const reason = answerString(answers, 'entryReason');
+    const days = notice && entry ? daysBetween(notice, entry) : null;
+
+    if (days !== null) {
+      if (
+        (reason === 'routine-inspection' || reason === 'other') &&
+        (days < 7 || days > 14)
+      ) {
+        errors.push({
+          fieldId: 'entryDate',
+          message:
+            'For the selected entry reason, the proposed date must be at least 7 days and no more than 14 days after the notice date.',
+        });
+      }
+
+      if (reason === 'repairs-maintenance' && days < 3) {
+        errors.push({
+          fieldId: 'entryDate',
+          message:
+            'Repairs, maintenance or modification entry must allow at least 72 hours after written notice.',
+        });
+      }
+
+      if (
+        (reason === 'family-violence-form2' ||
+          reason === 'family-violence-hearing') &&
+        days < 3
+      ) {
+        errors.push({
+          fieldId: 'entryDate',
+          message:
+            'The selected family-violence-related inspection reason requires at least 3 days notice.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'termination-family-violence-form-2') {
+    const notice = answerString(answers, 'noticeDate');
+    const lastDay = answerString(answers, 'lastTenancyDay');
+    if (notice && lastDay) {
+      const days = daysBetween(notice, lastDay);
+      if (days !== null && days < 7) {
+        errors.push({
+          fieldId: 'lastTenancyDay',
+          message:
+            'The last day entered must be at least 7 days after the notice date.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'termination-non-payment-rent-form-1a') {
+    const form21Issued = answerString(answers, 'form21Issued');
+    const form21Date = answerString(answers, 'form21Date');
+    const notice = answerString(answers, 'noticeDate');
+    const vacant = answerString(answers, 'vacantPossessionDate');
+    const rentOutstanding = answerString(answers, 'rentStillOutstanding');
+
+    if (form21Issued && form21Issued !== 'yes') {
+      errors.push({
+        fieldId: 'form21Issued',
+        message:
+          'Form 1A requires a Form 21 breach notice to have been given first.',
+      });
+    }
+    if (rentOutstanding && rentOutstanding !== 'yes') {
+      errors.push({
+        fieldId: 'rentStillOutstanding',
+        message:
+          'Form 1A is only appropriate where the rent remains unpaid after the breach notice.',
+      });
+    }
+    if (form21Date && notice) {
+      const days = daysBetween(form21Date, notice);
+      if (days !== null && days < 14) {
+        errors.push({
+          fieldId: 'noticeDate',
+          message:
+            'The Form 1A notice date must be at least 14 days after the Form 21 date entered.',
+        });
+      }
+    }
+    if (notice && vacant) {
+      const days = daysBetween(notice, vacant);
+      if (days !== null && days < 7) {
+        errors.push({
+          fieldId: 'vacantPossessionDate',
+          message:
+            'The vacant possession date must allow at least 7 days after the termination notice date.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'termination-non-payment-rent-form-1b') {
+    const priorForm21 = answerString(answers, 'priorForm21');
+    const notice = answerString(answers, 'noticeDate');
+    const vacant = answerString(answers, 'vacantPossessionDate');
+
+    if (priorForm21 && priorForm21 !== 'not-issued') {
+      errors.push({
+        fieldId: 'priorForm21',
+        message:
+          'Form 1B is for the pathway where a Form 21 breach notice has not already been issued.',
+      });
+    }
+
+    if (notice && vacant) {
+      const days = daysBetween(notice, vacant);
+      if (days !== null && days < 7) {
+        errors.push({
+          fieldId: 'vacantPossessionDate',
+          message:
+            'The vacant possession date must allow at least 7 days after the termination notice date.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'termination-other-than-non-payment-form-1c') {
+    const ground = answerString(answers, 'terminationGround');
+    const notice = answerString(answers, 'noticeDate');
+    const vacant = answerString(answers, 'vacantPossessionDate');
+    const days = notice && vacant ? daysBetween(notice, vacant) : null;
+    const minimumDays: Record<string, number> = {
+      'unremedied-breach': 7,
+      'sale-vacant-possession': 30,
+      'no-ground-periodic': 60,
+      'premises-unusable': 7,
+      'fixed-term-expiry': 30,
+      'social-housing-ineligible': 60,
+      'alternative-social-housing': 60,
+    };
+
+    if (days !== null && minimumDays[ground] !== undefined) {
+      if (days < minimumDays[ground]) {
+        errors.push({
+          fieldId: 'vacantPossessionDate',
+          message: `The selected termination ground requires at least ${minimumDays[ground]} days between the notice date and vacant possession date.`,
+        });
+      }
+    }
+
+    if (ground === 'fixed-term-expiry') {
+      const expiry = answerString(answers, 'fixedTermExpiryDate');
+      const vacantDate = dateAtMidnight(vacant);
+      const expiryDate = dateAtMidnight(expiry);
+      if (
+        vacantDate &&
+        expiryDate &&
+        vacantDate.getTime() < expiryDate.getTime()
+      ) {
+        errors.push({
+          fieldId: 'vacantPossessionDate',
+          message:
+            'The vacant possession date cannot be before the fixed-term expiry date entered.',
+        });
+      }
+    }
+  }
+
+  if (documentId === 'joint-application-disposal-security-bond') {
+    const totalBond = answerNumber(answers, 'totalBondAmount');
+    const payouts = answers.partyPayouts;
+    let allocated = 0;
+
+    if (payouts && typeof payouts === 'object' && !Array.isArray(payouts)) {
+      for (const entry of Object.values(
+        payouts as Record<string, unknown>
+      )) {
+        if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+          const amount = Number((entry as Record<string, unknown>).amount);
+          if (Number.isFinite(amount)) allocated += amount;
+        }
+      }
+    }
+
+    if (answerString(answers, 'agentPayoutRequired') === 'yes') {
+      allocated += answerNumber(answers, 'agentPayoutAmount') || 0;
+    }
+    allocated += answerNumber(answers, 'transferToNewLodgement') || 0;
+    allocated += answerNumber(answers, 'bondAssistanceRepayment') || 0;
+
+    if (
+      totalBond !== null &&
+      Math.abs(totalBond - allocated) > 0.009
+    ) {
+      errors.push({
+        fieldId: 'bondAssistanceRepayment',
+        message:
+          'The proposed payments, transfers and bond assistance repayment must add up to the total bond amount.',
+      });
+    }
+  }
+
+  return errors;
+}
