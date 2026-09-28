@@ -36,6 +36,7 @@ import {
 
 type Props = {
   tenancies: TenantTenancyView[];
+  pastTenancies: TenantTenancyView[];
   documents: TenantDocument[];
 };
 
@@ -112,7 +113,7 @@ function statusClass(status: string) {
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
-export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) => {
+export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, pastTenancies, documents }) => {
   const [dashboard, setDashboard] = useState<TenantFormsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,9 +150,22 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
     if (!tenancyId && tenancies[0]) setTenancyId(tenancies[0].tenancy.id);
   }, [tenancies, tenancyId]);
 
+  const allTenancies = useMemo(
+    () => [...tenancies, ...pastTenancies],
+    [tenancies, pastTenancies]
+  );
+
+  const selectableTenancies = useMemo(
+    () =>
+      selected?.workflowType === 'bond_release'
+        ? allTenancies
+        : tenancies,
+    [selected?.workflowType, allTenancies, tenancies]
+  );
+
   const selectedTenancy = useMemo(
-    () => tenancies.find((item) => item.tenancy.id === tenancyId),
-    [tenancies, tenancyId]
+    () => allTenancies.find((item) => item.tenancy.id === tenancyId),
+    [allTenancies, tenancyId]
   );
 
   const pcrDocuments = useMemo(
@@ -192,10 +206,16 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
     setError(null);
     setFiles([]);
 
+    const preferredTenancy =
+      definition.workflowType === 'bond_release' && pastTenancies[0]
+        ? pastTenancies[0]
+        : tenancies[0] || pastTenancies[0];
+    if (preferredTenancy) setTenancyId(preferredTenancy.tenancy.id);
+
     const next: Record<string, unknown> = {};
     if (definition.workflowType === 'bond_release') {
-      next.bondReference = selectedTenancy?.tenancy.bondReference || '';
-      next.tenancyEndDate = selectedTenancy?.tenancy.endDate || '';
+      next.bondReference = preferredTenancy?.tenancy.bondReference || '';
+      next.tenancyEndDate = preferredTenancy?.tenancy.endDate || '';
     }
     if (definition.workflowType === 'pcr_response' && pcrDocuments[0]) {
       next.sourceDocumentId = pcrDocuments[0].id;
@@ -456,7 +476,7 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
             )}
 
             <div className="p-5 sm:p-6 space-y-5">
-              {tenancies.length > 1 && (
+              {selectableTenancies.length > 1 && (
                 <label className="block">
                   <span className="text-xs font-bold uppercase text-slate-500">Tenancy / Property</span>
                   <select
@@ -464,7 +484,7 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
                     onChange={(event) => setTenancyId(event.target.value)}
                     className="mt-2 w-full h-11 rounded-lg border border-slate-300 px-3 text-sm"
                   >
-                    {tenancies.map(({ tenancy, property }) => (
+                    {selectableTenancies.map(({ tenancy, property }) => (
                       <option key={tenancy.id} value={tenancy.id}>
                         {property.unit ? `${property.unit}, ` : ''}{property.streetAddress}, {property.suburb}
                       </option>
@@ -688,7 +708,12 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
                   <Field label="Proposed termination date" required>
                     <input
                       type="date"
-                      min={new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString().slice(0, 10)}
+                      min={new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Australia/Perth',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                      }).format(new Date(Date.now() + 7 * 24 * 60 * 60_000))}
                       value={String(payload.proposedTerminationDate || '')}
                       onChange={(e) => set('proposedTerminationDate', e.target.value)}
                       className="field-input"
