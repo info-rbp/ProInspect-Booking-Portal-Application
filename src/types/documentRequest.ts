@@ -1,4 +1,5 @@
 import type { ServiceCategory } from './booking';
+import type { DocumentRequest, DocumentRequestStatus as CanonicalDocumentRequestStatus } from './platform';
 
 export interface DocumentProduct {
   id: string;
@@ -27,24 +28,8 @@ export interface DocumentRequestDetails {
   notes?: string;
 }
 
-export type DocumentRequestStatus =
-  | 'submitted'
-  | 'in_review'
-  | 'completed'
-  | 'cancelled';
-
-export interface DocumentRequestRecord {
-  id: string;
-  requestReference: string;
-  documentId: string;
-  documentName: string;
-  documentCategory: ServiceCategory;
-  priceExGst: number;
-  details: DocumentRequestDetails;
-  status: DocumentRequestStatus;
-  createdAt: string;
-  updatedAt: string;
-}
+export type DocumentRequestStatus = CanonicalDocumentRequestStatus;
+export type DocumentRequestRecord = DocumentRequest;
 
 export interface PublicDocumentRequestSummary {
   requestReference: string;
