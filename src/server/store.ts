@@ -910,6 +910,13 @@ export async function inviteClientOrganisationMember(params: {
     ? (existing.data() as Partial<ClientMembership>)
     : {};
 
+  if (existing.exists) {
+    if (current.role === 'owner') {
+      throw new Error('CLIENT_MEMBERSHIP_OWNER_PROTECTED');
+    }
+    throw new Error('CLIENT_MEMBERSHIP_ALREADY_EXISTS');
+  }
+
   const membership: ClientMembership = {
     id,
     organisationId: params.context.organisation.id,
@@ -1111,7 +1118,7 @@ export async function getClientRequest(params: {
 export async function updateClientRequest(params: {
   context: ClientContext;
   requestId: string;
-  changes: Partial<Pick<ClientRequestSummary, 'status' | 'attachmentDocumentIds' | 'generatedDocumentId'>>;
+  changes: Partial<Pick<ClientRequestSummary, 'status' | 'attachmentDocumentIds' | 'generatedDocumentId' | 'draftGenerationStatus'>>;
 }): Promise<ClientRequestSummary> {
   const ref = adminDb.collection('clientRequests').doc(params.requestId);
   const doc = await ref.get();
@@ -1129,6 +1136,77 @@ export async function updateClientRequest(params: {
   };
   await ref.set(updated, { merge: true });
   return updated;
+}
+
+export async function claimClientDocumentDraftGeneration(params: {
+  context: ClientContext;
+  requestId: string;
+}): Promise<ClientRequestSummary> {
+  const ref = adminDb.collection('clientRequests').doc(params.requestId);
+  let claimed: ClientRequestSummary | null = null;
+
+  await adminDb.runTransaction(async (transaction) => {
+    const doc = await transaction.get(ref);
+    if (!doc.exists) throw new Error('CLIENT_REQUEST_NOT_FOUND');
+
+    const request = {
+      ...(doc.data() as ClientRequestSummary),
+      id: doc.id,
+    };
+
+    if (
+      request.organisationId !== params.context.organisation.id ||
+      request.type !== 'document'
+    ) {
+      throw new Error('CLIENT_REQUEST_FORBIDDEN');
+    }
+
+    if (
+      request.generatedDocumentId ||
+      request.draftGenerationStatus === 'generating' ||
+      request.draftGenerationStatus === 'generated'
+    ) {
+      throw new Error('CLIENT_DRAFT_ALREADY_GENERATED');
+    }
+
+    const updatedAt = new Date().toISOString();
+    transaction.set(
+      ref,
+      {
+        draftGenerationStatus: 'generating',
+        updatedAt,
+      },
+      { merge: true }
+    );
+
+    claimed = {
+      ...request,
+      draftGenerationStatus: 'generating',
+      updatedAt,
+    };
+  });
+
+  if (!claimed) throw new Error('CLIENT_REQUEST_NOT_FOUND');
+  return claimed;
+}
+
+export async function releaseClientDocumentDraftGeneration(params: {
+  context: ClientContext;
+  requestId: string;
+}): Promise<void> {
+  const request = await getClientRequest({
+    organisationId: params.context.organisation.id,
+    requestId: params.requestId,
+  });
+  if (!request || request.generatedDocumentId) return;
+
+  await adminDb.collection('clientRequests').doc(params.requestId).set(
+    {
+      draftGenerationStatus: 'failed',
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 }
 
 export async function createClientDocument(params: {
@@ -1195,6 +1273,13 @@ export async function createClientDocument(params: {
   return document;
 }
 
+function clientDocumentView(
+  document: ClientDocumentSummary
+): ClientDocumentSummary {
+  const { storagePath: _storagePath, ...safe } = document;
+  return safe;
+}
+
 export async function getClientDocument(params: {
   organisationId: string;
   documentId: string;
@@ -1220,10 +1305,12 @@ export async function listClientDocumentsForAdmin(): Promise<ClientDocumentSumma
     .orderBy('updatedAt', 'desc')
     .limit(1000)
     .get();
-  return snapshot.docs.map((doc) => ({
-    ...(doc.data() as ClientDocumentSummary),
-    id: doc.id,
-  }));
+  return snapshot.docs.map((doc) =>
+    clientDocumentView({
+      ...(doc.data() as ClientDocumentSummary),
+      id: doc.id,
+    })
+  );
 }
 
 export async function createClientApproval(params: {
@@ -1265,25 +1352,67 @@ export async function respondToClientApproval(params: {
     throw new Error('CLIENT_WRITE_FORBIDDEN');
   }
 
-  const ref = adminDb.collection('clientApprovals').doc(params.approvalId);
-  const doc = await ref.get();
-  if (!doc.exists) throw new Error('CLIENT_APPROVAL_NOT_FOUND');
-  const approval = { ...(doc.data() as ClientApproval), id: doc.id };
-  if (approval.organisationId !== params.context.organisation.id) {
-    throw new Error('CLIENT_APPROVAL_FORBIDDEN');
-  }
+  const approvalRef = adminDb.collection('clientApprovals').doc(params.approvalId);
+  let updatedApproval: ClientApproval | null = null;
 
-  const now = new Date().toISOString();
-  const updated: ClientApproval = {
-    ...approval,
-    status: params.status,
-    responseComment: params.comment,
-    respondedByUid: params.context.profile.uid,
-    respondedAt: now,
-    updatedAt: now,
-  };
-  await ref.set(updated, { merge: true });
-  return updated;
+  await adminDb.runTransaction(async (transaction) => {
+    const approvalDoc = await transaction.get(approvalRef);
+    if (!approvalDoc.exists) throw new Error('CLIENT_APPROVAL_NOT_FOUND');
+
+    const approval = {
+      ...(approvalDoc.data() as ClientApproval),
+      id: approvalDoc.id,
+    };
+
+    if (approval.organisationId !== params.context.organisation.id) {
+      throw new Error('CLIENT_APPROVAL_FORBIDDEN');
+    }
+
+    if (approval.status !== 'pending') {
+      throw new Error('CLIENT_APPROVAL_ALREADY_RESPONDED');
+    }
+
+    let requestRef:
+      | ReturnType<typeof adminDb.collection>['doc']
+      | undefined;
+
+    if (approval.requestId) {
+      const candidateRef = adminDb.collection('clientRequests').doc(approval.requestId);
+      const requestDoc = await transaction.get(candidateRef);
+      if (requestDoc.exists) {
+        const request = requestDoc.data() as ClientRequestSummary;
+        if (request.organisationId === params.context.organisation.id) {
+          requestRef = candidateRef;
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    updatedApproval = {
+      ...approval,
+      status: params.status,
+      responseComment: params.comment,
+      respondedByUid: params.context.profile.uid,
+      respondedAt: now,
+      updatedAt: now,
+    };
+
+    transaction.set(approvalRef, updatedApproval, { merge: true });
+
+    if (requestRef) {
+      transaction.set(
+        requestRef,
+        {
+          status: 'in_progress',
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    }
+  });
+
+  if (!updatedApproval) throw new Error('CLIENT_APPROVAL_NOT_FOUND');
+  return updatedApproval;
 }
 
 export async function getClientPortalDashboard(params: {
@@ -1370,7 +1499,12 @@ export async function getClientPortalDashboard(params: {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const documents = documentsSnapshot.docs
-    .map((doc) => ({ ...(doc.data() as ClientDocumentSummary), id: doc.id }))
+    .map((doc) =>
+      clientDocumentView({
+        ...(doc.data() as ClientDocumentSummary),
+        id: doc.id,
+      })
+    )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const approvals = approvalsSnapshot.docs
@@ -1397,10 +1531,78 @@ export async function listClientRequestsForAdmin(): Promise<ClientRequestSummary
     .orderBy('updatedAt', 'desc')
     .limit(500)
     .get();
-  return snapshot.docs.map((doc) => ({
+
+  const requests = snapshot.docs.map((doc) => ({
     ...(doc.data() as ClientRequestSummary),
     id: doc.id,
   }));
+
+  const organisationIds = Array.from(
+    new Set(requests.map((request) => request.organisationId).filter(Boolean))
+  );
+  const propertyIds = Array.from(
+    new Set(requests.map((request) => request.propertyId).filter((id): id is string => Boolean(id)))
+  );
+  const clientUids = Array.from(
+    new Set(requests.map((request) => request.clientUid).filter(Boolean))
+  );
+
+  const [organisationDocs, propertyDocs, clientDocs] = await Promise.all([
+    organisationIds.length
+      ? adminDb.getAll(
+          ...organisationIds.map((id) => adminDb.collection('clientOrganisations').doc(id))
+        )
+      : [],
+    propertyIds.length
+      ? adminDb.getAll(
+          ...propertyIds.map((id) => adminDb.collection('clientProperties').doc(id))
+        )
+      : [],
+    clientUids.length
+      ? adminDb.getAll(
+          ...clientUids.map((uid) => adminDb.collection('clientUsers').doc(uid))
+        )
+      : [],
+  ]);
+
+  const organisations = new Map(
+    organisationDocs
+      .filter((doc) => doc.exists)
+      .map((doc) => [doc.id, doc.data() as ClientOrganisation])
+  );
+  const properties = new Map(
+    propertyDocs
+      .filter((doc) => doc.exists)
+      .map((doc) => [doc.id, doc.data() as ClientProperty])
+  );
+  const clients = new Map(
+    clientDocs
+      .filter((doc) => doc.exists)
+      .map((doc) => [doc.id, doc.data() as ClientProfile])
+  );
+
+  return requests.map((request) => {
+    const organisation = organisations.get(request.organisationId);
+    const property = request.propertyId
+      ? properties.get(request.propertyId)
+      : undefined;
+    const client = clients.get(request.clientUid);
+
+    return {
+      ...request,
+      organisationName: organisation?.name,
+      propertyAddress: property
+        ? [
+            property.unit
+              ? `${property.unit}, ${property.streetAddress}`
+              : property.streetAddress,
+            `${property.suburb} ${property.state} ${property.postcode}`,
+          ].join(', ')
+        : undefined,
+      submittedByName: client?.displayName,
+      submittedByEmail: client?.email,
+    };
+  });
 }
 
 export async function listClientApprovalsForAdmin(): Promise<ClientApproval[]> {
