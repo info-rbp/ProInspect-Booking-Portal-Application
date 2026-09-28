@@ -28,6 +28,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/stage3/port-frozen.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('infrastructure/versions.tf'); t=p.read_text().replace('  required_providers {','  required_providers {\n    google-beta = { source = "hashicorp/google-beta", version = "6.49.2" }'); p.write_text(t)
+          p=Path('infrastructure/platform.tf'); t=p.read_text().replace('  provider = google\n','  provider = google-beta\n').replace('resource "google_firebase_web_app" "platform" {','resource "google_firebase_web_app" "platform" {\n  provider = google-beta').replace('data "google_firebase_web_app_config" "platform" {','data "google_firebase_web_app_config" "platform" {\n  provider = google-beta'); p.write_text(t)
+          p=Path('infrastructure/provider.tf'); p.write_text(p.read_text()+'\nprovider "google-beta" {\n  project = var.project_id\n  region = var.region\n}\n')
+          p=Path('scripts/stage3/migration-engine.ts'); t=p.read_text().replace("Object.hasOwn(value, '$stage3')", "Object.prototype.hasOwnProperty.call(value, '$stage3')").replace('Object.hasOwn(data[name],id)', 'Object.prototype.hasOwnProperty.call(data[name],id)'); p.write_text(t)
+          PY
           terraform fmt -recursive infrastructure
           terraform -chdir=infrastructure init -backend=false -input=false
           terraform -chdir=infrastructure validate
@@ -38,7 +45,7 @@ jobs:
           set -euo pipefail
           git config user.name 'ProInspect Stage 3'
           git config user.email 'info@remotebusinesspartner.com.au'
-          git add infrastructure scripts/migrate-unified-portal.ts scripts/verify-tenant-migration-preflight.ts package.json .gitignore
+          git add infrastructure scripts/migrate-unified-portal.ts scripts/verify-tenant-migration-preflight.ts scripts/stage3/migration-engine.ts package.json .gitignore
           git diff --cached --stat
           git commit -m 'feat(stage3): generalise frozen infrastructure and stage migration writes before validation'
           git pull --rebase origin release/platform-unification
