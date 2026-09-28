@@ -168,6 +168,9 @@ export interface BookingRecord {
   };
   status: BookingStatus;
   adminNotes?: string;
+  assignedStaffId?: string;
+  clientId?: string;
+  propertyId?: string;
   confirmationEmail?: {
     status: ConfirmationEmailStatus;
     attemptedAt?: string;
