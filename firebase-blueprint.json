@@ -431,6 +431,86 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AdminOperationalRecord": {
+      "type": "object",
+      "description": "Shared admin operational record used by client, property, tenancy, document, maintenance, communication and subscription modules.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "clientId": {
+          "type": "string"
+        },
+        "propertyId": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "assignedStaffId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archivedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "AdminAuditEvent": {
+      "type": "object",
+      "description": "Immutable audit trail entry for privileged staff actions.",
+      "required": [
+        "actorUid",
+        "actorEmail",
+        "action",
+        "resourceType",
+        "createdAt"
+      ],
+      "properties": {
+        "actorUid": {
+          "type": "string"
+        },
+        "actorEmail": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "resourceType": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
     }
   },
   "firestore": {
@@ -448,7 +528,7 @@
     },
     "/adminUsers/{firebaseUid}": {
       "schema": "AdminUser",
-      "description": "Optional Firebase UID based administrator allow-list."
+      "description": "Staff access profile bound to a Firebase UID on first Google sign-in. Pre-authorised email records may temporarily use a generated document ID until binding."
     },
     "/scheduleLocks/{lockId}": {
       "schema": "ScheduleLock",
@@ -465,6 +545,38 @@
     "/documentRequests/{requestId}": {
       "schema": "DocumentRequest",
       "description": "Customer document requests created by the trusted server API."
+    },
+    "/clients/{clientId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Client and organisation records shared by admin and client portal workflows."
+    },
+    "/properties/{propertyId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Canonical property records linking clients, bookings, tenants, documents and maintenance."
+    },
+    "/tenants/{tenantId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Tenant and occupant records linked to properties."
+    },
+    "/propertyDocuments/{documentId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Generated, reviewed and issued property documents and reports."
+    },
+    "/maintenanceRequests/{requestId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Property maintenance requests, approvals, assignments and completion status."
+    },
+    "/communications/{communicationId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Communication history linked to clients, properties and operational work."
+    },
+    "/subscriptions/{subscriptionId}": {
+      "schema": "AdminOperationalRecord",
+      "description": "Client/property subscription and commercial arrangement records."
+    },
+    "/auditEvents/{eventId}": {
+      "schema": "AdminAuditEvent",
+      "description": "Server-written audit trail for privileged admin actions."
     }
   },
   "security": {
