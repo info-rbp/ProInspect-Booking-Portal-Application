@@ -199,9 +199,10 @@ The server already exposes protected client-read foundations:
 - `GET /api/client/dashboard`
 - `GET /api/client/documents/:id/download`
 
-The Client Portal user interface itself is intentionally not implemented on this
-branch. A later Client Portal branch can authenticate a provisioned `clientUsers`
-record and consume these APIs without changing the Firestore data model.
+The Client Portal user interface is implemented on this branch and consumes these
+shared records through the protected `/api/client/*` routes. Client access remains
+relationship-based through `clientUsers` and active `clientPropertyLinks`; the
+portal does not duplicate property or document records.
 
 
 ## Consolidated operations platform
@@ -273,3 +274,29 @@ system.
 PCR responses require an existing tenant-visible `property_condition_report`
 document and store the tenant's structured agreement/disagreement entries plus
 supporting attachments.
+
+
+## Tenant-portal branch freeze
+
+This branch is treated as architecture-frozen after the pre-merge hardening review.
+Do not add another portal, broad product module, or schema family before the
+coordinated merge.
+
+Pre-merge reconciliation must:
+
+1. bring the latest `main` into a temporary integration branch rather than
+   force-merging this branch directly;
+2. run `npm run migrate:portal:dry` against a non-production copy first;
+3. resolve every reported duplicate canonical property address before applying the
+   migration;
+4. deploy `firestore.indexes.json`, keep `firestore.rules` and `storage.rules`
+   deny-all for browser data access, and verify the Cloud Run service account
+   permissions;
+5. run the booking smoke test and portal security smoke test against staging;
+6. verify tenant, client, restricted Form 2 and staff-role access using controlled
+   accounts;
+7. merge only after the staging revision and migration plan have both been reviewed.
+
+The migration deliberately does not infer a landlord/client from a booking
+requester's email. Historical bookings without reliable client context remain
+property-linked only until staff reconcile the correct client relationship.
