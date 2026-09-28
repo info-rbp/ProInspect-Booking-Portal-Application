@@ -1,4 +1,5 @@
 import type { TenantRequest, TenantUserRecord } from '../types/tenant.js';
+import type { TenantFormRequest } from '../types/tenantForms.js';
 
 function escapeHtml(value: string): string {
   return value
@@ -135,6 +136,96 @@ export async function sendTenantRequestStatusEmail(params: {
           <tr><td style="padding:10px 14px;font-weight:700;">Status</td><td style="padding:10px 14px;text-transform:capitalize;">${escapeHtml(status)}</td></tr>
         </table>
         <p><a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#007F82;color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:8px;">View Request</a></p>
+      </div>
+    `,
+  });
+}
+
+
+export async function sendTenantFormReceiptEmail(params: {
+  tenant: TenantUserRecord;
+  request: TenantFormRequest;
+  portalUrl: string;
+}) {
+  const { tenant, request, portalUrl } = params;
+  const formLabel = request.formCode.startsWith('BOND')
+    ? request.formCode.replaceAll('-', ' ')
+    : `Form ${request.formCode}`;
+
+  await sendEmail({
+    to: tenant.email,
+    subject: `ProInspect tenancy form received – ${request.reference}`,
+    text: [
+      `Hi ${tenant.displayName},`,
+      '',
+      'Your tenancy form or bond request has been received.',
+      `Reference: ${request.reference}`,
+      `Workflow: ${formLabel} – ${request.formName}`,
+      `Status: ${request.status.replaceAll('_', ' ')}`,
+      ...(request.responseDueAt ? [`Response/action date: ${request.responseDueAt}`] : []),
+      '',
+      `Tenant Portal: ${portalUrl}`,
+      '',
+      'ProInspect',
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.5;max-width:640px;margin:0 auto;">
+        <div style="border-bottom:4px solid #00B5B8;padding:20px 0 16px;">
+          <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#007F82;">ProInspect Tenant Portal</div>
+          <h1 style="font-size:24px;margin:6px 0 0;">Tenancy form received</h1>
+        </div>
+        <p>Hi ${escapeHtml(tenant.displayName)},</p>
+        <p>Your tenancy form or bond request has been received and recorded.</p>
+        <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
+          <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Reference</td><td style="padding:10px 14px;">${escapeHtml(request.reference)}</td></tr>
+          <tr><td style="padding:10px 14px;font-weight:700;">Workflow</td><td style="padding:10px 14px;">${escapeHtml(formLabel)} – ${escapeHtml(request.formName)}</td></tr>
+          <tr><td style="padding:10px 14px;font-weight:700;">Status</td><td style="padding:10px 14px;text-transform:capitalize;">${escapeHtml(request.status.replaceAll('_', ' '))}</td></tr>
+          ${request.responseDueAt ? `<tr><td style="padding:10px 14px;font-weight:700;">Response / action date</td><td style="padding:10px 14px;">${escapeHtml(request.responseDueAt)}</td></tr>` : ''}
+        </table>
+        <p><a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#007F82;color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:8px;">Open Tenant Portal</a></p>
+      </div>
+    `,
+  });
+}
+
+export async function sendTenantFormStatusEmail(params: {
+  tenant: TenantUserRecord;
+  request: TenantFormRequest;
+  portalUrl: string;
+}) {
+  const { tenant, request, portalUrl } = params;
+  const formLabel = request.formCode.startsWith('BOND')
+    ? request.formCode.replaceAll('-', ' ')
+    : `Form ${request.formCode}`;
+
+  await sendEmail({
+    to: tenant.email,
+    subject: `ProInspect tenancy form updated – ${request.reference}`,
+    text: [
+      `Hi ${tenant.displayName},`,
+      '',
+      `Your tenancy form ${request.reference} has been updated.`,
+      `Workflow: ${formLabel} – ${request.formName}`,
+      `Status: ${request.status.replaceAll('_', ' ')}`,
+      '',
+      `Tenant Portal: ${portalUrl}`,
+      '',
+      'ProInspect',
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.5;max-width:640px;margin:0 auto;">
+        <div style="border-bottom:4px solid #00B5B8;padding:20px 0 16px;">
+          <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#007F82;">ProInspect Tenant Portal</div>
+          <h1 style="font-size:24px;margin:6px 0 0;">Tenancy form updated</h1>
+        </div>
+        <p>Hi ${escapeHtml(tenant.displayName)},</p>
+        <p>The status of your tenancy form or bond request has changed.</p>
+        <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
+          <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Reference</td><td style="padding:10px 14px;">${escapeHtml(request.reference)}</td></tr>
+          <tr><td style="padding:10px 14px;font-weight:700;">Workflow</td><td style="padding:10px 14px;">${escapeHtml(formLabel)} – ${escapeHtml(request.formName)}</td></tr>
+          <tr><td style="padding:10px 14px;font-weight:700;">Status</td><td style="padding:10px 14px;text-transform:capitalize;">${escapeHtml(request.status.replaceAll('_', ' '))}</td></tr>
+        </table>
+        <p><a href="${escapeHtml(portalUrl)}" style="display:inline-block;background:#007F82;color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:8px;">View Tenant Portal</a></p>
       </div>
     `,
   });
