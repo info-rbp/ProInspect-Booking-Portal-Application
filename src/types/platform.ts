@@ -320,6 +320,9 @@ export interface UnifiedClientDashboard {
   approvals: ClientApproval[];
   payments: PaymentRecord[];
   notifications: PortalNotification[];
+  teamUsers: Array<Pick<ClientUserRecord, 'id' | 'email' | 'displayName' | 'phone' | 'active'> & {
+    clientRoles: Record<string, 'owner' | 'admin' | 'member' | 'viewer'>;
+  }>;
 }
 
 export interface ReportIngestMetadata {
