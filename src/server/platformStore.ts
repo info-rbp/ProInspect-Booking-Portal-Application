@@ -1,6 +1,7 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import type { DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
+import type { BookingRecord, PropertyDetails } from '../types/booking.js';
 import type {
   AuditActor,
   AuditEntityType,
@@ -234,6 +235,16 @@ async function validateProperty(
     state: (text(payload.state ?? existing?.state, 10) || 'WA').toUpperCase(),
     postcode: requiredText(payload.postcode ?? existing?.postcode, 'Postcode', 10),
     propertyType: optionalText(payload.propertyType ?? existing?.propertyType, 80),
+    addressKey: optionalText(payload.addressKey ?? existing?.addressKey, 160),
+    placeId: optionalText(payload.placeId ?? existing?.placeId, 240),
+    latitude:
+      payload.latitude === undefined && existing?.latitude === undefined
+        ? undefined
+        : numberValue(payload.latitude ?? existing?.latitude, 'Latitude', -90),
+    longitude:
+      payload.longitude === undefined && existing?.longitude === undefined
+        ? undefined
+        : numberValue(payload.longitude ?? existing?.longitude, 'Longitude', -180),
     primaryClientId,
     clientName: optionalText(payload.clientName ?? existing?.clientName, 160),
     clientReference: optionalText(payload.clientReference ?? existing?.clientReference, 120),
@@ -924,6 +935,147 @@ export async function archivePlatformResource<R extends PlatformResourceName>(
       break;
   }
   return updatePlatformResource(resource, id, patch, actorId);
+}
+
+
+function canonicalPropertyId(input: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): string {
+  const key = [
+    input.unit || '',
+    input.streetAddress,
+    input.suburb,
+    input.state,
+    input.postcode,
+  ]
+    .map((value) => value.trim().toLowerCase().replace(/\s+/g, ' '))
+    .join('|');
+  return `property_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
+}
+
+export async function upsertCanonicalPropertyFromAddress(input: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  propertyType?: string;
+  addressVerification?: PropertyDetails['addressVerification'];
+}): Promise<PropertyRecord> {
+  const id = canonicalPropertyId(input);
+  const ref = adminDb.collection('properties').doc(id);
+  const current = await ref.get();
+  const now = nowIso();
+  const existing = current.exists ? (current.data() as Partial<PropertyRecord>) : {};
+  const addressKey = id.replace(/^property_/, '');
+
+  const record: PropertyRecord = {
+    id,
+    streetAddress: input.streetAddress,
+    unit: input.unit,
+    suburb: input.suburb,
+    state: input.state,
+    postcode: input.postcode,
+    propertyType: input.propertyType || existing.propertyType,
+    addressKey,
+    placeId: input.addressVerification?.placeId || existing.placeId,
+    latitude: input.addressVerification?.latitude ?? existing.latitude,
+    longitude: input.addressVerification?.longitude ?? existing.longitude,
+    primaryClientId: existing.primaryClientId,
+    clientName: existing.clientName,
+    clientReference: existing.clientReference,
+    status: existing.status || 'active',
+    createdAt: existing.createdAt || now,
+    updatedAt: now,
+    archivedAt: existing.archivedAt,
+  };
+
+  await ref.set(record, { merge: true });
+  return record;
+}
+
+export async function ensureBookingWorkOrder(
+  booking: BookingRecord,
+  actorEmail = 'system'
+): Promise<WorkOrder> {
+  if (!booking.propertyId) {
+    throw new PlatformValidationError(
+      'Booking must be linked to a canonical property before creating a work order.',
+      'BOOKING_PROPERTY_REQUIRED',
+      409
+    );
+  }
+
+  const existing = await adminDb
+    .collection('workOrders')
+    .where('sourceType', '==', 'booking')
+    .where('sourceId', '==', booking.id)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) return docWithId<WorkOrder>(existing.docs[0]);
+
+  const record = await createPlatformResource(
+    'workOrders',
+    {
+      sourceType: 'booking',
+      sourceId: booking.id,
+      propertyId: booking.propertyId,
+      clientId: booking.clientId,
+      assignedStaffId: booking.assignedStaffId,
+      title: booking.serviceName,
+      description: `Booking ${booking.bookingReference} for ${booking.serviceName}.`,
+      priority: 'routine',
+      status: 'scheduled',
+      scheduledStart: booking.appointment.start,
+      scheduledEnd: booking.appointment.end,
+      accessNotes: booking.access.specialInstructions || '',
+    },
+    actorEmail
+  );
+
+  return record;
+}
+
+export async function syncBookingWorkOrderStatus(
+  booking: BookingRecord,
+  actorEmail = 'system'
+): Promise<void> {
+  const snapshot = await adminDb
+    .collection('workOrders')
+    .where('sourceType', '==', 'booking')
+    .where('sourceId', '==', booking.id)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return;
+
+  const workOrder = docWithId<WorkOrder>(snapshot.docs[0]);
+  const mappedStatus =
+    booking.status === 'completed'
+      ? 'completed'
+      : booking.status === 'cancelled'
+        ? 'cancelled'
+        : workOrder.status === 'completed' || workOrder.status === 'cancelled'
+          ? 'scheduled'
+          : workOrder.status;
+
+  await updatePlatformResource(
+    'workOrders',
+    workOrder.id,
+    {
+      status: mappedStatus,
+      assignedStaffId: booking.assignedStaffId || '',
+      clientId: booking.clientId || '',
+      propertyId: booking.propertyId || workOrder.propertyId,
+      scheduledStart: booking.appointment.start,
+      scheduledEnd: booking.appointment.end,
+    },
+    actorEmail
+  );
 }
 
 export async function writeAuditEvent(input: {
