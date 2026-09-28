@@ -202,3 +202,34 @@ The server already exposes protected client-read foundations:
 The Client Portal user interface itself is intentionally not implemented on this
 branch. A later Client Portal branch can authenticate a provisioned `clientUsers`
 record and consume these APIs without changing the Firestore data model.
+
+
+## Consolidated operations platform
+
+The `tenant-portal` branch is now the consolidation branch for the wider ProInspect
+application platform.
+
+It includes:
+
+- shared Client → Property → Tenancy data architecture
+- Client Portal and Tenant Portal
+- public Residential / Commercial / Strata document request catalogue
+- unified staff operations queue
+- client and tenant requests
+- contractor directory and maintenance work orders
+- client approvals
+- property document visibility across portals
+- payment records plus an external checkout adapter
+- immutable audit events
+- portal notifications
+- Property Report Tool ingestion endpoint
+- migration/backfill tooling
+- deployed portal security smoke tests
+- role-aware staff permissions
+
+The canonical property record is `properties/{propertyId}`. Portal and operational
+features should reference that ID rather than create new property copies.
+
+The application intentionally keeps payment processing provider-neutral. A checkout
+provider can be connected through `PAYMENT_CHECKOUT_URL_TEMPLATE` and the
+authenticated payment-status webhook without changing Firestore schemas.
