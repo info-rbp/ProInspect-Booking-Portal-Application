@@ -153,6 +153,7 @@ import {
   getSensitiveEvidenceForAdmin,
   getSensitiveEvidenceForTenant,
   getTenantFormAttachment,
+  getTenantFormAttachmentForAdmin,
   getTenantFormsDashboard,
   listAdminTenantForms,
   listSensitiveTenantFormsForAdmin,
@@ -2855,6 +2856,25 @@ app.get('/api/admin/tenant-forms', requireAdmin, requireAdminPermission('tenant_
     return res.status(500).json({ error: 'Unable to load tenant form requests.' });
   }
 });
+
+app.get(
+  '/api/admin/tenant-forms/:requestId/attachments/:attachmentId/download',
+  requireAdmin,
+  requireAdminPermission('tenant_forms'),
+  async (req, res) => {
+    try {
+      const attachment = await getTenantFormAttachmentForAdmin(
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment?.storagePath) return res.status(404).json({ error: 'Attachment not found.' });
+      return res.json({ url: await signedTenantFileUrl(attachment.storagePath) });
+    } catch (error) {
+      console.error('Admin tenant form attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
 
 app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminPermission('tenant_forms'), async (req, res) => {
   try {
