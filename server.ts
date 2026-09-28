@@ -2302,9 +2302,9 @@ app.post('/api/client/properties', clientRateLimit, requireClient, async (req, r
   try {
     const user = res.locals.clientUser as ClientUserRecord;
     const clientId = normalizeText(req.body?.clientId, 128);
-    const role = user.clientRoles?.[clientId] || (user.clientIds.includes(clientId) ? 'owner' : undefined);
-    if (!clientId || !role || role === 'viewer') {
-      return res.status(403).json({ error: 'Your client role cannot add properties.' });
+    const role = user.clientRoles?.[clientId] || (user.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !role || !['owner', 'admin'].includes(role)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can add properties.' });
     }
 
     const streetAddress = normalizeText(req.body?.streetAddress, 180);
@@ -2353,7 +2353,7 @@ app.post('/api/client/team-users', clientRateLimit, requireClient, async (req, r
   try {
     const requester = res.locals.clientUser as ClientUserRecord;
     const clientId = normalizeText(req.body?.clientId, 128);
-    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'owner' : undefined);
+    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'member' : undefined);
     if (!clientId || !requesterRole || !['owner', 'admin'].includes(requesterRole)) {
       return res.status(403).json({ error: 'Only client owners and administrators can add portal users.' });
     }
