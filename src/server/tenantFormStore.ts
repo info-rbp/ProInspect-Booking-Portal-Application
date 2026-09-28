@@ -86,12 +86,31 @@ function validateNormalPayload(
       requireText(payload, 'description', 'Modification description');
       requireText(payload, 'location', 'Modification location');
       break;
-    case 'bond_release':
-      requireText(payload, 'tenancyEndDate', 'Tenancy end date');
-      if (arrayValue(payload, 'proposedDistributions').length === 0) {
+    case 'bond_release': {
+      const partialRelease = payload.partialRelease === true;
+      if (!partialRelease) requireText(payload, 'tenancyEndDate', 'Tenancy end date');
+
+      const totalBondAmount = Number(payload.totalBondAmount);
+      if (!Number.isFinite(totalBondAmount) || totalBondAmount <= 0) {
+        throw new Error('FORM_FIELD_REQUIRED:Total bond amount');
+      }
+
+      const distributions = arrayValue(payload, 'proposedDistributions');
+      if (distributions.length === 0) {
         throw new Error('FORM_FIELD_REQUIRED:Proposed bond distribution');
       }
+
+      const distributionTotal = distributions.reduce((sum, item) => {
+        if (!item || typeof item !== 'object') return sum;
+        const amount = Number((item as Record<string, unknown>).amount);
+        return Number.isFinite(amount) && amount >= 0 ? sum + amount : sum;
+      }, 0);
+
+      if (Math.abs(distributionTotal - totalBondAmount) > 0.01) {
+        throw new Error('BOND_DISTRIBUTION_MISMATCH');
+      }
       break;
+    }
     case 'bond_variation':
       requireText(payload, 'changeType', 'Bond change type');
       break;
@@ -412,6 +431,18 @@ export async function createSensitiveTenantFormDraft(
   ];
   if (!allowedEvidence.includes(evidenceType)) {
     throw new Error('FORM_FIELD_REQUIRED:Evidence type');
+  }
+
+  const proposedTerminationDate = textValue(input.payload, 'proposedTerminationDate');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(proposedTerminationDate)) {
+    throw new Error('FORM_FIELD_REQUIRED:Proposed termination date');
+  }
+  const minimumTermination = new Date();
+  minimumTermination.setUTCHours(0, 0, 0, 0);
+  minimumTermination.setUTCDate(minimumTermination.getUTCDate() + 7);
+  const proposed = new Date(`${proposedTerminationDate}T00:00:00.000Z`);
+  if (Number.isNaN(proposed.getTime()) || proposed < minimumTermination) {
+    throw new Error('FAMILY_VIOLENCE_NOTICE_TOO_SHORT');
   }
 
   const now = nowIso();
