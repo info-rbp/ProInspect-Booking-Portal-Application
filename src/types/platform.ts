@@ -23,6 +23,7 @@ export type ClientRequestStatus =
   | 'awaiting_client'
   | 'approved'
   | 'in_progress'
+  | 'report_pending'
   | 'completed'
   | 'cancelled';
 
@@ -62,6 +63,7 @@ export type DocumentRequestStatus =
   | 'under_review'
   | 'awaiting_information'
   | 'in_preparation'
+  | 'review'
   | 'ready'
   | 'completed'
   | 'cancelled';
@@ -77,6 +79,7 @@ export interface DocumentRequest {
   propertyId?: string;
   clientId?: string;
   clientUserId?: string;
+  assignedStaffId?: string;
   requesterName: string;
   requesterEmail: string;
   requesterPhone: string;
@@ -121,11 +124,12 @@ export interface Contractor {
 export interface WorkOrder {
   id: string;
   reference: string;
-  sourceType: 'tenant_request' | 'client_request' | 'booking' | 'manual';
+  sourceType: 'tenant_request' | 'client_request' | 'booking' | 'document_request' | 'manual';
   sourceId?: string;
   propertyId: string;
   clientId?: string;
   tenancyId?: string;
+  assignedStaffId?: string;
   title: string;
   description: string;
   priority: 'routine' | 'priority' | 'urgent' | 'emergency';
@@ -189,7 +193,7 @@ export interface PaymentRecord {
   reference: string;
   clientId?: string;
   propertyId?: string;
-  sourceType: 'booking' | 'document_request' | 'work_order' | 'other';
+  sourceType: 'booking' | 'document_request' | 'work_order' | 'subscription' | 'other';
   sourceId: string;
   description: string;
   amountExGst: number;
@@ -197,7 +201,8 @@ export interface PaymentRecord {
   totalAmount: number;
   currency: 'AUD';
   status: PaymentStatus;
-  provider: 'manual' | 'external';
+  provider: 'manual' | 'external' | 'xero';
+  invoiceReference?: string;
   checkoutUrl?: string;
   providerOrderId?: string;
   paidAt?: string;

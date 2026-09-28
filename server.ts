@@ -1105,6 +1105,10 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       return res.status(400).json({ error:'Report file is required.' });
     }
+    const reportContentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (reportContentType !== 'application/pdf' || req.body.length < 5 || req.body.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      return res.status(400).json({ error:'Only a structurally valid PDF report can be ingested.' });
+    }
 
     const propertyId = normalizeText(req.headers['x-property-id'],128);
     const title = normalizeText(req.headers['x-document-title'],180);
@@ -1112,6 +1116,8 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     const category = normalizeText(req.headers['x-document-category'],80) as TenantDocumentCategory;
     const tenancyId = normalizeText(req.headers['x-tenancy-id'],128) || undefined;
     const bookingId = normalizeText(req.headers['x-booking-id'],128) || undefined;
+    const workOrderId = normalizeText(req.headers['x-work-order-id'],128) || undefined;
+    const requestId = normalizeText(req.headers['x-request-id'],128) || undefined;
     const audiences = normalizeText(req.headers['x-document-audiences'],100)
       .split(',').map((v)=>v.trim()).filter((v):v is PortalAudience => ['client','tenant','staff'].includes(v));
 
@@ -1136,6 +1142,9 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     const document = await createTenantDocumentRecord({
       propertyId,
       tenancyId,
+      bookingId,
+      workOrderId,
+      requestId,
       audiences: audiences.length ? audiences : ['client'],
       title,
       category,
@@ -1154,13 +1163,13 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
       actor:{ type:'integration', id:'report-generator' },
       propertyId,
       tenancyId,
-      metadata: bookingId ? { bookingId } : undefined,
+      metadata: { ...(bookingId ? { bookingId } : {}), ...(workOrderId ? { workOrderId } : {}), ...(requestId ? { requestId } : {}) },
     });
 
     return res.status(201).json({ success:true, document });
   } catch (error) {
     if (savedPath) await deleteTenantFile(savedPath).catch(()=>undefined);
-    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH'].includes(error.message)) {
+    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH','BOOKING_PROPERTY_MISMATCH','WORK_ORDER_PROPERTY_MISMATCH'].includes(error.message)) {
       return res.status(400).json({ error:'The report property, tenancy or client relationship is invalid.' });
     }
     if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {

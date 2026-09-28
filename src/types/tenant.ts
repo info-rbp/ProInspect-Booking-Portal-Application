@@ -179,14 +179,25 @@ export interface TenantDocument {
   tenancyId?: string;
   propertyId: string;
   clientIds: string[];
+  bookingId?: string;
+  workOrderId?: string;
+  requestId?: string;
   audiences: PortalAudience[];
   title: string;
   category: TenantDocumentCategory;
   fileName: string;
   contentType: string;
   size: number;
+  version: number;
+  status: 'draft' | 'generated' | 'review' | 'approved' | 'issued' | 'archived';
   uploadedAt: string;
   uploadedBy: string;
+  generatedAt?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  issuedAt?: string;
+  issuedBy?: string;
+  updatedAt: string;
 }
 
 export type TenantInspectionType = 'routine' | 'entry' | 'exit' | 'maintenance' | 'other';

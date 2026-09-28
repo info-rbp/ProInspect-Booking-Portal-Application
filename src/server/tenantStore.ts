@@ -593,6 +593,9 @@ export async function createTenantDocumentRecord(input: {
   tenancyId?: string;
   propertyId: string;
   clientIds?: string[];
+  bookingId?: string;
+  workOrderId?: string;
+  requestId?: string;
   audiences?: PortalAudience[];
   title: string;
   category: TenantDocumentCategory;
@@ -601,6 +604,7 @@ export async function createTenantDocumentRecord(input: {
   size: number;
   storagePath: string;
   uploadedBy: string;
+  status?: TenantDocument['status'];
 }): Promise<TenantDocument> {
   const propertyDoc = await adminDb.collection('properties').doc(input.propertyId).get();
   if (!propertyDoc.exists) throw new Error('PROPERTY_NOT_FOUND');
@@ -609,6 +613,20 @@ export async function createTenantDocumentRecord(input: {
     const tenancy = await getTenancyById(input.tenancyId);
     if (!tenancy || tenancy.propertyId !== input.propertyId) {
       throw new Error('TENANCY_PROPERTY_MISMATCH');
+    }
+  }
+
+  if (input.bookingId) {
+    const booking = await adminDb.collection('bookings').doc(input.bookingId).get();
+    if (!booking.exists || booking.data()?.propertyId !== input.propertyId) {
+      throw new Error('BOOKING_PROPERTY_MISMATCH');
+    }
+  }
+
+  if (input.workOrderId) {
+    const workOrder = await adminDb.collection('workOrders').doc(input.workOrderId).get();
+    if (!workOrder.exists || workOrder.data()?.propertyId !== input.propertyId) {
+      throw new Error('WORK_ORDER_PROPERTY_MISMATCH');
     }
   }
 
@@ -635,26 +653,34 @@ export async function createTenantDocumentRecord(input: {
     new Set<PortalAudience>(input.audiences?.length ? input.audiences : ['tenant'])
   );
   const ref = adminDb.collection('propertyDocuments').doc();
+  const now = nowIso();
+  const status = input.status || 'issued';
   const document: TenantDocument & { storagePath: string } = {
     id: ref.id,
     tenancyId: input.tenancyId,
     propertyId: input.propertyId,
     clientIds: requestedClientIds,
+    bookingId: input.bookingId,
+    workOrderId: input.workOrderId,
+    requestId: input.requestId,
     audiences,
     title: input.title,
     category: input.category,
     fileName: input.fileName,
     contentType: input.contentType,
     size: input.size,
+    version: 1,
+    status,
     storagePath: input.storagePath,
-    uploadedAt: nowIso(),
+    uploadedAt: now,
     uploadedBy: input.uploadedBy,
+    ...(status === 'issued' ? { issuedAt: now, issuedBy: input.uploadedBy } : {}),
+    updatedAt: now,
   };
   await ref.set(document);
   const { storagePath: _storagePath, ...publicDocument } = document;
   return publicDocument;
 }
-
 
 export async function getTenancyById(tenancyId: string): Promise<TenancyRecord | null> {
   const doc = await adminDb.collection('tenancies').doc(tenancyId).get();

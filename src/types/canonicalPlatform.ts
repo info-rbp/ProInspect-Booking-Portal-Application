@@ -323,6 +323,9 @@ export interface AuditActor {
 export type AuditEntityType =
   | 'booking'
   | 'client'
+  | 'client_request'
+  | 'tenant_request'
+  | 'approval'
   | 'client_user'
   | 'client_membership'
   | 'client_property_link'
