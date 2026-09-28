@@ -38,6 +38,8 @@ type BookingCreateResponse = {
   message?: string;
 } & ApiErrorResponse;
 type AdminBookingsResponse = { bookings: BookingRecord[] };
+type AdminClientRequestsResponse = { requests: ClientRequestSummary[] };
+type AdminClientApprovalsResponse = { approvals: ClientApproval[] };
 type AdminServicesResponse = { services: InspectionService[] };
 type AdminSettingsResponse = { settings: BusinessSettings };
 type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
@@ -398,6 +400,39 @@ export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   if (!res.ok) throw new Error('Failed to load bookings.');
   const data = (await res.json()) as AdminBookingsResponse;
   return data.bookings;
+}
+
+export async function fetchAdminClientRequests(): Promise<ClientRequestSummary[]> {
+  const res = await adminFetch('/api/admin/client-requests');
+  if (!res.ok) throw new Error('Failed to load client requests.');
+  const data = (await res.json()) as AdminClientRequestsResponse;
+  return data.requests;
+}
+
+export async function updateAdminClientRequest(
+  requestId: string,
+  status: ClientRequestSummary['status']
+): Promise<ClientRequestSummary> {
+  const res = await adminFetch(
+    `/api/admin/client-requests/${encodeURIComponent(requestId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }
+  );
+  const data = (await res.json()) as { request?: ClientRequestSummary; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Failed to update client request.');
+  }
+  return data.request;
+}
+
+export async function fetchAdminClientApprovals(): Promise<ClientApproval[]> {
+  const res = await adminFetch('/api/admin/client-approvals');
+  if (!res.ok) throw new Error('Failed to load client approvals.');
+  const data = (await res.json()) as AdminClientApprovalsResponse;
+  return data.approvals;
 }
 
 export async function fetchAdminServices(): Promise<InspectionService[]> {
