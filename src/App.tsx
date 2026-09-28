@@ -9,7 +9,7 @@ import { Step3Access } from './components/wizard/Step3Access';
 import { Step4Appointment } from './components/wizard/Step4Appointment';
 import { Step5Review } from './components/wizard/Step5Review';
 import { StepConfirmation } from './components/wizard/StepConfirmation';
-import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import { ClientHub } from './components/hub/ClientHub';
@@ -355,7 +355,7 @@ export default function App() {
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8">
         {activeView === 'admin' ? (
           // Internal Admin Operations Portal
-          <AdminDashboard
+          <AdminPortal
             currentUser={currentUser}
             onLogout={handleAdminLogout}
             onBackToBooking={() => navigatePublic('/book')}
