@@ -92,7 +92,7 @@ export const DocumentRequestFlow:React.FC<{onBack:()=>void}>=({onBack})=>{
           <div><span className="text-slate-500">Price:</span> <strong>{product.pricingMode==='fixed'&&product.priceExGst!==undefined?`$${product.priceExGst.toFixed(2)} + GST`:'Quote required after review'}</strong></div>
         </div>
         {error&&<div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
-        <div className="mt-6 flex justify-between"><button onClick={()=>setStep(3)} className="px-4 py-2 text-sm font-bold text-slate-600">Back</button><button disabled={busy} onClick={()=>void submit()} className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">{busy&&<Loader2 className="w-4 h-4 animate-spin"/>Submit Request<ArrowRight className="w-4 h-4"/></button></div>
+        <div className="mt-6 flex justify-between"><button onClick={()=>setStep(3)} className="px-4 py-2 text-sm font-bold text-slate-600">Back</button><button disabled={busy} onClick={()=>void submit()} className="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">{busy && <Loader2 className="w-4 h-4 animate-spin" />}<span>Submit Request</span><ArrowRight className="w-4 h-4"/></button></div>
       </section>}
     </>}
   </div>;
