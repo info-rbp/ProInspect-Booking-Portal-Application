@@ -19,7 +19,8 @@
     "test:migration-preflight": "tsx scripts/verify-tenant-migration-preflight.ts",
     "stage2:check": "node scripts/stage2-integration-check.mjs",
     "stage3:test": "node --import tsx --test scripts/stage3/tests/*.test.ts",
-    "stage3:check": "python3 scripts/stage3/control.py check-repository"
+    "stage3:check": "python3 scripts/stage3/control.py check-repository",
+    "stage3:test:controls": "python3 -m unittest discover -s scripts/stage3/tests -p 'test_*.py' -v"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

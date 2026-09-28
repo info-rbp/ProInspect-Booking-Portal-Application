@@ -16,3 +16,6 @@ private-evidence/
 **/imports.generated.tf
 infrastructure/environments/*.local.json
 gha-creds-*.json
+
+**/__pycache__/
+*.pyc

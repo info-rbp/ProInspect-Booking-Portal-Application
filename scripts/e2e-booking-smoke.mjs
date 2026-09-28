@@ -26,11 +26,11 @@ for (const name of required) {
 }
 
 async function request(path, init) {
-  const response = await fetch(`${baseUrl}${path}`, init);
+  const response = await fetch(`${baseUrl}${path}`, { ...init, redirect: 'error', signal: AbortSignal.timeout(60000), headers: {...init?.headers, ...(process.env.E2E_CLOUD_RUN_ID_TOKEN ? {'X-Serverless-Authorization': 'Bearer '+process.env.E2E_CLOUD_RUN_ID_TOKEN} : {})} });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(
-      `${init?.method || 'GET'} ${path} failed (${response.status}): ${body.error || JSON.stringify(body)}`
+      `${init?.method || 'GET'} ${path.replace(/manage\/[^/]+/, 'manage/[redacted]')} failed (${response.status}): ${body.error || JSON.stringify(body)}`
     );
   }
   return body;
@@ -167,6 +167,11 @@ try {
     )
   );
 } catch (error) {
+  let cleanupStatus = 'not_required';
+  if (managementToken) {
+    try { await request(`/api/bookings/manage/${encodeURIComponent(managementToken)}/cancel`, {method:'POST'}); cleanupStatus='cancelled'; }
+    catch { cleanupStatus='failed_requires_private_review'; }
+  }
   console.error(
     JSON.stringify(
       {
@@ -174,10 +179,7 @@ try {
         bookingReference,
         managementTokenPresent: Boolean(managementToken),
         error: error instanceof Error ? error.message : String(error),
-        cleanup:
-          managementToken
-            ? `If cancellation did not run, open ${baseUrl}/manage/${managementToken} and cancel the test booking manually.`
-            : 'No management token was created.',
+        cleanup: cleanupStatus,
       },
       null,
       2

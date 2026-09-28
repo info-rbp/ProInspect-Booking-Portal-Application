@@ -145,3 +145,13 @@ test('real Firestore emulator: dry run, tamper, drift, atomic apply and no-op re
     assert.equal((await plan(applied)).changes.length,0);
   } finally { await deleteApp(app); }
 });
+
+test('revoking an existing legacy identity removes its old role key', async()=>{
+  const s=fixture();
+  s.clientUsers.legacy={id:'legacy',firebaseUid:'u1',email:'legacy@example.test',clientIds:['o1'],clientRoles:{o1:'admin'},active:true};
+  s.clientMemberships.m1.status='revoked';
+  const result=after(s,(await plan(s)).changes);
+  assert.deepEqual(result.clientUsers.legacy.clientIds,[]);
+  assert.equal(result.clientUsers.legacy.clientRoles.o1,undefined);
+  assert.equal(result.clientUsers.legacy.active,false);
+});

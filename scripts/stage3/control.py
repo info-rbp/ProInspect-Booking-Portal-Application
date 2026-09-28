@@ -16,6 +16,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_PROJECT = 'business-plan-applicatio-17047'
@@ -56,7 +57,7 @@ def run(args, *, data=None, env=None, json_output=False):
     result = subprocess.run([str(a) for a in args], cwd=ROOT, input=data, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     if result.returncode:
         # Never print argv/stdin: some future commands may contain secret payloads.
-        raise RuntimeError(f'{args[0]} failed with exit {result.returncode}: {result.stderr[-1800:]}')
+        raise RuntimeError(f'{args[0]} failed with exit {result.returncode}. Inspect the command locally; stderr is suppressed to protect credentials.')
     return json.loads(result.stdout) if json_output else result.stdout.strip()
 
 
@@ -65,12 +66,15 @@ def sha():
 
 
 def cloud(config, *args, json_output=True, data=None):
-    return run(['gcloud', *args, '--project=' + config['projectId'], '--quiet', *(['--format=json'] if json_output else [])], json_output=json_output, data=data)
+    identity = config.get('_identity')
+    impersonate = ['--impersonate-service-account=' + identity] if identity and not any(str(a).startswith('--impersonate-service-account=') for a in args) else []
+    return run(['gcloud', *args, *impersonate, '--project=' + config['projectId'], '--quiet', *(['--format=json'] if json_output else [])], json_output=json_output, data=data)
 
 
-def api(config, url, *, optional=False):
+def api(config, url, *, optional=False, method="GET", body=None):
     token = cloud(config, 'auth', 'print-access-token', json_output=False)
-    request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token})
+    require(urllib.parse.urlparse(url).hostname in {'firestore.googleapis.com','firebase.googleapis.com','identitytoolkit.googleapis.com','iam.googleapis.com','firebaserules.googleapis.com'}, 'Unexpected authenticated API host.')
+    request = urllib.request.Request(url, method=method, data=None if body is None else json.dumps(body).encode(), headers={'Authorization': 'Bearer ' + token, 'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
@@ -84,7 +88,7 @@ def validate_config(c, *, mutate=False, allow_placeholders=False):
     require(c.get('schemaVersion') == 1, 'Environment schemaVersion must be 1.')
     require(c.get('environment') in ('staging', 'production'), 'Explicit staging or production environment required.')
     require(re.fullmatch(r'[a-z][a-z0-9-]{4,61}[a-z0-9]', c.get('projectId', '')), 'Invalid explicit project ID.')
-    require(c.get('databaseId'), 'Explicit databaseId required.')
+    require(re.fullmatch(r'[a-z][a-z0-9-]{2,62}|\(default\)', c.get('databaseId','')), 'Invalid explicit databaseId.')
     t = c.get('terraform', {})
     require(t.get('project_id') == c['projectId'] and t.get('environment') == c['environment'] and t.get('firestore_database_id') == c['databaseId'], 'Descriptor/Terraform target mismatch.')
     require(c.get('state', {}).get('bucket') and c['state'].get('prefix'), 'Explicit state bucket and prefix required.')
@@ -94,17 +98,23 @@ def validate_config(c, *, mutate=False, allow_placeholders=False):
         require(c['state']['prefix'] == 'platform/staging', 'Use the isolated platform/staging state prefix.')
         require(t.get('google_calendar_id') != 'c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com', 'Staging cannot use the production Calendar.')
         require(t.get('report_tool_url', '').rstrip('/') != 'https://report.creation.proinspect.systems', 'Staging cannot call the production Report Tool.')
-    elif c['projectId'] == PRODUCTION_PROJECT:
+    else:
+        require(c['projectId'] == PRODUCTION_PROJECT, 'Production descriptor must match the frozen production project.')
         require(c['databaseId'] == PRODUCTION_DATABASE, 'Production database does not match the frozen baseline.')
         require(c['state']['prefix'] == 'booking-portal/production', 'Preserve existing production state ownership; do not create a competing state prefix.')
     require(not mutate or c['environment'] == 'staging', 'Stage 3 blocks production mutation; Stage 4 owns cutover approval.')
     if not allow_placeholders:
         require('REQUIRED_' not in json.dumps(c) and 'CHANGE_ME' not in json.dumps(c), 'Complete the environment descriptor; placeholders cannot target cloud resources.')
+    require(t.get('operator_principal') == c.get('operatorPrincipal'), 'Operator identity must match Terraform inputs.')
+    if c['environment'] == 'staging':
+        require(t.get('staging_email_recipient') == c.get('testEmail') and c.get('testEmail'), 'Staging requires one explicit testEmail/email sink.')
+    require(t.get('runtime_service_account_email') != t.get('terraform_service_account_email'), 'Runtime and Terraform must use different identities.')
     for key in ('runtime_service_account_email', 'terraform_service_account_email'):
         require(str(t.get(key, '')).endswith('@' + c['projectId'] + '.iam.gserviceaccount.com'), key + ' must belong to the selected project.')
     for address, resource_id in c.get('imports', {}).items():
         require(re.fullmatch(r'google_[a-z0-9_]+\.[a-z0-9_]+(?:\[(?:[0-9]+|"[a-zA-Z0-9_./@()-]+")\])?', address), 'Invalid Terraform import address.')
         require(isinstance(resource_id, str) and resource_id, 'Invalid resource import ID.')
+    require(not os.environ.get('FIRESTORE_EMULATOR_HOST') and not os.environ.get('FIREBASE_AUTH_EMULATOR_HOST'), 'Live control-plane commands cannot use emulator configuration.')
     return c
 
 
@@ -113,8 +123,33 @@ def load_config(path, *, mutate=False):
     return validate_config(read(path), mutate=mutate)
 
 
+def ensure_clean():
+    require(not run(['git','status','--porcelain','--untracked-files=no']), 'Commit tracked source before issuing live Stage 3 evidence.')
+
+def config_digest(config):
+    return digest({k:v for k,v in config.items() if not k.startswith('_')})
+
+
+def fresh(value, label, hours=24):
+    try:
+        stamp=dt.datetime.fromisoformat(value.replace('Z','+00:00'))
+        age=dt.datetime.now(dt.timezone.utc)-stamp
+        require(dt.timedelta(0) <= age <= dt.timedelta(hours=hours), label+' is expired or future-dated.')
+    except (TypeError, AttributeError, ValueError):
+        raise ValueError(label+' must contain a valid, recent UTC timestamp.') from None
+
+
+def validate_evidence(item, config, label):
+    require(item.get('schemaVersion') == 1 and item.get('status') == 'passed' and item.get('synthetic') is not True, 'Missing successful live evidence: '+label)
+    target=item.get('target',item)
+    require(all(target.get(k)==config[k] for k in ('projectId','databaseId','environment')), 'Evidence target mismatch: '+label)
+    require(item.get('sourceSha') == sha(), 'Evidence source mismatch: '+label)
+    fresh(item.get('completedAt'), label)
+    return item
+
+
 def workspace(config):
-    path = ROOT / 'private-evidence' / 'stage3' / config['environment']
+    path = ROOT / 'private-evidence' / 'stage3' / config['environment'] / config['projectId'] / config['databaseId']
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -129,9 +164,11 @@ def init(config):
 
 
 def bootstrap(config, approval):
+    validate_config(config, mutate=True)
     require(approval == config['projectId'], '--approve must equal the staging project ID for one-time bootstrap.')
     project = cloud(config, 'projects', 'describe', config['projectId'])
-    require(project.get('lifecycleState') == 'ACTIVE', 'Target project must exist, be active and have billing enabled.')
+    require(project.get('lifecycleState') == 'ACTIVE', 'Target project must exist and be active.')
+    require(cloud(config,'billing','projects','describe',config['projectId']).get('billingEnabled') is True,'Enable billing on the explicitly selected staging project before bootstrap.')
     apis = ['serviceusage.googleapis.com','cloudresourcemanager.googleapis.com','iam.googleapis.com','iamcredentials.googleapis.com','storage.googleapis.com','cloudbuild.googleapis.com','firestore.googleapis.com','firebase.googleapis.com','firebaserules.googleapis.com','secretmanager.googleapis.com','artifactregistry.googleapis.com','run.googleapis.com','identitytoolkit.googleapis.com','sts.googleapis.com']
     cloud(config, 'services', 'enable', *apis, json_output=False)
     existing = {a['email'] for a in cloud(config, 'iam', 'service-accounts', 'list')}
@@ -146,7 +183,7 @@ def bootstrap(config, approval):
     cloud(config, 'storage', 'buckets', 'update', 'gs://' + bucket, '--versioning', '--uniform-bucket-level-access', '--public-access-prevention', json_output=False)
     identity = config['terraform']['terraform_service_account_email']
     cloud(config, 'storage', 'buckets', 'add-iam-policy-binding', 'gs://' + bucket, '--member=serviceAccount:' + identity, '--role=roles/storage.objectAdmin')
-    for role in ['roles/serviceusage.serviceUsageAdmin','roles/resourcemanager.projectIamAdmin','roles/iam.serviceAccountAdmin','roles/iam.workloadIdentityPoolAdmin','roles/storage.admin','roles/secretmanager.admin','roles/datastore.owner','roles/artifactregistry.admin','roles/firebase.admin']:
+    for role in ['roles/serviceusage.serviceUsageAdmin','roles/resourcemanager.projectIamAdmin','roles/iam.serviceAccountAdmin','roles/iam.workloadIdentityPoolAdmin','roles/iam.roleAdmin','roles/storage.admin','roles/secretmanager.admin','roles/datastore.owner','roles/artifactregistry.admin','roles/firebase.admin','roles/run.viewer','roles/logging.viewer']:
         cloud(config, 'projects', 'add-iam-policy-binding', config['projectId'], '--member=serviceAccount:' + identity, '--role=' + role, '--condition=None')
     principal = config.get('operatorPrincipal', '')
     require(principal.startswith(('user:', 'serviceAccount:')), 'Explicit operatorPrincipal required for Terraform impersonation.')
@@ -154,7 +191,23 @@ def bootstrap(config, approval):
     save(workspace(config) / 'bootstrap.json', {'status':'passed','projectId':config['projectId'],'environment':config['environment'],'completedAt':now(),'sourceSha':sha()})
 
 
+def api_list(config, url, field, optional=False):
+    result=[]; seen=set()
+    while True:
+        page=api(config,url,optional=optional)
+        if page is None: return []
+        result.extend(page.get(field,[]))
+        token=page.get('nextPageToken')
+        if not token: return result
+        require(token not in seen,'Inventory pagination repeated a token; refusing incomplete inventory.')
+        seen.add(token)
+        parsed=urllib.parse.urlsplit(url)
+        query=dict(urllib.parse.parse_qsl(parsed.query)); query['pageToken']=token
+        url=urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
+
+
 def inventory(config):
+    config={**config, "_identity":config["terraform"]["terraform_service_account_email"]}
     p = config['projectId']; database = config['databaseId']; region = config['terraform']['region']
     result = {'schemaVersion':1, 'projectId':p, 'databaseId':database, 'environment':config['environment'], 'capturedAt':now(), 'sourceSha':sha()}
     commands = {
@@ -171,10 +224,17 @@ def inventory(config):
         result[key] = cloud(config, *command)
     base = f'https://firestore.googleapis.com/v1/projects/{p}/databases/{database}'
     exists = any(d.get('name','').endswith('/databases/'+database) for d in result['databases'])
-    result['indexes'] = api(config, base + '/collectionGroups/-/indexes').get('indexes',[]) if exists else []
-    result['backupSchedules'] = api(config, base + '/backupSchedules').get('backupSchedules',[]) if exists else []
+    result['indexes'] = api_list(config, base + '/collectionGroups/-/indexes','indexes') if exists else []
+    result['backupSchedules'] = api_list(config, base + '/backupSchedules','backupSchedules') if exists else []
     result['firebaseProject'] = api(config, f'https://firebase.googleapis.com/v1beta1/projects/{p}', optional=True)
-    result['webApps'] = api(config, f'https://firebase.googleapis.com/v1beta1/projects/{p}/webApps').get('apps',[]) if result['firebaseProject'] else []
+    result['webApps'] = api_list(config, f'https://firebase.googleapis.com/v1beta1/projects/{p}/webApps','apps') if result['firebaseProject'] else []
+    pool=f'projects/{result["project"]["projectNumber"]}/locations/global/workloadIdentityPools/proinspect-{config["environment"]}'
+    result['identityPool']=api(config,'https://iam.googleapis.com/v1/'+pool,optional=True)
+    result['identityProvider']=api(config,'https://iam.googleapis.com/v1/'+pool+'/providers/github',optional=True) if result['identityPool'] else None
+    release='cloud.firestore' if database=='(default)' else 'cloud.firestore/'+database
+    result['rulesRelease']=api(config,f'https://firebaserules.googleapis.com/v1/projects/{p}/releases/'+release,optional=True) if result['firebaseProject'] else None
+    result['gatewayRole']=api(config,f'https://iam.googleapis.com/v1/projects/{p}/roles/proinspectGatewayPolicy',optional=True)
+    result['fieldOverrides']=api_list(config,base+'/collectionGroups/-/fields','fields') if exists else []
     save(workspace(config) / 'inventory.json', result)
     print('Inventory captured. Review current state ownership before planning imports.')
     return result
@@ -195,7 +255,7 @@ def adoption_imports(config, inv, existing_addresses):
     for account in inv['accounts']:
         email = account['email']
         if email == t['runtime_service_account_email']: add('google_service_account.runtime', account['name'])
-        for role in ['build','deploy','migration']:
+        for role in ['build','deploy','migration','gateway']:
             if email == f'{prefix}-{role}@{p}.iam.gserviceaccount.com': add(f'google_service_account.platform["{role}"]', account['name'])
     doc_bucket = t.get('client_documents_bucket_name') or f'proinspect-client-docs-{inv["project"]["projectNumber"]}-{env}'
     for b in inv['buckets']:
@@ -208,6 +268,8 @@ def adoption_imports(config, inv, existing_addresses):
             if secret['name'].endswith('/'+prefix+'-'+key.replace('_','-')):
                 resource = 'runtime' if key in ['access_data_encryption_key','resend_api_key','google_maps_api_key'] else 'integration'
                 add(f'google_secret_manager_secret.{resource}["{key}"]', secret['name'])
+    for secret in inv['secrets']:
+        if secret['name'].endswith('/proinspect-'+env+'-google-signin-client-secret'): add('google_secret_manager_secret.auth_client',secret['name'])
     for d in inv['databases']:
         if d['name'].endswith('/databases/'+config['databaseId']): add('google_firestore_database.platform', d['name'])
     for r in inv['repositories']:
@@ -229,10 +291,20 @@ def adoption_imports(config, inv, existing_addresses):
         matches = [i for i in inv['indexes'] if i['name'].split('/collectionGroups/')[1].split('/')[0] == idx['collectionGroup'] and i.get('queryScope') == idx['queryScope'] and [f for f in i['fields'] if f['fieldPath']!='__name__'] == [f for f in desired_fields if f['fieldPath']!='__name__']]
         require(len(matches)<=1, 'Duplicate matching Firestore indexes require reconciliation.')
         if matches: add(f'google_firestore_index.canonical["{digest(idx)[:20]}"]', matches[0]['name'])
+    for kind, resource in [('identityPool','google_iam_workload_identity_pool.github[0]'),('identityProvider','google_iam_workload_identity_pool_provider.github[0]')]:
+        if t.get('enable_github_federation',True) and inv.get(kind): add(resource,inv[kind]['name'])
+    if inv.get('rulesRelease'): add('google_firebaserules_release.firestore',inv['rulesRelease']['name'])
+    if inv.get('gatewayRole'): add('google_project_iam_custom_role.gateway_policy',inv['gatewayRole']['name'])
+    for field in read(ROOT/'firestore.indexes.json').get('fieldOverrides',[]):
+        suffix='/collectionGroups/'+field['collectionGroup']+'/fields/'+field['fieldPath']
+        matches=[f for f in inv.get('fieldOverrides',[]) if f['name'].endswith(suffix)]
+        require(len(matches)<=1,'Ambiguous field override inventory.')
+        if matches: add('google_firestore_field.canonical["'+field['collectionGroup']+'/'+field['fieldPath']+'"]',matches[0]['name'])
     return {a:i for a,i in result.items() if a not in existing_addresses}
 
 
 def guard_plan(plan, config):
+    require(not plan.get('errored',False), 'Terraform plan contains errors.')
     changes = plan.get('resource_changes', [])
     for resource in changes:
         if resource.get('mode') == 'data': continue
@@ -242,15 +314,21 @@ def guard_plan(plan, config):
         if 'delete' in actions:
             require(kind not in STATEFUL and resource['address'] in config.get('approvedEphemeralReplacements', []), 'Unapproved deletion/replacement: ' + resource['address'])
         after = resource['change'].get('after') or {}
-        require(after.get('member') not in ('allUsers','allAuthenticatedUsers'), 'Public IAM grants are not allowed.')
+        require(after.get('project',config['projectId']) == config['projectId'], 'Resource plan crosses the selected project.')
+        public={'allUsers','allAuthenticatedUsers'}
+        require(after.get('member') not in public and not public.intersection(after.get('members',[])), 'Public IAM grants are not allowed.')
+        if after.get('policy_data'):
+            policy=json.loads(after['policy_data'])
+            require(not any(public.intersection(b.get('members',[])) for b in policy.get('bindings',[])), 'Public IAM policy grants are not allowed.')
         if kind == 'google_storage_bucket':
-            require(after.get('public_access_prevention') == 'enforced' and after.get('uniform_bucket_level_access') is True, 'Buckets must remain private with uniform access.')
+            require(after.get('force_destroy') is not True and after.get('public_access_prevention') == 'enforced' and after.get('uniform_bucket_level_access') is True, 'Buckets must remain private with uniform access.')
         if kind == 'google_firestore_database':
             require(after.get('delete_protection_state') == 'DELETE_PROTECTION_ENABLED', 'Database deletion protection is required.')
     return {'resources':len(changes), 'creates':sum('create' in r['change']['actions'] for r in changes), 'imports':sum(bool(r['change'].get('importing')) for r in changes)}
 
 
 def plan(config):
+    ensure_clean()
     require(config.get('stateOwnershipReviewed') is True, 'Review existing state ownership, then explicitly set stateOwnershipReviewed=true. Do not import an object managed by another state.')
     init(config)
     inv = inventory(config)
@@ -261,23 +339,25 @@ def plan(config):
     import_path.write_text(''.join(f'import {{\n  to = {address}\n  id = {json.dumps(rid)}\n}}\n' for address,rid in imports.items()))
     out = workspace(config)
     var_path = out/'inputs.auto.tfvars.json'; save(var_path,config['terraform'])
+    tf(config, 'fmt', 'imports.generated.tf')
     tf(config, 'fmt', '-check')
     tf(config, 'validate')
     tf(config, 'plan', '-input=false', '-lock-timeout=5m', '-var-file='+str(var_path), '-out='+str(out/'infrastructure.tfplan'))
     parsed = tf(config, 'show', '-json', out/'infrastructure.tfplan', json_output=True)
     save(out/'infrastructure-plan.json',parsed)
     summary = guard_plan(parsed, config)
-    record = {'schemaVersion':1,'status':'review-required','sourceSha':sha(),'projectId':config['projectId'],'environment':config['environment'],'databaseId':config['databaseId'],'configDigest':digest(config),'planDigest':digest((out/'infrastructure.tfplan').read_bytes()),'createdAt':now(),'summary':summary,'imports':imports}
+    record = {'schemaVersion':1,'status':'review-required','sourceSha':sha(),'projectId':config['projectId'],'environment':config['environment'],'databaseId':config['databaseId'],'configDigest':config_digest(config),'planDigest':digest((out/'infrastructure.tfplan').read_bytes()),'createdAt':now(),'summary':summary,'imports':imports}
     save(out/'infrastructure-review.json',record)
     print(json.dumps({'summary':summary, 'approvalDigest':record['planDigest']},indent=2))
 
 
 def apply(config, approval):
+    ensure_clean()
+    validate_config(config, mutate=True)
     out = workspace(config); record = read(out/'infrastructure-review.json')
-    require(record['sourceSha']==sha() and record['configDigest']==digest(config), 'Source or environment changed after planning.')
+    require(record['status']=='review-required' and all(record.get(k)==config[k] for k in ('projectId','databaseId','environment')) and record['sourceSha']==sha() and record['configDigest']==config_digest(config), 'Source or environment changed after planning.')
     require(approval and approval==record['planDigest']==digest((out/'infrastructure.tfplan').read_bytes()), 'Explicit approval of the exact saved plan digest is required.')
-    age = dt.datetime.now(dt.timezone.utc)-dt.datetime.fromisoformat(record['createdAt'])
-    require(dt.timedelta(0)<=age<=dt.timedelta(hours=24), 'Infrastructure plan has expired.')
+    fresh(record['createdAt'],'Infrastructure plan')
     init(config)
     guard_plan(tf(config,'show','-json',out/'infrastructure.tfplan',json_output=True),config)
     tf(config,'apply','-input=false','-lock-timeout=5m',out/'infrastructure.tfplan')
@@ -304,30 +384,37 @@ def resolve_secrets(config, manifest):
 
 
 def close_stage3(config):
+    validate_config(config, mutate=True)
+    ensure_clean()
     out = workspace(config)
-    required = ['infrastructure-apply','migration-apply','migration-repeat','migration-restore','deployment','integration-readiness']
-    evidence = {}
+    required = ['infrastructure-apply','migration-dry','migration-apply','migration-repeat','migration-restore','deployment','integration-readiness','booking-smoke','report-gateway','report-companion']
+    evidence={}
     for name in required:
-        path = out/(name+'.json')
+        path=out/(name+'.json')
         require(path.exists(),'Stage 3 remains open: missing '+name+' evidence.')
-        item = read(path)
-        require(item.get('status')=='passed' and not item.get('synthetic',False),'Evidence has not passed live acceptance: '+name)
-        target = item.get('target',item)
-        require(target.get('projectId')==config['projectId'] and target.get('environment')=='staging','Evidence target mismatch: '+name)
-        require(item.get('sourceSha')==sha(),'Evidence does not match the current exact commit: '+name)
-        evidence[name]=digest(item)
-    repeat=read(out/'migration-repeat.json')
-    require(repeat.get('changes')==0,'Repeat migration must propose zero writes.')
-    deployed=read(out/'deployment.json')
-    require('@sha256:' in deployed.get('image','') and deployed.get('revision'),'Deployment evidence must identify immutable image and revision.')
-    report={'schemaVersion':1,'status':'passed','environment':'staging','projectId':config['projectId'],'databaseId':config['databaseId'],'sourceSha':sha(),'evidenceDigests':evidence,'closedAt':now(),'productionTouched':False}
+        evidence[name]=validate_evidence(read(path),config,name)
+    require(sum(evidence['migration-dry'].get('beforeCounts',{}).values())>0,'An empty database is not a representative migration rehearsal.')
+    require(evidence['migration-repeat'].get('changes') == 0 and evidence['migration-repeat'].get('dryRun') is True,'Repeat migration must propose zero writes.')
+    require(evidence['migration-restore'].get('verifiedContent') is True,'Restore contents were not verified.')
+    applied=evidence['migration-apply']; repeat=evidence['migration-repeat']
+    require(applied['databaseHash'] == repeat['sourceHash'], 'Database changed between migration apply and zero-write rerun.')
+    require(evidence['migration-dry']['planDigest'] == applied['planDigest'], 'Applied migration differs from the reviewed dry-run plan.')
+    deployed=evidence['deployment']; integrations=evidence['integration-readiness']
+    require(re.fullmatch(r'.+@sha256:[0-9a-f]{64}',deployed.get('image','')) and deployed.get('revision'),'Deployment requires an immutable image and revision.')
+    require(integrations.get('revision') == deployed['revision'] and evidence['booking-smoke'].get('revision') == deployed['revision'],'Runtime checks must target the accepted revision.')
+    required_checks={'firestore','indexes','storage','calendar','emailSubmission','reportIngest','authentication'}
+    require(required_checks.issubset(integrations.get('checks',{})) and all(integrations['checks'][k]=='passed' for k in required_checks),'Integration checks are incomplete.')
+    require(evidence['report-gateway'].get('coreRevision')==deployed['revision'],'Report gateway targets a different core revision.')
+    companion=evidence['report-companion']
+    require(companion.get('companionSourceSha')=='247cc387a9e05fb1d93e5e3d4bdeb3fca6dfa707' and companion.get('deploymentVerification')=='operator-attested' and companion.get('deploymentEvidenceReference') and companion.get('handoffVerified') is True and companion.get('publicationVerified') is True and companion.get('revision')==deployed['revision'] and companion.get('reportToolUrl')==config['terraform']['report_tool_url'],'Report Tool companion round-trip is unverified.')
+    report={'schemaVersion':1,'status':'passed','environment':'staging','projectId':config['projectId'],'databaseId':config['databaseId'],'sourceSha':sha(),'evidenceDigests':{k:digest(v) for k,v in evidence.items()},'completedAt':now(),'productionTouched':False}
     save(out/'stage3-acceptance.json',report)
     print(json.dumps(report,indent=2))
 
 
 def check_repository():
     require(run(['git','merge-base','--is-ancestor',BASE_SHA,'HEAD']) == '', 'Stage 3 must descend from the accepted Stage 2 commit.')
-    required=['infrastructure/platform.tf','infrastructure/.terraform.lock.hcl','scripts/stage3/migration-engine.ts','scripts/stage3/deploy.py','scripts/stage3/integrations.ts','scripts/stage3/tests/migration.test.ts','STAGE3_INFRASTRUCTURE_CONTRACT.md','.github/workflows/verify.yml']
+    required=['infrastructure/platform.tf','infrastructure/.terraform.lock.hcl','scripts/stage3/migration-engine.ts','scripts/stage3/deploy.py','scripts/stage3/integrations.ts','scripts/stage3/rehearse.py','scripts/stage3/auth.py','scripts/stage3/record-companion.ts','src/server/reportGateway.ts','scripts/stage3/tests/migration.test.ts','scripts/stage3/tests/test_control.py','STAGE3_INFRASTRUCTURE_CONTRACT.md','.github/workflows/verify.yml']
     for path in required: require((ROOT/path).is_file(),'Missing Stage 3 file: '+path)
     source=(ROOT/'scripts/migrate-unified-portal.ts').read_text()
     require('runMigration(transform)' in source and "from '../src/server/firebaseAdmin.js'" not in source,'Migration must use the planning engine, not a direct database writer.')
@@ -337,18 +424,22 @@ def check_repository():
         require('resource "google_secret_manager_secret_version"' not in text,'Secret values must stay outside Terraform state.')
     require('stage3:test' in (ROOT/'package.json').read_text(),'Stage 3 tests are not wired.')
     require('private-evidence/' in (ROOT/'.gitignore').read_text(),'Private evidence is not excluded from Git.')
-    for path in ['.github/workflows/stage3-workspace.yml','.github/workflows/stage3-port.yml','scripts/stage3/port-frozen.py']:
+    for path in ['.github/workflows/stage3-workspace.yml','.github/workflows/stage3-port.yml','.github/workflows/stage3-review.yml','scripts/stage3/port-frozen.py']:
         require(not (ROOT/path).exists(),'Temporary Stage 3 tooling must be removed before closure: '+path)
+    workflow=(ROOT/'.github/workflows/verify.yml').read_text()
+    for command in ['stage3:check','stage3:test','stage3:test:controls','terraform -chdir=infrastructure validate','terraform -chdir=infrastructure test']:
+        require(command in workflow,'Permanent acceptance gate missing: '+command)
     print('Stage 3 repository contract passed. This does not certify live cloud acceptance.')
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['bootstrap','inventory','plan','apply','resolve-secrets','close','check-repository'])
+    parser.add_argument('command',choices=['bootstrap','inventory','plan','apply','resolve-secrets','close','check-repository','validate-config'])
     parser.add_argument('--config'); parser.add_argument('--approve')
     args=parser.parse_args()
     if args.command=='check-repository': return check_repository()
     config=load_config(args.config,mutate=args.command in ('bootstrap','apply'))
+    if args.command=='validate-config': return print('Explicit environment configuration validated.')
     if args.command=='bootstrap': return bootstrap(config,args.approve)
     if args.command=='inventory': return inventory(config)
     if args.command=='plan': return plan(config)

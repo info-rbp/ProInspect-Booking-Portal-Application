@@ -1,190 +1,194 @@
-# ProInspect Google Cloud infrastructure
+# Unified ProInspect infrastructure and staging operations
 
-This directory defines the supporting Google Cloud infrastructure required by the ProInspect Booking / Client Portal application.
+The Stage 3 implementation and acceptance boundaries are defined in
+[`STAGE3_INFRASTRUCTURE_CONTRACT.md`](../STAGE3_INFRASTRUCTURE_CONTRACT.md).
+This directory preserves the frozen Client Terraform addresses while extending
+them for the combined Admin, Client and Tenant platform.
 
-It is intentionally separate from the application image deployment:
+**Do not reuse the old Client `cloudbuild.infrastructure.yaml` production apply
+pipeline.** It is not part of this release branch. Infrastructure planning,
+reviewed application, build, deployment and data migration are separate actions.
+There is no default production target and no Stage 3 production apply command.
 
-- **Terraform** owns supporting infrastructure: APIs, private client-document storage, Secret Manager containers and runtime IAM.
-- **Cloud Build application deployment** continues to own the application container / Cloud Run release.
-- **cloudbuild.infrastructure.yaml** applies Terraform and then updates the existing Cloud Run service with Terraform-managed environment values and any Secret Manager values that already have an enabled version.
+## Inputs and ownership
 
-This avoids two independent systems attempting to own the Cloud Run service definition.
+Start from `environments/staging.example.json`, save an ignored
+`environments/staging.local.json`, and replace every placeholder with a verified
+value. Use a separate billed Google Cloud project, a dedicated staging Calendar,
+isolated Report Tool deployment and test mailbox. The existing production values
+in `environments/production.tfvars.reference` are inventory reference only, not
+an executable production apply configuration.
 
-## What Terraform creates and manages
+The operator needs permission to perform initial bootstrap in the selected
+staging project. Bootstrap enables prerequisite APIs, creates identities and a
+private versioned state bucket, grants the Terraform identity its infrastructure
+management roles and grants the named operator impersonation. It checks that the
+project is active and billing is enabled; it does not create a project or attach
+an unknown billing account.
 
-The current production configuration manages:
+Terraform state ownership must be explicitly reviewed. Set
+`stateOwnershipReviewed=true` only after establishing which existing objects are
+unmanaged or already in this state. Inventory generates matching imports for
+existing APIs, identities, buckets, secret containers, database, Firebase app,
+indexes, backups, rules release and federation resources. Use the `imports` map
+for reviewed exceptions. Never import one physical resource into two states.
+All production planning must retain the existing state prefix; a new staging
+project must not reuse production state, identities, buckets, Calendar or keys.
 
-- required Google Cloud APIs;
-- a dedicated private Cloud Storage bucket for Client Portal uploads and generated documents;
-- uniform bucket-level access;
-- public access prevention;
-- object versioning;
-- runtime Storage Object Admin access scoped to that bucket;
-- runtime Firestore access;
-- Firebase / Identity Toolkit read access needed by the server-side client authentication checks;
-- Service Usage Consumer access for Google API OAuth quota/billing;
-- Secret Manager containers for:
-  - `ACCESS_DATA_ENCRYPTION_KEY`
-  - `RESEND_API_KEY`
-  - optional `GOOGLE_MAPS_API_KEY`;
-- Secret Manager accessor permissions for the Cloud Run runtime identity.
+## Offline verification
 
-The production bucket is deliberately **not** the existing Firebase default bucket. Terraform creates:
-
-`proinspect-client-docs-696236368989-production`
-
-This lets the repository own the Client Portal storage resource cleanly without attempting to take over an existing Firebase-managed bucket.
-
-## Why secret values are not in Terraform
-
-Terraform creates Secret Manager **containers**, but secret payloads are not variables in `.tfvars`.
-
-Putting secret values into Terraform variables would normally persist those values in Terraform state. Instead, add versions directly to Secret Manager after the initial apply.
-
-Examples:
+Use Node 22.16, Java 21, Python 3.12+ and Terraform 1.10.5. From the repo root:
 
 ```bash
-printf '%s' 'YOUR_BASE64_32_BYTE_KEY' | \
-  gcloud secrets versions add proinspect-production-access-data-encryption-key \
-  --data-file=- \
-  --project=business-plan-applicatio-17047
-
-printf '%s' 'YOUR_RESEND_API_KEY' | \
-  gcloud secrets versions add proinspect-production-resend-api-key \
-  --data-file=- \
-  --project=business-plan-applicatio-17047
+npm ci
+npm run lint
+npm run freeze:check
+npm run stage2:check
+npm run stage3:check
+npm run stage3:test:controls
+terraform fmt -check -recursive infrastructure
+terraform -chdir=infrastructure init -backend=false -input=false -lockfile=readonly
+terraform -chdir=infrastructure validate
+terraform -chdir=infrastructure test
+npx --yes firebase-tools@14.2.1 emulators:exec --only firestore \
+  --project demo-stage3-atomic --config scripts/stage1-firebase.json \
+  'npm run stage3:test'
+npm run build
 ```
 
-The Maps API key secret is optional because the current server can authenticate to Address Validation / Places with Google Application Default Credentials.
+Mocked Terraform tests use no credentials and create no cloud resources. The
+normal GitHub workflow also checks the original migration preflight, performs the
+runtime dependency audit and builds the production container. Do not interpret
+emulator tests as a completed live staging deployment.
 
-After a secret version exists, rerunning `cloudbuild.infrastructure.yaml` automatically binds that secret to the Cloud Run environment.
+## Reviewed staging sequence
 
-## One-time bootstrap
-
-Terraform cannot store its own state in a bucket that does not exist yet, and Cloud Build needs an identity before it can run Terraform. The only bootstrap step is therefore scripted separately.
-
-Run:
+Run from a clean committed checkout whose exact SHA passed normal CI. Export no
+service-account JSON keys. Commands use the descriptor's named identities via
+impersonation. Define the path, substituting the verified project ID when an
+approval is required:
 
 ```bash
-chmod +x infrastructure/bootstrap.sh
-./infrastructure/bootstrap.sh business-plan-applicatio-17047
+CONFIG=infrastructure/environments/staging.local.json
+python3 scripts/stage3/control.py validate-config --config "$CONFIG"
+python3 scripts/stage3/control.py bootstrap --config "$CONFIG" --approve STAGING_PROJECT_ID
+python3 scripts/stage3/control.py inventory --config "$CONFIG"
+python3 scripts/stage3/control.py plan --config "$CONFIG"
+# Review the private plan, imports and approval digest, then:
+python3 scripts/stage3/control.py apply --config "$CONFIG" --approve EXACT_PLAN_DIGEST
 ```
 
-The script:
+The private workspace is
+`private-evidence/stage3/staging/PROJECT_ID/DATABASE_ID/`. Plans and snapshots may
+contain private data; files are restricted to owner access and excluded from Git
+and Docker contexts. Protect this directory and the versioned state/backup buckets.
 
-1. enables the minimum APIs required to bootstrap;
-2. creates `proinspect-booking-runtime` if it does not already exist;
-3. creates `proinspect-terraform` if it does not already exist;
-4. creates the versioned Terraform state bucket;
-5. grants the Terraform build identity access to its state bucket;
-6. grants the Terraform identity the roles required to manage APIs, IAM, Storage, secrets and Cloud Run configuration;
-7. permits the Terraform identity to attach the existing runtime service account to Cloud Run.
-
-The state bucket is:
-
-`gs://business-plan-applicatio-17047-proinspect-terraform-state`
-
-## Manual infrastructure apply
-
-After bootstrap:
+Add required Secret Manager versions **out of band**, using protected files or
+stdin, not Terraform or command arguments containing the value. Set their numeric
+versions in the descriptor: `ACCESS_DATA_ENCRYPTION_KEY`, `RESEND_API_KEY`,
+`REPORT_HANDOFF_SIGNING_KEY`, `REPORT_INGEST_TOKEN`; add optional Maps/payment
+versions only when used. Supply the configuration-only Google sign-in OAuth
+secret/client ID separately. After editing a descriptor, regenerate/review the
+infrastructure plan; its digest is bound to all configuration inputs.
 
 ```bash
-gcloud builds submit \
-  --project=business-plan-applicatio-17047 \
-  --config=cloudbuild.infrastructure.yaml \
-  .
+python3 scripts/stage3/auth.py --config "$CONFIG" --approve STAGING_PROJECT_ID
 ```
 
-The Cloud Build pipeline runs:
+The OAuth client must already exist with the appropriate Firebase redirect URI,
+consent settings and test users. Share the dedicated Calendar with the runtime
+service-account email with event-management access. Configure the Report Tool's
+isolated D1/R2/Access deployment and matching handoff/ingest secrets; do not change
+its production deployment. Encryption-key replacement without ciphertext
+migration is prohibited; retain compatible keys and secret versions.
 
-```text
-terraform fmt -check
-        ↓
-terraform init
-        ↓
-terraform validate
-        ↓
-terraform plan
-        ↓
-terraform apply
-        ↓
-export Terraform outputs
-        ↓
-update existing Cloud Run environment
-        ↓
-bind Secret Manager values that have enabled versions
+Load a representative de-identified staging dataset through an approved data
+preparation process. No command automatically copies production customer data.
+Quiesce all writers, then rehearse:
+
+```bash
+python3 scripts/stage3/rehearse.py dry-run --config "$CONFIG"
+python3 scripts/stage3/rehearse.py backup --config "$CONFIG" --approve STAGING_PROJECT_ID
+python3 scripts/stage3/rehearse.py restore-check --config "$CONFIG" --approve STAGING_PROJECT_ID
+python3 scripts/stage3/rehearse.py apply --config "$CONFIG" --approve EXACT_MIGRATION_PLAN_DIGEST
+python3 scripts/stage3/rehearse.py repeat --config "$CONFIG"
 ```
 
-## Automated Cloud Build trigger
+The managed export must finish successfully; restore must reproduce scoped
+content/counts in a new scratch database; apply must match the original dry run;
+repeat must propose zero writes. Source drift, missing references, ambiguous
+identities, invalid plan dates and size limits stop the process. Scratch databases
+and synthetic issued-report records are deliberately retained for review, not
+silently deleted. Managed export includes all data, while fingerprint validation
+covers the declared migration collection scope only.
 
-For ongoing infrastructure management, create a dedicated Cloud Build trigger for this config.
+Build and deploy a private staging candidate, then its narrow report gateway:
 
-Recommended configuration:
+```bash
+python3 scripts/stage3/deploy.py build --config "$CONFIG"
+python3 scripts/stage3/deploy.py candidate --config "$CONFIG"
+python3 scripts/stage3/deploy.py gateway --config "$CONFIG" --approve STAGING_PROJECT_ID
+node --import tsx scripts/stage3/integrations.ts --config "$CONFIG" --approve STAGING_PROJECT_ID
+python3 scripts/stage3/deploy.py booking-test --config "$CONFIG" --approve STAGING_PROJECT_ID
+```
 
-- repository: `info-rbp/ProInspect-Booking-Portal-Application`
-- build config: `cloudbuild.infrastructure.yaml`
-- service account:
-  `proinspect-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com`
-- require approval: **yes** for production infrastructure
-- branch: use the production branch only after this work is eventually merged
-- file filtering: trigger only for infrastructure-related changes where supported
+Configure the isolated Report Tool's ingest endpoint to the gateway URL emitted
+by `gateway`, ending in `/api/integrations/reports`. Do not point it directly at
+the private core service. The public gateway receives only the pinned ingest
+secret and an identity with invocation permission; the core validates canonical
+relationships and the same integration token. Its deployment cannot replace an
+unrelated existing service. Portal entry points remain private in staging.
 
-Using an approval-gated production trigger prevents an ordinary UI commit from immediately changing IAM or storage infrastructure.
+The integration probe sends a test email and creates/deletes transient test
+objects and a private transparent Calendar event. The booking smoke creates,
+reads and cancels a synthetic booking and verifies email-provider acceptance.
+Set actual test address/phone/service inputs in `bookingTest`. No real customer
+mailbox should be used. API acceptance does not guarantee inbox delivery.
 
-## Current production variables
+## Separate Report Tool acceptance
 
-The non-secret production inputs are in:
+Perform a real authenticated Admin handoff to the isolated Report Tool, finalize
+the report there, and confirm the companion's deployed SHA from its deployment
+record. Create a private receipt containing:
 
-`environments/production.tfvars`
+```json
+{
+  "schemaVersion": 1,
+  "operatorPrincipal": "user:OPERATOR_EMAIL",
+  "deployedCompanionSha": "247cc387a9e05fb1d93e5e3d4bdeb3fca6dfa707",
+  "reportToolUrl": "https://ISOLATED_REPORT_TOOL_HOST",
+  "deploymentEvidenceReference": "Cloudflare deployment record identifier",
+  "finalized": true,
+  "reportSourceId": "ACTUAL_REPORT_TOOL_REPORT_ID",
+  "propertyId": "CANONICAL_PROPERTY_ID",
+  "handoffAuditId": "ACTUAL_STAFF_HANDOFF_AUDIT_ID",
+  "issuedPdfSha256": "SHA256_OF_ACTUAL_FINALISED_COMPANION_PDF",
+  "completedAt": "ACTUAL_RECENT_UTC_TIMESTAMP"
+}
+```
 
-They include:
+```bash
+node --import tsx scripts/stage3/record-companion.ts \
+  --config "$CONFIG" --receipt private-evidence/companion-receipt.json \
+  --approve STAGING_PROJECT_ID
+python3 scripts/stage3/control.py close --config "$CONFIG"
+python3 scripts/stage3/deploy.py promote --config "$CONFIG" --approve EXACT_STAGING_REVISION
+```
 
-- project ID;
-- Cloud Run service name and region;
-- runtime service account;
-- Firestore database ID;
-- Google Calendar ID;
-- administrator allow-list;
-- public application URL;
-- email sender/reply-to configuration;
-- document request notification address.
+Receipt verification reads canonical records and actual stored PDF bytes. The
+Cloudflare deployment SHA remains explicitly operator-attested; the command does
+not pretend to query Cloudflare. Missing/old/wrong-target evidence prevents
+closure. A synthetic ingest probe cannot substitute for this companion round trip.
 
-## Cloud Run configuration behaviour
+## Recovery and production boundary
 
-Terraform does not attempt to create or import the existing production Cloud Run service. That service predates this infrastructure layer and is already deployed through the current Cloud Run / Cloud Build integration.
+Before staging promotion, the previous application's traffic remains unchanged.
+After promotion, `deploy.py rollback --config "$CONFIG" --approve
+EXACT_STAGING_REVISION` restores the saved previous traffic allocation. A first
+service has no prior revision: rollback stops rather than deleting it. Data
+recovery never automatically imports over the application database; inspect the
+retained verified scratch restore and approve any later recovery separately.
 
-After Terraform applies, the infrastructure build updates that existing service with the complete managed non-secret environment configuration using `--env-vars-file`.
-
-It then conditionally binds:
-
-- `ACCESS_DATA_ENCRYPTION_KEY`;
-- `RESEND_API_KEY`;
-- `GOOGLE_MAPS_API_KEY`;
-
-only when an enabled Secret Manager version exists.
-
-This means the first infrastructure apply can create the secret containers safely before the secret values have been added.
-
-## Google Calendar limitation
-
-Terraform can enable the Google Calendar API, but access to the dedicated ProInspect calendar is controlled by Google Calendar sharing rather than Google Cloud project IAM.
-
-The runtime service account must therefore still be shared onto:
-
-`c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com`
-
-with permission to create, update and delete events.
-
-That external Calendar ACL is deliberately not represented as a Google Cloud IAM resource.
-
-## Destructive changes
-
-The client-document bucket has:
-
-- `force_destroy = false`;
-- object versioning enabled;
-- public access prevention enforced.
-
-Terraform will therefore refuse to casually destroy a bucket containing client files.
-
-Always review the Terraform plan before approving production infrastructure changes.
+No green CI result or `stage3-acceptance.json` authorizes a production merge,
+production infrastructure apply or production data migration. Those remain
+explicit Stage 4 actions with their own cutover and rollback approval.

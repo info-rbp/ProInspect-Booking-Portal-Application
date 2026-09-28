@@ -237,6 +237,7 @@ export async function transform(adminDb: any) {
     if (apply) {
       const userRef = adminDb.collection('clientUsers').doc(userId);
       await userRef.set({
+        ...current,
         id: userId,
         email: email || current.email || '',
         emailLower: email || current.emailLower || '',
@@ -250,7 +251,7 @@ export async function transform(adminDb: any) {
         updatedAt: now,
         lastLoginAt: current.lastLoginAt,
         migrationSource: 'legacy-client-membership',
-      }, { merge: true });
+      });
 
       await doc.ref.set({
         id: doc.id,
@@ -265,7 +266,7 @@ export async function transform(adminDb: any) {
         migrationSource: 'legacy-client-membership',
       });
 
-      const mapped = { id: userId, data: { ...current, clientIds: nextClientIds, clientRoles: nextRoles } };
+      const mapped = { id: userId, data: (await userRef.get()).data() };
       if (uid) clientUsersByUid.set(uid, mapped);
       if (email) clientUsersByEmail.set(email, mapped);
     }

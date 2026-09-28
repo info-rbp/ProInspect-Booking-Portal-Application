@@ -1,3 +1,4 @@
+import { outboundRecipients } from './emailBoundary.js';
 import type {
   BookingRecord,
   BookingReadinessStatus,
@@ -144,7 +145,7 @@ export async function sendBookingConfirmationEmail(params: {
       },
       body: JSON.stringify({
         from,
-        to: [booking.property.customerEmail],
+        to: outboundRecipients([booking.property.customerEmail]),
         subject,
         html,
         text,
@@ -214,7 +215,7 @@ async function sendResendEmail(input: {
       },
       body: JSON.stringify({
         from,
-        to: input.to,
+        to: outboundRecipients(input.to),
         subject: input.subject,
         html: input.html,
         text: input.text,

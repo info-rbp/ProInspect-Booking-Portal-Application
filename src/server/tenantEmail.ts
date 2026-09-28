@@ -1,3 +1,4 @@
+import { outboundRecipients } from './emailBoundary.js';
 import type { TenantRequest, TenantUserRecord } from '../types/tenant.js';
 import type { TenantFormRequest } from '../types/tenantForms.js';
 
@@ -44,7 +45,7 @@ async function sendEmail(params: {
     },
     body: JSON.stringify({
       from,
-      to: [params.to],
+      to: outboundRecipients([params.to]),
       subject: params.subject,
       text: params.text,
       html: params.html,

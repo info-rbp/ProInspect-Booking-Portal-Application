@@ -300,3 +300,12 @@ Pre-merge reconciliation must:
 The migration deliberately does not infer a landlord/client from a booking
 requester's email. Historical bookings without reliable client context remain
 property-linked only until staff reconcile the correct client relationship.
+
+## Unified platform Stage 3
+
+The release branch includes reviewed infrastructure planning/imports, isolated
+staging deployment, plan-first atomic migration and managed restore rehearsal,
+report-gateway and integration probes, and permanent repository acceptance tests.
+See [the Stage 3 contract](STAGE3_INFRASTRUCTURE_CONTRACT.md) and
+[the staging runbook](infrastructure/README.md). Repository CI and live-cloud
+acceptance are separate gates; neither authorizes production cutover.

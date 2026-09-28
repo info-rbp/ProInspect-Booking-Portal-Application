@@ -59,6 +59,7 @@ locals {
   indexes    = { for index in local.index_file.indexes : substr(sha256(jsonencode(index)), 0, 20) => index }
   fields     = { for field in try(local.index_file.fieldOverrides, []) : "${field.collectionGroup}/${field.fieldPath}" => field }
   stage3_runtime_environment = merge(local.runtime_environment, {
+    STAGING_EMAIL_RECIPIENT       = var.staging_email_recipient
     NODE_ENV                      = "production"
     PLATFORM_ENVIRONMENT          = var.environment
     REPORT_TOOL_URL               = var.report_tool_url
@@ -80,7 +81,7 @@ resource "google_service_account" "runtime" {
   lifecycle { prevent_destroy = true }
 }
 resource "google_service_account" "platform" {
-  for_each     = toset(["build", "deploy", "migration"])
+  for_each     = toset(["build", "deploy", "migration", "gateway"])
   project      = var.project_id
   account_id   = "proinspect-${var.environment}-${each.key}"
   display_name = "ProInspect ${var.environment} ${each.key}"
@@ -221,6 +222,7 @@ resource "google_artifact_registry_repository_iam_member" "builder" {
 }
 resource "google_project_iam_member" "platform" {
   for_each = {
+    gateway_invoke   = { identity = "gateway", role = "roles/run.invoker" }
     build_log        = { identity = "build", role = "roles/logging.logWriter" }
     deploy_run       = { identity = "deploy", role = "roles/run.developer" }
     deploy_invoke    = { identity = "deploy", role = "roles/run.invoker" }
@@ -229,6 +231,7 @@ resource "google_project_iam_member" "platform" {
     deploy_read      = { identity = "deploy", role = "roles/artifactregistry.reader" }
     migration_data   = { identity = "migration", role = "roles/datastore.user" }
     migration_backup = { identity = "migration", role = "roles/datastore.importExportAdmin" }
+    migration_admin  = { identity = "migration", role = "roles/datastore.owner" }
   }
   project = var.project_id
   role    = each.value.role
@@ -308,6 +311,8 @@ output "stage3_manifest" {
     deployIdentity     = google_service_account.platform["deploy"].email
     migrationIdentity  = google_service_account.platform["migration"].email
     buildIdentity      = google_service_account.platform["build"].email
+    gatewayIdentity    = google_service_account.platform["gateway"].email
+    gatewayService     = "${var.cloud_run_service_name}-reports"
     imageRepository    = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.platform.repository_id}/platform"
     buckets            = { for key, bucket in google_storage_bucket.operations : key => bucket.name }
     documentBucket     = google_storage_bucket.client_documents.name
@@ -330,4 +335,83 @@ output "stage3_manifest" {
     }
     workloadIdentityProvider = try(google_iam_workload_identity_pool_provider.github[0].name, "")
   }
+}
+
+variable "operator_principal" {
+  type        = string
+  description = "Named operator permitted to impersonate stage-specific accounts. Never allUsers."
+  validation {
+    condition     = can(regex("^(user|serviceAccount):[^ ]+@[^ ]+$", var.operator_principal))
+    error_message = "A named user or service account is required."
+  }
+}
+variable "staging_email_recipient" {
+  type        = string
+  default     = ""
+  description = "Staging-only notification sink; production delivery remains unchanged."
+  validation {
+    condition     = var.environment != "staging" || can(regex("^[^ @,;<>]+@[^ @,;<>]+\\.[^ @,;<>]+$", var.staging_email_recipient))
+    error_message = "Staging needs one explicit test mailbox."
+  }
+}
+resource "google_service_account_iam_member" "operator_platform" {
+  for_each           = var.environment == "staging" ? google_service_account.platform : {}
+  service_account_id = each.value.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = var.operator_principal
+}
+resource "google_service_account_iam_member" "operator_runtime_probe" {
+  count              = var.environment == "staging" ? 1 : 0
+  service_account_id = google_service_account.runtime.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = var.operator_principal
+}
+resource "google_service_account_iam_member" "deploy_self_token" {
+  service_account_id = google_service_account.platform["deploy"].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.platform["deploy"].email}"
+}
+resource "google_project_iam_member" "platform_api_usage" {
+  for_each = google_service_account.platform
+  project  = var.project_id
+  role     = "roles/serviceusage.serviceUsageConsumer"
+  member   = "serviceAccount:${each.value.email}"
+}
+
+resource "google_secret_manager_secret" "auth_client" {
+  project   = var.project_id
+  secret_id = "${local.resource_prefix}-google-signin-client-secret"
+  replication {
+    auto {}
+  }
+  lifecycle { prevent_destroy = true }
+  depends_on = [google_project_service.required]
+}
+
+resource "google_service_account_iam_member" "deploy_gateway" {
+  service_account_id = google_service_account.platform["gateway"].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.platform["deploy"].email}"
+}
+resource "google_secret_manager_secret_iam_member" "gateway_ingest" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.integration["report_ingest_token"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.platform["gateway"].email}"
+}
+resource "google_project_iam_custom_role" "gateway_policy" {
+  project     = var.project_id
+  role_id     = "proinspectGatewayPolicy"
+  title       = "ProInspect staging gateway IAM publication"
+  permissions = ["run.services.getIamPolicy", "run.services.setIamPolicy"]
+}
+resource "google_project_iam_member" "gateway_publisher" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.gateway_policy.name
+  member  = "serviceAccount:${google_service_account.platform["deploy"].email}"
+}
+resource "google_service_account_iam_member" "runtime_signing" {
+  service_account_id = google_service_account.runtime.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${var.runtime_service_account_email}"
 }
