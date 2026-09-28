@@ -54,6 +54,7 @@ import {
   updateClientOrganisationMember,
   updateClientProperty,
   updateClientRequest,
+  updateClientRequestForAdmin,
   newBookingId,
   releaseScheduleLocks,
   reorderServices,
@@ -2045,6 +2046,47 @@ app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Admin bookings load failed:', error);
     return res.status(500).json({ error: 'Unable to load bookings.' });
+  }
+});
+
+app.get('/api/admin/client-requests', requireAdmin, async (_req, res) => {
+  try {
+    const requests = await listClientRequestsForAdmin();
+    return res.json({ requests });
+  } catch (error) {
+    console.error('Admin client requests load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client requests.' });
+  }
+});
+
+app.patch('/api/admin/client-requests/:id', requireAdmin, async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status, 40);
+    if (!['submitted', 'in_progress', 'waiting_client', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid client request status.' });
+    }
+
+    const request = await updateClientRequestForAdmin({
+      requestId: req.params.id,
+      status: status as 'submitted' | 'in_progress' | 'waiting_client' | 'completed' | 'cancelled',
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Client request not found.' });
+    }
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin client request update failed:', error);
+    return res.status(500).json({ error: 'Unable to update client request.' });
+  }
+});
+
+app.get('/api/admin/client-approvals', requireAdmin, async (_req, res) => {
+  try {
+    const approvals = await listClientApprovalsForAdmin();
+    return res.json({ approvals });
+  } catch (error) {
+    console.error('Admin client approvals load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client approvals.' });
   }
 });
 
