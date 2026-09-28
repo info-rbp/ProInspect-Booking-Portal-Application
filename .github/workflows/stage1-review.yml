@@ -1,0 +1,29 @@
+name: Stage 1 branch review
+
+on:
+  push:
+    branches: [client-portal]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive exact reviewed source
+        run: |
+          git archive --format=zip HEAD -o stage1-source.zip
+          git rev-parse HEAD > stage1-source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage1-source
+          path: |
+            stage1-source.zip
+            stage1-source-sha.txt
+          retention-days: 3
+          if-no-files-found: error
