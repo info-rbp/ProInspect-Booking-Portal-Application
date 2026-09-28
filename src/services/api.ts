@@ -177,11 +177,20 @@ async function adminFetch(
   });
 }
 
-export async function verifyAdminSession(): Promise<void> {
+export async function verifyAdminSession(): Promise<{ role: string; permissions: string[] }> {
   const res = await adminFetch('/api/admin/session');
+  const data = (await res.json().catch(() => ({}))) as {
+    role?: string;
+    permissions?: string[];
+    error?: string;
+  };
   if (!res.ok) {
-    throw new Error('This Google account is not authorised for ProInspect administration.');
+    throw new Error(data.error || 'This Google account is not authorised for ProInspect administration.');
   }
+  return {
+    role: data.role || 'operations_officer',
+    permissions: Array.isArray(data.permissions) ? data.permissions : [],
+  };
 }
 
 export async function fetchAdminBookings(): Promise<BookingRecord[]> {
