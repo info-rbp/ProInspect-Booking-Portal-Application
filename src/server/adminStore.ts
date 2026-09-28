@@ -273,7 +273,21 @@ export async function resolveAdminSession(input: {
           },
           { merge: true }
         );
-        if (invited.id !== input.uid) await invited.ref.delete();
+        if (invited.id !== input.uid) {
+          const [bookingAssignments, workOrderAssignments] = await Promise.all([
+            adminDb.collection('bookings').where('assignedStaffId', '==', invited.id).get(),
+            adminDb.collection('workOrders').where('assignedStaffId', '==', invited.id).get(),
+          ]);
+          const batch = adminDb.batch();
+          bookingAssignments.docs.forEach((doc) =>
+            batch.set(doc.ref, { assignedStaffId: input.uid, updatedAt: now }, { merge: true })
+          );
+          workOrderAssignments.docs.forEach((doc) =>
+            batch.set(doc.ref, { assignedStaffId: input.uid, updatedAt: now }, { merge: true })
+          );
+          batch.delete(invited.ref);
+          await batch.commit();
+        }
         snapshot = await adminDb.collection('adminUsers').doc(input.uid).get();
         data = snapshot.data() || data;
       }
