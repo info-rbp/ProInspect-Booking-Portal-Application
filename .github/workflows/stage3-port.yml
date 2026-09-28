@@ -16,76 +16,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
-      - name: Port immutable Client infrastructure and harden migration entrypoint
-        shell: bash
+      - name: Port, format and validate
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json, pathlib, subprocess, re
-          root=pathlib.Path('.')
-          frozen='67f6e3c8a3af02e2f2a98b300510aff4aff38449'
-          for name in subprocess.check_output(['git','ls-tree','-r','--name-only',frozen,'infrastructure'],text=True).splitlines():
-              p=root/name; p.parent.mkdir(parents=True,exist_ok=True)
-              p.write_bytes(subprocess.check_output(['git','show',f'{frozen}:{name}']))
-          p=root/'infrastructure/variables.tf'; text=p.read_text()
-          text=text.replace('  default     = "production"\n','')
-          text=text.replace('  default     = "europe-west1"\n','')
-          text=text.replace('  default     = "australia-southeast1"\n','')
-          text=text.replace('variable "environment" {','variable "environment" {\n  validation {\n    condition = contains(["staging", "production"], var.environment) && (var.environment != "staging" || var.project_id != "business-plan-applicatio-17047")\n    error_message = "Choose staging or production explicitly. Staging requires a separate project."\n  }')
-          p.write_text(text)
-          for name in ['storage.tf','secrets.tf']:
-              p=root/'infrastructure'/name; text=p.read_text()
-              marker='  depends_on = ['
-              text=text.replace(marker,'  lifecycle { prevent_destroy = true }\n\n'+marker,1)
-              # The runtime account is now a Terraform-managed/importable resource.
-              text=text.replace('  member = format("serviceAccount:%s", var.runtime_service_account_email)','  member = format("serviceAccount:%s", var.runtime_service_account_email)\n  depends_on = [google_service_account.runtime]')
-              p.write_text(text)
-          p=root/'infrastructure/iam.tf'; text=p.read_text()
-          text=text.replace('  member  = format("serviceAccount:%s", var.runtime_service_account_email)','  member  = format("serviceAccount:%s", var.runtime_service_account_email)\n  depends_on = [google_service_account.runtime]')
-          p.write_text(text)
-          (root/'infrastructure/versions.tf').write_text('terraform {\n  required_version = ">= 1.10.5, < 2.0"\n  required_providers {\n    google = { source = "hashicorp/google", version = "6.49.2" }\n  }\n  backend "gcs" {}\n}\n')
-          (root/'infrastructure/bootstrap.sh').write_text('#!/usr/bin/env bash\nset -euo pipefail\ncd "$(dirname "$0")/.."\nexec python3 scripts/stage3/control.py bootstrap "$@"\n')
-          p=root/'infrastructure/environments/production.tfvars'
-          p.rename(p.with_suffix('.tfvars.reference'))
-          (root/'infrastructure/backend.hcl.example').write_text('# Supply the reviewed environment descriptor to scripts/stage3/control.py.\n# Production retains its existing booking-portal/production state prefix.\n')
-          p=root/'scripts/migrate-unified-portal.ts'; text=p.read_text()
-          text=text.replace("import { adminDb } from '../src/server/firebaseAdmin.js';", "import { runMigration } from './stage3/migration-engine.js';\nimport { pathToFileURL } from 'node:url';")
-          text=text.replace("const apply = process.argv.includes('--apply');", "// Transform only the planning database. runMigration is the sole real writer.\nconst apply = true;")
-          text=text.replace('async function main() {','export async function transform(adminDb: any) {\n  const legacyPropertyIds = new Map<string, string>();')
-          text=text.replace('normalise(property.state).toUpperCase()',"normalise(property.state || 'WA').toUpperCase()")
-          text=text.replace('    dryRun: !apply,',"    dryRun: !process.argv.includes('--apply'),")
-          text=text.replace("  if (!apply) {\n    console.log('Dry run only.","  if (!process.argv.includes('--apply')) {\n    console.log('Dry run only.")
-          text=text.replace('main().catch((error) => {',"if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runMigration(transform).catch((error) => {")
-          text=text.replace('const user = doc.data() as any;', 'const user = (await doc.ref.get()).data() as any;')
-          text=text.replace("nextRoles[clientId] = index === 0 ? 'owner' : 'member';", "nextRoles[clientId] = 'viewer'; // Never infer ownership from array position.")
-          text=text.replace('      if (!membershipDoc.exists) {',"      const matchingMembership = (await adminDb.collection('clientMemberships').get()).docs.find((m: any) => { const d = m.data(); return d.clientId === clientId && d.clientUserId === doc.id; });\n      if (!membershipDoc.exists && !matchingMembership) {")
-          text=text.replace('    const nextClientIds = Array.from(new Set([...currentIds, clientId]));',"    const nextClientIds = status === 'active' ? Array.from(new Set([...currentIds, clientId])) : currentIds.filter(id => id !== clientId);")
-          text=text.replace('    const nextRoles = { ...currentRoles, [clientId]: role };',"    const nextRoles = { ...currentRoles };\n    if (status === 'active') nextRoles[clientId] = role; else delete nextRoles[clientId];")
-          text=text.replace("active: status === 'active' && current.active !== false,", "active: nextClientIds.length > 0 && current.active !== false,")
-          text=text.replace('    const propertyId = propertiesByAddress.get(key) || old.id || doc.id;', '    const propertyId = propertiesByAddress.get(key) || old.id || doc.id;\n    legacyPropertyIds.set(doc.id, propertyId);')
-          text=text.replace('          propertyId: rawPropertyId,', '          propertyId: legacyPropertyIds.get(rawPropertyId) || rawPropertyId,')
-          text=text.replace('membershipSnapshot.docs.filter((doc) =>', 'membershipSnapshot.docs.filter((doc: any) =>')
-          text=text.replace('clientSnapshot.docs.map((doc) =>', 'clientSnapshot.docs.map((doc: any) =>')
-          # All source reads are now through the typed planning adapter rather than the SDK.
-          p.write_text(text)
-          # Make the existing fixture relationally valid under the stronger integrity gate.
-          p=root/'scripts/verify-tenant-migration-preflight.ts'; text=p.read_text()
-          text=text.replace('  await batch.commit();', "  batch.set(adminDb.collection('clientPropertyLinks').doc('fixture-property-link'), {clientId:'client-existing', propertyId:'property-existing', role:'owner', active:true});\n  await batch.commit();")
-          p.write_text(text)
-          p=root/'.gitignore'; p.write_text(p.read_text()+'\n# Stage 3 private state, plans, credentials and evidence\nprivate-evidence/\n**/.terraform/\n*.tfstate\n*.tfstate.*\n*.tfplan\n*.auto.tfvars*\n**/imports.generated.tf\ninfrastructure/environments/*.local.json\ngha-creds-*.json\n')
-          p=root/'package.json'; data=json.loads(p.read_text())
-          data['scripts']['stage3:test']='node --import tsx --test scripts/stage3/tests/*.test.ts'
-          data['scripts']['stage3:check']='python3 scripts/stage3/control.py check-repository'
-          p.write_text(json.dumps(data,indent=2)+'\n')
-          PY
+          python3 scripts/stage3/port-frozen.py
           terraform fmt -recursive infrastructure
           terraform -chdir=infrastructure init -backend=false -input=false
           terraform -chdir=infrastructure validate
-      - name: Commit only the reviewed source port
+          npm ci
+          npm run lint
+      - name: Commit reviewed source without overwriting concurrent work
         run: |
           set -euo pipefail
           git config user.name 'ProInspect Stage 3'
@@ -93,4 +41,5 @@ jobs:
           git add infrastructure scripts/migrate-unified-portal.ts scripts/verify-tenant-migration-preflight.ts package.json .gitignore
           git diff --cached --stat
           git commit -m 'feat(stage3): generalise frozen infrastructure and stage migration writes before validation'
+          git pull --rebase origin release/platform-unification
           git push origin HEAD:release/platform-unification
