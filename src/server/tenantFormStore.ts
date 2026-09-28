@@ -686,7 +686,20 @@ export async function updateAdminTenantForm(
     },
   });
 
-  return updated;
+  if (changes.status && changes.status !== current.status) {
+    await createNotification({
+      audience: 'tenant',
+      tenantUserId: current.tenantUserId,
+      clientId: current.clientId,
+      propertyId: current.propertyId,
+      tenancyId: current.tenancyId,
+      title: 'Tenancy form updated',
+      message: `${current.reference} is now ${changes.status.replaceAll('_', ' ')}.`,
+      link: '/tenant',
+    });
+  }
+
+  return publicFormRequest(updated);
 }
 
 export async function getSensitiveEvidenceForAdmin(
