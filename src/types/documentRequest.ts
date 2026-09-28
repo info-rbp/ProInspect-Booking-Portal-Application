@@ -61,6 +61,8 @@ export interface DocumentWorkflowData {
 
 export type DocumentWorkflowFieldType =
   | 'text'
+  | 'email'
+  | 'phone'
   | 'textarea'
   | 'date'
   | 'number'
