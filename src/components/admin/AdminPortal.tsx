@@ -891,56 +891,170 @@ function StaffPanel({ session }: { session: AdminSession }) {
   const canManage = hasPermission(session, 'users.manage');
 
   const load = async () => {
-    try { setStaff(await fetchAdminStaff()); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load staff.'); }
+    try {
+      setStaff(await fetchAdminStaff());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load staff.');
+    }
   };
   useEffect(() => { void load(); }, []);
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const created = await createAdminStaff({ email, displayName, role });
+      const created = await createAdminStaff({
+        email,
+        displayName,
+        role,
+        assignedClientIds: [],
+        assignedPropertyIds: [],
+      });
       setStaff((current) => [created, ...current.filter((member) => member.id !== created.id)]);
-      setEmail(''); setDisplayName(''); setRole('inspector');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to create staff access.'); }
+      setEmail('');
+      setDisplayName('');
+      setRole('inspector');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create staff access.');
+    }
   };
 
   const patch = async (member: AdminStaffUser, updates: Parameters<typeof updateAdminStaff>[1]) => {
     try {
       const updated = await updateAdminStaff(member.id, updates);
       setStaff((current) => current.map((item) => item.id === updated.id ? updated : item));
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to update staff.'); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update staff.');
+      void load();
+    }
+  };
+
+  const editCsvLocally = (
+    id: string,
+    field: 'assignedClientIds' | 'assignedPropertyIds',
+    value: string
+  ) => {
+    const values = value.split(',').map((item) => item.trim()).filter(Boolean);
+    setStaff((current) =>
+      current.map((member) => member.id === id ? { ...member, [field]: values } : member)
+    );
   };
 
   return (
     <div className="space-y-5">
       {canManage && (
         <form onSubmit={add} className="bg-white border border-slate-200 rounded-xl p-4 grid grid-cols-1 md:grid-cols-[1fr_1fr_220px_auto] gap-3 items-end">
-          <label className="space-y-1"><span className="text-xs font-bold text-slate-700">Display name</span><input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" /></label>
-          <label className="space-y-1"><span className="text-xs font-bold text-slate-700">Email</span><input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" /></label>
-          <label className="space-y-1"><span className="text-xs font-bold text-slate-700">Role</span><select value={role} onChange={(e) => setRole(e.target.value as AdminRole)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm"><option value="administrator">Administrator</option><option value="operations_manager">Operations Manager</option><option value="inspector">Staff / Inspector</option><option value="read_only">Read Only</option></select></label>
+          <label className="space-y-1">
+            <span className="text-xs font-bold text-slate-700">Display name</span>
+            <input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" />
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs font-bold text-slate-700">Email</span>
+            <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm" />
+          </label>
+          <label className="space-y-1">
+            <span className="text-xs font-bold text-slate-700">Role</span>
+            <select value={role} onChange={(e) => setRole(e.target.value as AdminRole)} className="w-full h-10 px-3 border border-slate-300 rounded-lg text-sm">
+              <option value="administrator">Administrator</option>
+              <option value="operations_manager">Operations Manager</option>
+              <option value="inspector">Staff / Inspector</option>
+              <option value="read_only">Read Only</option>
+            </select>
+          </label>
           <button className="h-10 px-4 rounded-lg bg-[#007F82] text-white text-sm font-bold">Add Staff</button>
         </form>
       )}
+
       {error && <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-sm text-rose-700">{error}</div>}
+
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-[#1A2B4A] text-white uppercase tracking-wider"><tr><th className="p-3">Staff member</th><th className="p-3">Role</th><th className="p-3">Status</th><th className="p-3">Last login</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">
-            {staff.map((member) => (
-              <tr key={member.id}>
-                <td className="p-3"><strong>{member.displayName}</strong><div className="text-slate-500">{member.email}</div></td>
-                <td className="p-3">
-                  {canManage ? <select value={member.role} onChange={(e) => void patch(member, { role: e.target.value as AdminRole })} className="h-8 px-2 border border-slate-300 rounded"><option value="administrator">Administrator</option><option value="operations_manager">Operations Manager</option><option value="inspector">Staff / Inspector</option><option value="read_only">Read Only</option></select> : roleLabel(member.role)}
-                </td>
-                <td className="p-3">{canManage ? <button onClick={() => void patch(member, { active: !member.active })} className={`px-2 py-1 rounded font-bold ${member.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{member.active ? 'Active' : 'Inactive'}</button> : member.active ? 'Active' : 'Inactive'}</td>
-                <td className="p-3 text-slate-500">{dateTimeLabel(member.lastLoginAt)}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs min-w-[1180px]">
+            <thead className="bg-[#1A2B4A] text-white uppercase tracking-wider">
+              <tr>
+                <th className="p-3">Staff member</th>
+                <th className="p-3">Role</th>
+                <th className="p-3">Scope</th>
+                <th className="p-3">Assigned clients</th>
+                <th className="p-3">Assigned properties</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Last login</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {staff.map((member) => (
+                <tr key={member.id} className="align-top">
+                  <td className="p-3">
+                    <strong>{member.displayName}</strong>
+                    <div className="text-slate-500">{member.email}</div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-1">{member.id}</div>
+                  </td>
+                  <td className="p-3">
+                    {canManage ? (
+                      <select value={member.role} onChange={(e) => void patch(member, { role: e.target.value as AdminRole })} className="h-8 px-2 border border-slate-300 rounded">
+                        <option value="administrator">Administrator</option>
+                        <option value="operations_manager">Operations Manager</option>
+                        <option value="inspector">Staff / Inspector</option>
+                        <option value="read_only">Read Only</option>
+                      </select>
+                    ) : roleLabel(member.role)}
+                  </td>
+                  <td className="p-3">
+                    {canManage && member.role === 'inspector' ? (
+                      <select
+                        value={member.resourceScope || 'assigned'}
+                        onChange={(e) => void patch(member, { resourceScope: e.target.value as 'global' | 'assigned' })}
+                        className="h-8 px-2 border border-slate-300 rounded"
+                      >
+                        <option value="assigned">Assigned only</option>
+                        <option value="global">Global</option>
+                      </select>
+                    ) : (
+                      <span className="font-semibold">{member.resourceScope === 'assigned' ? 'Assigned only' : 'Global'}</span>
+                    )}
+                  </td>
+                  <td className="p-3 min-w-[220px]">
+                    {canManage ? (
+                      <input
+                        value={(member.assignedClientIds || []).join(', ')}
+                        onChange={(e) => editCsvLocally(member.id, 'assignedClientIds', e.target.value)}
+                        onBlur={(e) => void patch(member, {
+                          assignedClientIds: e.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                        })}
+                        placeholder="Client IDs"
+                        className="w-full h-8 px-2 border border-slate-300 rounded font-mono text-[11px]"
+                      />
+                    ) : (member.assignedClientIds || []).join(', ') || '—'}
+                  </td>
+                  <td className="p-3 min-w-[240px]">
+                    {canManage ? (
+                      <input
+                        value={(member.assignedPropertyIds || []).join(', ')}
+                        onChange={(e) => editCsvLocally(member.id, 'assignedPropertyIds', e.target.value)}
+                        onBlur={(e) => void patch(member, {
+                          assignedPropertyIds: e.target.value.split(',').map((item) => item.trim()).filter(Boolean),
+                        })}
+                        placeholder="Property IDs"
+                        className="w-full h-8 px-2 border border-slate-300 rounded font-mono text-[11px]"
+                      />
+                    ) : (member.assignedPropertyIds || []).join(', ') || '—'}
+                  </td>
+                  <td className="p-3">
+                    {canManage ? (
+                      <button onClick={() => void patch(member, { active: !member.active })} className={`px-2 py-1 rounded font-bold ${member.active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {member.active ? 'Active' : 'Inactive'}
+                      </button>
+                    ) : member.active ? 'Active' : 'Inactive'}
+                  </td>
+                  <td className="p-3 text-slate-500">{dateTimeLabel(member.lastLoginAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
+
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600">
-        <strong className="text-[#1A2B4A]">Role model:</strong> Administrators have full control; Operations Managers manage operational records but not security; Inspectors execute operational work; Read Only users cannot modify records. Explicit permission grants/revokes remain supported in Firestore for exceptional cases.
+        <strong className="text-[#1A2B4A]">Resource scope:</strong> inspectors default to assigned-only access. Their booking and sensitive-access visibility is restricted to their assigned work, clients or properties. Administrators, Operations Managers and Read Only users operate with global scope according to their permission set.
       </div>
     </div>
   );
