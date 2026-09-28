@@ -128,7 +128,7 @@ export async function createClientRequestRecord(input: {
   if (!input.clientUser.clientIds.includes(input.clientId)) {
     throw new Error('CLIENT_NOT_AUTHORISED');
   }
-  const requestRole = input.clientUser.clientRoles?.[input.clientId] || 'owner';
+  const requestRole = input.clientUser.clientRoles?.[input.clientId] || 'member';
   if (requestRole === 'viewer') {
     throw new Error('CLIENT_ROLE_FORBIDDEN');
   }
@@ -288,7 +288,7 @@ export async function respondApproval(params: {
   if (!doc.exists) return null;
   const approval = docWithId<ClientApproval>(doc);
   if (!params.user.clientIds.includes(approval.clientId)) throw new Error('CLIENT_NOT_AUTHORISED');
-  const approvalRole = params.user.clientRoles?.[approval.clientId] || 'owner';
+  const approvalRole = params.user.clientRoles?.[approval.clientId] || 'member';
   if (!['owner', 'admin'].includes(approvalRole)) {
     throw new Error('CLIENT_APPROVAL_FORBIDDEN');
   }
@@ -853,7 +853,7 @@ export async function buildUnifiedClientDashboard(params: {
 
   const memberships: ClientMembership[] = params.user.clientIds.map((clientId) => ({
     clientId,
-    role: params.user.clientRoles?.[clientId] || 'owner',
+    role: params.user.clientRoles?.[clientId] || 'member',
     status: 'active',
   }));
 
