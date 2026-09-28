@@ -298,15 +298,20 @@ export async function activateClientOrganisation(
 export async function inviteClientMember(input: {
   email: string;
   role: 'admin' | 'member' | 'viewer';
-}): Promise<ClientMembership> {
-  const data = await clientJson<{ membership: ClientMembership }>(
+}): Promise<{
+  membership: ClientMembership;
+  invitationEmailStatus?: 'sent' | 'failed' | 'not_configured';
+}> {
+  return clientJson<{
+    membership: ClientMembership;
+    invitationEmailStatus?: 'sent' | 'failed' | 'not_configured';
+  }>(
     '/api/client/organisation/members',
     {
       method: 'POST',
       body: JSON.stringify(input),
     }
   );
-  return data.membership;
 }
 
 export async function updateClientMember(
