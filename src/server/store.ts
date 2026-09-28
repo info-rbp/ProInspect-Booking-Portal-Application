@@ -928,6 +928,16 @@ export async function createClientRequest(params: {
   return request;
 }
 
+export async function getClientRequest(params: {
+  organisationId: string;
+  requestId: string;
+}): Promise<ClientRequestSummary | null> {
+  const doc = await adminDb.collection('clientRequests').doc(params.requestId).get();
+  if (!doc.exists) return null;
+  const request = { ...(doc.data() as ClientRequestSummary), id: doc.id };
+  return request.organisationId === params.organisationId ? request : null;
+}
+
 export async function updateClientRequest(params: {
   context: ClientContext;
   requestId: string;
