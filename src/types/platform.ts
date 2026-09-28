@@ -1,4 +1,5 @@
 import type { ServiceCategory } from './booking';
+import type { DocumentWorkflowData } from './documentRequest';
 import type {
   ClientPropertyRole,
   ClientRecord,
@@ -91,6 +92,7 @@ export interface DocumentRequest {
     postcode: string;
   };
   notes?: string;
+  workflow?: DocumentWorkflowData;
   status: DocumentRequestStatus;
   generatedDocumentId?: string;
   paymentId?: string;
