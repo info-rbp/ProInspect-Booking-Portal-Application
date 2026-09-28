@@ -1189,6 +1189,135 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
   }
 });
 
+app.get('/api/document-products', async (_req, res) => {
+  try {
+    const documents = await listDocumentProducts(true);
+    return res.json({ documents });
+  } catch (error) {
+    console.error('Document catalogue load failed:', error);
+    return res.status(500).json({ error: 'Unable to load document products.' });
+  }
+});
+
+app.post('/api/document-requests', documentRequestRateLimit, async (req, res) => {
+  try {
+    const { documentId, documentCategory, details } = req.body || {};
+
+    if (!documentId || !documentCategory || !details) {
+      return res.status(400).json({
+        error: 'Select a document and provide the required request details.',
+      });
+    }
+
+    if (!isServiceCategory(documentCategory)) {
+      return res.status(400).json({ error: 'Invalid document category.' });
+    }
+
+    const product = await getDocumentProduct(String(documentId));
+    if (!product || !product.active || !product.publiclyRequestable) {
+      return res.status(400).json({
+        error: 'The selected document is not available for public requests.',
+      });
+    }
+
+    if (!product.categories.includes(documentCategory)) {
+      return res.status(400).json({
+        error: 'The selected document is not available for that property category.',
+      });
+    }
+
+    const detailValidation = sanitizeDocumentRequestDetails(details);
+    if (!detailValidation.details) {
+      return res.status(400).json({
+        error: detailValidation.error || 'Valid document request details are required.',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const request: DocumentRequestRecord = {
+      id: newDocumentRequestId(),
+      requestReference: await generateDocumentRequestReference(),
+      documentId: product.id,
+      documentName: product.formCode
+        ? `${product.name} (${product.formCode})`
+        : product.name,
+      documentCategory,
+      priceExGst: product.priceExGst,
+      details: detailValidation.details,
+      status: 'submitted',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await saveDocumentRequest(request);
+
+    // If the public catalogue is used while signed in, mirror the request into
+    // the organisation request workspace without changing anonymous behaviour.
+    const authenticatedClient = await optionalClientIdentity(req);
+    if (
+      authenticatedClient &&
+      authenticatedClient.email === request.details.customerEmail
+    ) {
+      try {
+        const context = await ensureClientContext(authenticatedClient);
+        await createClientRequest({
+          context,
+          type: 'document',
+          title: request.documentName,
+          priority: 'routine',
+          details: {
+            sourceDocumentRequestId: request.id,
+            requestReference: request.requestReference,
+            documentId: request.documentId,
+            documentName: request.documentName,
+            documentCategory: request.documentCategory,
+            priceExGst: request.priceExGst,
+            streetAddress: request.details.streetAddress,
+            suburb: request.details.suburb,
+            state: request.details.state,
+            postcode: request.details.postcode,
+            ...(request.details.unit ? { unit: request.details.unit } : {}),
+            ...(request.details.notes ? { instructions: request.details.notes } : {}),
+          },
+        });
+      } catch (portalLinkError) {
+        console.error(
+          'Document request was saved but could not be linked to the Client Portal:',
+          portalLinkError
+        );
+      }
+    }
+
+    const emailResult = await sendDocumentRequestEmails(request);
+    if (emailResult.customer.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} customer confirmation email failed:`,
+        emailResult.customer.error
+      );
+    }
+    if (emailResult.internal.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} internal notification email failed:`,
+        emailResult.internal.error
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      request: publicDocumentRequestView(request),
+      message:
+        emailResult.customer.status === 'sent'
+          ? 'Document request submitted successfully. A confirmation email has been sent.'
+          : 'Document request submitted successfully. ProInspect will review the supplied details before preparation or distribution.',
+    });
+  } catch (error) {
+    console.error('Document request creation failed:', error);
+    return res.status(500).json({
+      error: 'The document request could not be submitted. Please try again.',
+    });
+  }
+});
+
 app.get('/api/client/session', requireClient, (_req, res) => {
   const context = clientContext(res);
   return res.json({
