@@ -6,6 +6,9 @@ type Row = Record<string, unknown> & { id: string };
 const collections = ['clientUsers', 'clientOrganisations', 'clientMemberships', 'clientProperties', 'clientRequests', 'clientDocuments', 'clientApprovals', 'bookings'] as const;
 type Collection = typeof collections[number];
 type Snapshot = Record<Collection, Row[]>;
+function emptySnapshot(): Snapshot {
+  return { clientUsers: [], clientOrganisations: [], clientMemberships: [], clientProperties: [], clientRequests: [], clientDocuments: [], clientApprovals: [], bookings: [] };
+}
 
 // Only identifiers and error codes are returned. Never emit contact data, tokens,
 // document contents or storage credentials into a migration report.
@@ -46,7 +49,7 @@ function audit(data: Snapshot) {
     }
   }
   for (const r of data.bookings) {
-    if (!r.clientOrganisationId) continue; // Public historical bookings remain unclaimed.
+    if (!r.clientOrganisationId) continue;
     if (!index.clientOrganisations.has(String(r.clientOrganisationId))) add('bookings', r, 'ORPHAN_BOOKING_ORGANISATION');
     const p = r.propertyId ? index.clientProperties.get(String(r.propertyId)) : undefined;
     if (r.propertyId && (!p || p.organisationId !== r.clientOrganisationId)) add('bookings', r, 'BOOKING_PROPERTY_SCOPE_MISMATCH');
@@ -56,7 +59,7 @@ function audit(data: Snapshot) {
 
 const { values } = parseArgs({ options: { 'self-test': { type: 'boolean' }, 'read-only': { type: 'boolean' }, project: { type: 'string' }, database: { type: 'string' }, report: { type: 'string' } }, strict: true });
 if (values['self-test']) {
-  const data = Object.fromEntries(collections.map(c => [c, []])) as Snapshot;
+  const data = emptySnapshot();
   assert.equal(audit(data).readyForMapping, true);
   data.clientOrganisations.push({ id: 'o' }, { id: 'other' });
   data.clientUsers.push({ id: 'u' });
@@ -84,7 +87,7 @@ if (values['self-test']) {
   assert.equal(process.env.FIRESTORE_DATABASE_ID, values.database, 'Database must be explicit.');
   const { adminDb } = await import('../src/server/firebaseAdmin.js');
   const { FieldPath } = await import('firebase-admin/firestore');
-  const data = Object.fromEntries(collections.map(c => [c, []])) as Snapshot;
+  const data = emptySnapshot();
   for (const c of collections) {
     let cursor: string | undefined;
     for (;;) {
