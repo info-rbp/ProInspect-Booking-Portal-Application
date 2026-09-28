@@ -1224,6 +1224,29 @@ export async function listClientApprovalsForAdmin(): Promise<ClientApproval[]> {
   }));
 }
 
+export async function updateClientRequestForAdmin(params: {
+  requestId: string;
+  status: ClientRequestSummary['status'];
+}): Promise<ClientRequestSummary | null> {
+  const ref = adminDb.collection('clientRequests').doc(params.requestId);
+  const doc = await ref.get();
+  if (!doc.exists) return null;
+
+  const updatedAt = new Date().toISOString();
+  await ref.set(
+    {
+      status: params.status,
+      updatedAt,
+    },
+    { merge: true }
+  );
+  const updated = await ref.get();
+  return {
+    ...(updated.data() as ClientRequestSummary),
+    id: updated.id,
+  };
+}
+
 
 const SCHEDULE_LOCK_INTERVAL_MINUTES = 15;
 
