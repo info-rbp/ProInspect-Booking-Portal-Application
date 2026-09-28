@@ -601,6 +601,7 @@ export async function updateTenantRequestAdmin(
 }
 
 export async function createTenantDocumentRecord(input: {
+  documentId?: string;
   tenancyId?: string;
   propertyId: string;
   clientIds?: string[];
@@ -663,7 +664,19 @@ export async function createTenantDocumentRecord(input: {
   const audiences: PortalAudience[] = Array.from(
     new Set<PortalAudience>(input.audiences?.length ? input.audiences : ['tenant'])
   );
-  const ref = adminDb.collection('propertyDocuments').doc();
+  const ref = input.documentId
+    ? adminDb.collection('propertyDocuments').doc(input.documentId)
+    : adminDb.collection('propertyDocuments').doc();
+  const existing = await ref.get();
+  if (existing.exists) {
+    const existingDocument = docWithId<TenantDocument & { storagePath?: string }>(existing);
+    if (existingDocument.propertyId !== input.propertyId) {
+      throw new Error('DOCUMENT_IDEMPOTENCY_CONFLICT');
+    }
+    const { storagePath: _existingStoragePath, ...publicExisting } = existingDocument;
+    return publicExisting;
+  }
+
   const now = nowIso();
   const status = input.status || 'issued';
   const document: TenantDocument & { storagePath: string } = {
