@@ -2329,8 +2329,8 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
       requestId: request.id,
       documentId: document.id,
       type: 'document',
-      title: `Review ${input.documentType} draft`,
-      summary: 'Review the generated working draft and either approve it or request changes.',
+      title: `Confirm ${input.documentType} drafting instructions`,
+      summary: 'Review the preparation summary and confirm the drafting instructions or request changes. Approval does not issue or execute the completed document.',
     });
 
     await updateClientRequest({
