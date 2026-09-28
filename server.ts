@@ -84,8 +84,10 @@ import type {
 import {
   ADMIN_RESOURCE_CONFIG,
   archiveAdminResource,
+  canUpdateBookingForSession,
   createAdminResource,
   createAdminStaff,
+  filterBookingsForSession,
   getAdminDashboard,
   getAdminIntegrationStatuses,
   getAdminReportSummary,
@@ -98,6 +100,7 @@ import {
   updateAdminResource,
   updateAdminStaff,
 } from './src/server/adminStore.js';
+import { PlatformValidationError } from './src/server/platformStore.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -528,19 +531,19 @@ function publicDocumentRequestView(
   request: DocumentRequestRecord
 ): PublicDocumentRequestSummary {
   return {
-    requestReference: request.requestReference,
+    requestReference: request.reference,
     documentName: request.documentName,
     documentCategory: request.documentCategory,
-    priceExGst: request.priceExGst,
+    priceExGst: request.priceExGst || 0,
     status: request.status,
     details: {
-      streetAddress: request.details.streetAddress,
-      ...(request.details.unit ? { unit: request.details.unit } : {}),
-      suburb: request.details.suburb,
-      state: request.details.state,
-      postcode: request.details.postcode,
-      customerName: request.details.customerName,
-      customerEmail: request.details.customerEmail,
+      streetAddress: request.address.streetAddress,
+      ...(request.address.unit ? { unit: request.address.unit } : {}),
+      suburb: request.address.suburb,
+      state: request.address.state,
+      postcode: request.address.postcode,
+      customerName: request.requesterName,
+      customerEmail: request.requesterEmail,
     },
   };
 }
@@ -956,16 +959,32 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
     }
 
     const now = new Date().toISOString();
+    const requestDetails = detailValidation.details;
     const request: DocumentRequestRecord = {
       id: newDocumentRequestId(),
-      requestReference: await generateDocumentRequestReference(),
-      documentId: product.id,
+      reference: await generateDocumentRequestReference(),
+      documentProductId: product.id,
       documentName: product.formCode
         ? `${product.name} (${product.formCode})`
         : product.name,
       documentCategory,
+      pricingMode: 'fixed',
       priceExGst: product.priceExGst,
-      details: detailValidation.details,
+      requesterName: requestDetails.customerName,
+      requesterEmail: requestDetails.customerEmail,
+      requesterPhone: requestDetails.customerPhone,
+      address: {
+        streetAddress: requestDetails.streetAddress,
+        ...(requestDetails.unit ? { unit: requestDetails.unit } : {}),
+        suburb: requestDetails.suburb,
+        state: requestDetails.state,
+        postcode: requestDetails.postcode,
+      },
+      notes: [
+        requestDetails.clientName ? `Client/agency: ${requestDetails.clientName}` : '',
+        requestDetails.clientReference ? `Client reference: ${requestDetails.clientReference}` : '',
+        requestDetails.notes || '',
+      ].filter(Boolean).join('\n') || undefined,
       status: 'submitted',
       createdAt: now,
       updatedAt: now,
@@ -976,13 +995,13 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
     const emailResult = await sendDocumentRequestEmails(request);
     if (emailResult.customer.status === 'failed') {
       console.error(
-        `Document request ${request.requestReference} customer confirmation email failed:`,
+        `Document request ${request.reference} customer confirmation email failed:`,
         emailResult.customer.error
       );
     }
     if (emailResult.internal.status === 'failed') {
       console.error(
-        `Document request ${request.requestReference} internal notification email failed:`,
+        `Document request ${request.reference} internal notification email failed:`,
         emailResult.internal.error
       );
     }
@@ -1446,7 +1465,7 @@ app.get(
   requirePermission('dashboard.read'),
   async (_req, res) => {
     try {
-      return res.json({ summary: await getAdminDashboard() });
+      return res.json({ summary: await getAdminDashboard(adminSession(res)) });
     } catch (error) {
       console.error('Admin dashboard load failed:', error);
       return res.status(500).json({ error: 'Unable to load the admin dashboard.' });
@@ -1461,9 +1480,10 @@ app.get(
   async (_req, res) => {
     try {
       const session = adminSession(res);
-      const bookings = hasAdminPermission(session, 'bookings.sensitive_access')
+      const allBookings = hasAdminPermission(session, 'bookings.sensitive_access')
         ? await listBookingsWithAccessSecrets()
         : await listBookings();
+      const bookings = filterBookingsForSession(allBookings, session);
       return res.json({ bookings });
     } catch (error) {
       console.error('Admin bookings load failed:', error);
@@ -1862,7 +1882,7 @@ app.get(
       if (!hasAdminPermission(adminSession(res), config.read)) {
         return res.status(403).json({ error: 'You do not have permission to view this resource.' });
       }
-      return res.json({ records: await listAdminResource(req.params.resource) });
+      return res.json({ records: await listAdminResource(req.params.resource, adminSession(res)) });
     } catch (error) {
       console.error('Admin resource load failed:', error);
       return res.status(500).json({ error: 'Unable to load this resource.' });
@@ -1886,7 +1906,7 @@ app.post(
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
         return res.status(400).json({ error: 'A valid record is required.' });
       }
-      const record = await createAdminResource(resource, req.body);
+      const record = await createAdminResource(resource, req.body, adminSession(res));
       await recordAuditEvent({
         session: adminSession(res),
         action: `${resource}.created`,
@@ -1915,7 +1935,7 @@ app.patch(
       if (!hasAdminPermission(adminSession(res), config.manage)) {
         return res.status(403).json({ error: 'You do not have permission to manage this resource.' });
       }
-      const record = await updateAdminResource(resource, req.params.id, req.body || {});
+      const record = await updateAdminResource(resource, req.params.id, req.body || {}, adminSession(res));
       if (!record) return res.status(404).json({ error: 'Record not found.' });
       await recordAuditEvent({
         session: adminSession(res),
@@ -1945,7 +1965,7 @@ app.delete(
       if (!hasAdminPermission(adminSession(res), config.manage)) {
         return res.status(403).json({ error: 'You do not have permission to manage this resource.' });
       }
-      const record = await archiveAdminResource(resource, req.params.id);
+      const record = await archiveAdminResource(resource, req.params.id, adminSession(res));
       if (!record) return res.status(404).json({ error: 'Record not found.' });
       await recordAuditEvent({
         session: adminSession(res),
@@ -1968,7 +1988,7 @@ app.get(
   requirePermission('reports.read'),
   async (_req, res) => {
     try {
-      return res.json({ report: await getAdminReportSummary() });
+      return res.json({ report: await getAdminReportSummary(adminSession(res)) });
     } catch (error) {
       console.error('Admin report load failed:', error);
       return res.status(500).json({ error: 'Unable to generate the management summary.' });
