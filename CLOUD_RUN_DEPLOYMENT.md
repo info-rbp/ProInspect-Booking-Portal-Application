@@ -194,6 +194,7 @@ shown on the confirmation screen.
   "calendarConfigured": true,
   "bookingEmailConfigured": true,
   "sensitiveAccessEncryptionConfigured": true,
+  "documentRequestEncryptionConfigured": true,
   "addressValidationMode": "required",
   "timezone": "Australia/Perth"
 }
