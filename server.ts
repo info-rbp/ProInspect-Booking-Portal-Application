@@ -57,6 +57,7 @@ import {
   createClientProperty,
   createClientRequest,
   ensureClientContext,
+  findClientPropertyByAddress,
   getClientDocument,
   getClientDocumentForAdmin,
   getClientPortalDashboard,
@@ -1692,10 +1693,19 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
     ) {
       try {
         const context = await ensureClientContext(authenticatedClient);
+        const matchedProperty = await findClientPropertyByAddress({
+          organisationId: context.organisation.id,
+          unit: request.details.unit,
+          streetAddress: request.details.streetAddress,
+          suburb: request.details.suburb,
+          state: request.details.state,
+          postcode: request.details.postcode,
+        });
         await createClientRequest({
           context,
           type: 'document',
           title: request.documentName,
+          propertyId: matchedProperty?.id,
           priority: 'routine',
           details: {
             sourceDocumentRequestId: request.id,
