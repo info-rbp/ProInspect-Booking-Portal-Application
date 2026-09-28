@@ -57,7 +57,10 @@ export async function getDocumentProduct(id: string): Promise<DocumentProduct | 
 }
 
 export async function createDocumentRequest(input: {
+  id?: string;
+  reference?: string;
   product: DocumentProduct;
+  documentName?: string;
   category: ServiceCategory;
   propertyId?: string;
   clientId?: string;
@@ -67,14 +70,17 @@ export async function createDocumentRequest(input: {
   requesterPhone: string;
   address: DocumentRequest['address'];
   notes?: string;
+  workflow?: DocumentRequest['workflow'];
 }): Promise<DocumentRequest> {
-  const ref = adminDb.collection('documentRequests').doc();
+  const ref = input.id
+    ? adminDb.collection('documentRequests').doc(input.id)
+    : adminDb.collection('documentRequests').doc();
   const now = nowIso();
   const request: DocumentRequest = {
     id: ref.id,
-    reference: requestReference(),
+    reference: input.reference || requestReference(),
     documentProductId: input.product.id,
-    documentName: input.product.name,
+    documentName: input.documentName || input.product.name,
     documentCategory: input.category,
     pricingMode: input.product.pricingMode,
     priceExGst: input.product.priceExGst,
@@ -86,6 +92,7 @@ export async function createDocumentRequest(input: {
     requesterPhone: input.requesterPhone,
     address: input.address,
     notes: input.notes,
+    workflow: input.workflow,
     status: 'submitted',
     createdAt: now,
     updatedAt: now,
