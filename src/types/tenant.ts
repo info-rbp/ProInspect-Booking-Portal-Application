@@ -23,6 +23,61 @@ export type TenantRequestStatus =
 
 export type TenantRequestPriority = 'normal' | 'urgent' | 'emergency';
 
+export type ClientType =
+  | 'landlord'
+  | 'agency'
+  | 'commercial_landlord'
+  | 'strata_company'
+  | 'asset_manager'
+  | 'other';
+
+export type ClientPropertyRole =
+  | 'owner'
+  | 'landlord'
+  | 'managing_agent'
+  | 'asset_manager'
+  | 'strata_manager'
+  | 'other';
+
+export type PortalAudience = 'tenant' | 'client' | 'staff';
+
+export interface ClientRecord {
+  id: string;
+  name: string;
+  clientType: ClientType;
+  email?: string;
+  phone?: string;
+  externalReference?: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientUserRecord {
+  id: string;
+  email: string;
+  emailLower: string;
+  displayName: string;
+  phone?: string;
+  firebaseUid?: string;
+  clientIds: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt?: string;
+}
+
+export interface ClientPropertyLink {
+  id: string;
+  clientId: string;
+  propertyId: string;
+  role: ClientPropertyRole;
+  primary: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TenantProperty {
   id: string;
   streetAddress: string;
@@ -31,6 +86,7 @@ export interface TenantProperty {
   state: string;
   postcode: string;
   propertyType?: string;
+  primaryClientId?: string;
   clientName?: string;
   clientReference?: string;
   status: 'active' | 'inactive';
@@ -41,6 +97,7 @@ export interface TenantProperty {
 export interface TenancyRecord {
   id: string;
   propertyId: string;
+  clientId?: string;
   status: 'pending' | 'active' | 'ended';
   startDate: string;
   endDate?: string;
@@ -81,6 +138,7 @@ export interface TenantRequest {
   tenantUserId: string;
   tenancyId: string;
   propertyId: string;
+  clientIds?: string[];
   title: string;
   details: string;
   priority: TenantRequestPriority;
@@ -97,6 +155,7 @@ export interface TenantRequest {
 export type TenantDocumentCategory =
   | 'tenancy_agreement'
   | 'property_condition_report'
+  | 'inspection_report'
   | 'bond'
   | 'inspection_notice'
   | 'rent_notice'
@@ -104,13 +163,21 @@ export type TenantDocumentCategory =
   | 'variation'
   | 'pet_modification'
   | 'termination'
+  | 'maintenance'
+  | 'quote'
+  | 'invoice'
+  | 'compliance'
+  | 'property_report'
+  | 'owner_statement'
   | 'correspondence'
   | 'other';
 
 export interface TenantDocument {
   id: string;
-  tenancyId: string;
+  tenancyId?: string;
   propertyId: string;
+  clientIds: string[];
+  audiences: PortalAudience[];
   title: string;
   category: TenantDocumentCategory;
   fileName: string;
@@ -150,6 +217,14 @@ export interface TenantPortalDashboard {
   inspections: TenantInspection[];
 }
 
+export interface ClientPortalDashboard {
+  clientUser: Pick<ClientUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
+  clients: ClientRecord[];
+  properties: TenantProperty[];
+  propertyLinks: ClientPropertyLink[];
+  documents: TenantDocument[];
+}
+
 export interface TenantRequestCreateInput {
   tenancyId: string;
   requestType: TenantRequestType;
@@ -162,6 +237,9 @@ export interface TenantRequestCreateInput {
 }
 
 export interface AdminTenantPortalSnapshot {
+  clients: ClientRecord[];
+  clientUsers: ClientUserRecord[];
+  clientPropertyLinks: ClientPropertyLink[];
   properties: TenantProperty[];
   tenancies: TenancyRecord[];
   tenantUsers: TenantUserRecord[];
