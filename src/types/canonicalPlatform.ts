@@ -1,4 +1,5 @@
 import type { ServiceCategory } from './booking.js';
+import type { DocumentWorkflowData } from './documentRequest.js';
 
 export type ClientType =
   | 'landlord'
@@ -188,6 +189,7 @@ export interface DocumentRequest {
     postcode: string;
   };
   notes?: string;
+  workflow?: DocumentWorkflowData;
   status: DocumentRequestStatus;
   generatedDocumentId?: string;
   paymentId?: string;
