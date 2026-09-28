@@ -14,6 +14,7 @@ import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import { ClientHub } from './components/hub/ClientHub';
 import { PlaceholderPage } from './components/hub/PlaceholderPage';
+import { DocumentRequestFlow } from './components/documents/DocumentRequestFlow';
 import {
   InspectionService,
   ServiceCategory,
@@ -363,7 +364,7 @@ export default function App() {
         ) : publicRoute === 'hub' ? (
           <ClientHub onNavigate={navigatePublic} />
         ) : publicRoute === 'request-document' ? (
-          <PlaceholderPage type="document" onBack={() => navigatePublic('/')} />
+          <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
         ) : publicRoute === 'signin' ? (
           <PlaceholderPage type="signin" onBack={() => navigatePublic('/')} />
         ) : confirmedBooking ? (

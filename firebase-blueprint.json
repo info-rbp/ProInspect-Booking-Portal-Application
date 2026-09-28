@@ -21,7 +21,11 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["residential", "commercial", "strata-building"]
+            "enum": [
+              "residential",
+              "commercial",
+              "strata-building"
+            ]
           },
           "minItems": 1
         },
@@ -97,7 +101,11 @@
         },
         "serviceCategory": {
           "type": "string",
-          "enum": ["residential", "commercial", "strata-building"]
+          "enum": [
+            "residential",
+            "commercial",
+            "strata-building"
+          ]
         },
         "calendarEventId": {
           "type": "string",
@@ -298,6 +306,131 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "DocumentProduct": {
+      "title": "DocumentProduct",
+      "description": "Publicly requestable document product configuration. Firestore is the runtime source of truth; defaults seed missing Residential tenancy forms.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "publicDescription": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "residential",
+              "commercial",
+              "strata-building"
+            ]
+          },
+          "minItems": 1
+        },
+        "priceExGst": {
+          "type": "number"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "publiclyRequestable": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "number"
+        },
+        "formCode": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "badge": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "name",
+        "categories",
+        "priceExGst",
+        "active",
+        "publiclyRequestable",
+        "order"
+      ]
+    },
+    "DocumentRequest": {
+      "title": "DocumentRequest",
+      "description": "Persistent customer document request submitted through the ProInspect Client Hub.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requestReference": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "documentId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "documentName": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "documentCategory": {
+          "type": "string",
+          "enum": [
+            "residential",
+            "commercial",
+            "strata-building"
+          ]
+        },
+        "priceExGst": {
+          "type": "number"
+        },
+        "details": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "in_review",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "requestReference",
+        "documentId",
+        "documentName",
+        "documentCategory",
+        "priceExGst",
+        "details",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -324,6 +457,14 @@
     "/bookingAccessSecrets/{bookingId}": {
       "schema": "BookingAccessSecret",
       "description": "Encrypted sensitive property-access credentials. Server-only; never exposed through public booking APIs or Google Calendar."
+    },
+    "/documentProducts/{documentId}": {
+      "schema": "DocumentProduct",
+      "description": "Document catalogue available through Request a Document."
+    },
+    "/documentRequests/{requestId}": {
+      "schema": "DocumentRequest",
+      "description": "Customer document requests created by the trusted server API."
     }
   },
   "security": {

@@ -161,6 +161,14 @@ BOOKING_EMAIL_FROM=ProInspect <bookings@proinspect.systems>
 BOOKING_EMAIL_REPLY_TO=info@proinspect.systems
 ```
 
+Document requests use the same Resend configuration. Internal request
+notifications default to `info@proinspect.systems`; optionally override that
+recipient with:
+
+```text
+DOCUMENT_REQUEST_NOTIFY_TO=info@proinspect.systems
+```
+
 Set `APP_URL` to the active public booking origin. Until the custom domain is
 live, use the current Cloud Run service URL. After
 `bookings.proinspect.systems` is activated, change `APP_URL` to that origin.

@@ -14,6 +14,11 @@ import type {
   InspectionService,
   ServiceCategory,
 } from './src/types/booking.js';
+import type {
+  DocumentRequestDetails,
+  DocumentRequestRecord,
+  PublicDocumentRequestSummary,
+} from './src/types/documentRequest.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -26,11 +31,16 @@ import {
   getService,
   getSettings,
   listBookingsWithAccessSecrets,
+  listDocumentProducts,
+  getDocumentProduct,
   listServices,
   newBookingId,
+  newDocumentRequestId,
+  documentRequestReferenceExists,
   releaseScheduleLocks,
   reorderServices,
   saveBooking,
+  saveDocumentRequest,
   ScheduleLockConflictError,
   updateBooking,
   updateService,
@@ -58,7 +68,12 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendDocumentRequestEmails,
 } from './src/server/email.js';
+import {
+  isValidAustralianPhone,
+  isValidAustralianPostcode,
+} from './src/utils/australianValidation.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -134,6 +149,12 @@ const manageRateLimit = rateLimit({
   windowMs: 15 * 60_000,
   max: 30,
   prefix: 'manage',
+});
+
+const documentRequestRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  prefix: 'document-request',
 });
 
 function parseAdminEmails(): Set<string> {
@@ -392,6 +413,100 @@ async function generateBookingReference(start: Date): Promise<string> {
   }
 
   return `PI-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+async function generateDocumentRequestReference(): Promise<string> {
+  const datePart = getPerthDateKey(new Date()).replace(/-/g, '');
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const suffix = String(Math.floor(1000 + Math.random() * 9000));
+    const reference = `DR-${datePart}-${suffix}`;
+    if (!(await documentRequestReferenceExists(reference))) return reference;
+  }
+
+  return `DR-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+function sanitizeDocumentRequestDetails(
+  input: unknown
+): { details?: DocumentRequestDetails; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Document request details are required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const streetAddress = normalizeText(value.streetAddress, 160);
+  const unit = normalizeText(value.unit, 50);
+  const suburb = normalizeText(value.suburb, 100);
+  const state = normalizeText(value.state, 3).toUpperCase();
+  const postcode = normalizeText(value.postcode, 4);
+  const customerName = normalizeText(value.customerName, 120);
+  const customerEmail = normalizeText(value.customerEmail, 160).toLowerCase();
+  const customerPhone = normalizeText(value.customerPhone, 40);
+  const clientName = normalizeText(value.clientName, 160);
+  const clientReference = normalizeText(value.clientReference, 100);
+  const notes = normalizeText(value.notes, 3000);
+
+  if (!streetAddress || !suburb) {
+    return { error: 'A property street address and suburb are required.' };
+  }
+
+  if (!['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(state)) {
+    return { error: 'Select a valid Australian state or territory.' };
+  }
+
+  if (!isValidAustralianPostcode(postcode)) {
+    return { error: 'Enter a valid Australian postcode.' };
+  }
+
+  if (!customerName) {
+    return { error: 'A request contact name is required.' };
+  }
+
+  if (!isValidEmail(customerEmail)) {
+    return { error: 'Enter a valid request contact email address.' };
+  }
+
+  if (!isValidAustralianPhone(customerPhone)) {
+    return { error: 'Enter a valid Australian contact phone number.' };
+  }
+
+  return {
+    details: {
+      streetAddress,
+      ...(unit ? { unit } : {}),
+      suburb,
+      state,
+      postcode,
+      customerName,
+      customerEmail,
+      customerPhone,
+      ...(clientName ? { clientName } : {}),
+      ...(clientReference ? { clientReference } : {}),
+      ...(notes ? { notes } : {}),
+    },
+  };
+}
+
+function publicDocumentRequestView(
+  request: DocumentRequestRecord
+): PublicDocumentRequestSummary {
+  return {
+    requestReference: request.requestReference,
+    documentName: request.documentName,
+    documentCategory: request.documentCategory,
+    priceExGst: request.priceExGst,
+    status: request.status,
+    details: {
+      streetAddress: request.details.streetAddress,
+      ...(request.details.unit ? { unit: request.details.unit } : {}),
+      suburb: request.details.suburb,
+      state: request.details.state,
+      postcode: request.details.postcode,
+      customerName: request.details.customerName,
+      customerEmail: request.details.customerEmail,
+    },
+  };
 }
 
 function serviceCalendarId(service: InspectionService): string {
@@ -756,6 +871,98 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
     console.error('Availability error:', error);
     return res.status(503).json({
       error: 'Unable to confirm Google Calendar availability right now. Please try again shortly.',
+    });
+  }
+});
+
+app.get('/api/document-products', async (_req, res) => {
+  try {
+    const documents = await listDocumentProducts(true);
+    return res.json({ documents });
+  } catch (error) {
+    console.error('Document catalogue load failed:', error);
+    return res.status(500).json({ error: 'Unable to load document products.' });
+  }
+});
+
+app.post('/api/document-requests', documentRequestRateLimit, async (req, res) => {
+  try {
+    const { documentId, documentCategory, details } = req.body || {};
+
+    if (!documentId || !documentCategory || !details) {
+      return res.status(400).json({
+        error: 'Select a document and provide the required request details.',
+      });
+    }
+
+    if (!isServiceCategory(documentCategory)) {
+      return res.status(400).json({ error: 'Invalid document category.' });
+    }
+
+    const product = await getDocumentProduct(String(documentId));
+    if (!product || !product.active || !product.publiclyRequestable) {
+      return res.status(400).json({
+        error: 'The selected document is not available for public requests.',
+      });
+    }
+
+    if (!product.categories.includes(documentCategory)) {
+      return res.status(400).json({
+        error: 'The selected document is not available for that property category.',
+      });
+    }
+
+    const detailValidation = sanitizeDocumentRequestDetails(details);
+    if (!detailValidation.details) {
+      return res.status(400).json({
+        error: detailValidation.error || 'Valid document request details are required.',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const request: DocumentRequestRecord = {
+      id: newDocumentRequestId(),
+      requestReference: await generateDocumentRequestReference(),
+      documentId: product.id,
+      documentName: product.formCode
+        ? `${product.name} (${product.formCode})`
+        : product.name,
+      documentCategory,
+      priceExGst: product.priceExGst,
+      details: detailValidation.details,
+      status: 'submitted',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await saveDocumentRequest(request);
+
+    const emailResult = await sendDocumentRequestEmails(request);
+    if (emailResult.customer.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} customer confirmation email failed:`,
+        emailResult.customer.error
+      );
+    }
+    if (emailResult.internal.status === 'failed') {
+      console.error(
+        `Document request ${request.requestReference} internal notification email failed:`,
+        emailResult.internal.error
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      request: publicDocumentRequestView(request),
+      message:
+        emailResult.customer.status === 'sent'
+          ? 'Document request submitted successfully. A confirmation email has been sent.'
+          : 'Document request submitted successfully. ProInspect will review the supplied details before preparation or distribution.',
+    });
+  } catch (error) {
+    console.error('Document request creation failed:', error);
+    return res.status(500).json({
+      error: 'The document request could not be submitted. Please try again.',
     });
   }
 });
