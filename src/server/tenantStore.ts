@@ -13,6 +13,7 @@ import type {
   TenantRequestStatus,
   TenantUserRecord,
 } from '../types/tenant.js';
+import type { DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
 
 function nowIso(): string {
@@ -23,7 +24,7 @@ export function normalizeTenantEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function docWithId<T>(doc: FirebaseFirestore.DocumentSnapshot): T {
+function docWithId<T>(doc: DocumentSnapshot): T {
   return { ...(doc.data() as object), id: doc.id } as T;
 }
 
@@ -495,4 +496,59 @@ export async function createTenantInspection(input: {
 export async function getTenantUserById(tenantUserId: string): Promise<TenantUserRecord | null> {
   const doc = await adminDb.collection('tenantUsers').doc(tenantUserId).get();
   return doc.exists ? docWithId<TenantUserRecord>(doc) : null;
+}
+
+
+export async function updateTenantUserAdmin(
+  tenantUserId: string,
+  changes: {
+    active?: boolean;
+    displayName?: string;
+    phone?: string;
+    tenancyIds?: string[];
+  }
+): Promise<TenantUserRecord | null> {
+  const ref = adminDb.collection('tenantUsers').doc(tenantUserId);
+  const existing = await ref.get();
+  if (!existing.exists) return null;
+
+  if (changes.tenancyIds) {
+    const uniqueIds = Array.from(new Set(changes.tenancyIds));
+    const tenancies = await getDocumentsByIds<TenancyRecord>('tenancies', uniqueIds);
+    if (tenancies.length !== uniqueIds.length) throw new Error('TENANCY_NOT_FOUND');
+    changes.tenancyIds = uniqueIds;
+  }
+
+  await ref.set(
+    {
+      ...changes,
+      updatedAt: nowIso(),
+    },
+    { merge: true }
+  );
+
+  return docWithId<TenantUserRecord>(await ref.get());
+}
+
+export async function updateTenancyAdmin(
+  tenancyId: string,
+  changes: {
+    status?: TenancyRecord['status'];
+    endDate?: string;
+    notes?: string;
+  }
+): Promise<TenancyRecord | null> {
+  const ref = adminDb.collection('tenancies').doc(tenancyId);
+  const existing = await ref.get();
+  if (!existing.exists) return null;
+
+  await ref.set(
+    {
+      ...changes,
+      updatedAt: nowIso(),
+    },
+    { merge: true }
+  );
+
+  return docWithId<TenancyRecord>(await ref.get());
 }
