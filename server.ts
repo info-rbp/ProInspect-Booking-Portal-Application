@@ -108,6 +108,7 @@ import {
   updateTenantRequestAdmin,
   updateTenantUserAdmin,
   updateTenancyAdmin,
+  tenantPropertyAddressKey,
 } from './src/server/tenantStore.js';
 import {
   deleteTenantFile,
@@ -891,6 +892,45 @@ async function localConflictForSlot(
   });
 }
 
+async function resolveCanonicalBookingLinks(property: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): Promise<{ propertyId?: string; clientId?: string }> {
+  const addressKey = tenantPropertyAddressKey(property);
+  const propertySnapshot = await adminDb
+    .collection('properties')
+    .where('addressKey', '==', addressKey)
+    .limit(1)
+    .get();
+
+  if (propertySnapshot.empty) return {};
+
+  const propertyDoc = propertySnapshot.docs[0];
+  const propertyData = propertyDoc.data() as { primaryClientId?: string };
+  let clientId = propertyData.primaryClientId;
+
+  if (!clientId) {
+    const links = await adminDb
+      .collection('clientPropertyLinks')
+      .where('propertyId', '==', propertyDoc.id)
+      .get();
+    const activeLinks = links.docs
+      .map((doc) => doc.data() as { clientId?: string; active?: boolean; primary?: boolean })
+      .filter((link) => link.active !== false && link.clientId);
+    clientId =
+      activeLinks.find((link) => link.primary)?.clientId ||
+      activeLinks[0]?.clientId;
+  }
+
+  return {
+    propertyId: propertyDoc.id,
+    ...(clientId ? { clientId } : {}),
+  };
+}
+
 function publicBaseUrl(req: Request): string {
   const configured = process.env.APP_URL?.trim().replace(/\/$/, '');
   if (configured) return configured;
@@ -1552,6 +1592,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
+    const canonicalLinks = await resolveCanonicalBookingLinks(validatedProperty);
 
     const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
@@ -1561,6 +1602,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       serviceId: service.id,
       serviceName: service.name,
       serviceCategory,
+      ...canonicalLinks,
       calendarId: resolvedCalendarId,
       property: validatedProperty,
       access: accessValidation.access,
