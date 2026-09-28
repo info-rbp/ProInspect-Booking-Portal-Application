@@ -467,7 +467,7 @@ export async function sendClientPortalRequestNotification(params: {
 
   return sendResendEmail({
     to: [notifyTo],
-    subject: `New Client Portal ${typeLabel.toLowerCase()} – ${params.organisationName}`,
+    subject: `${params.priority?.toLowerCase() === 'urgent' ? 'URGENT – ' : ''}New Client Portal ${typeLabel.toLowerCase()} – ${params.organisationName}`,
     html,
     text,
   });
