@@ -16,6 +16,7 @@ import {
   createClientMaintenanceRequest,
   createClientProperty,
   generateClientDocumentDraft,
+  updateClientProperty,
   uploadClientFile,
 } from '../../services/api';
 
@@ -183,6 +184,142 @@ export function AddPropertyForm({
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Add Property
         </button>
+      </div>
+    </div>
+  );
+}
+
+export function EditPropertyForm({
+  property,
+  onSaved,
+  onArchived,
+  onCancel,
+}: {
+  property: ClientProperty;
+  onSaved: () => void;
+  onArchived: () => void;
+  onCancel: () => void;
+}) {
+  const [nickname, setNickname] = useState(property.nickname || '');
+  const [clientReference, setClientReference] = useState(property.clientReference || '');
+  const [categories, setCategories] = useState<ServiceCategory[]>(property.categories);
+  const [notes, setNotes] = useState(property.notes || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggleCategory = (category: ServiceCategory) => {
+    setCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category]
+    );
+  };
+
+  const save = async () => {
+    if (categories.length === 0) {
+      setError('Select at least one property service category.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await updateClientProperty(property.id, {
+        nickname: nickname.trim() || undefined,
+        clientReference: clientReference.trim() || undefined,
+        categories,
+        notes: notes.trim() || undefined,
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to update this property.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const archive = async () => {
+    if (
+      !window.confirm(
+        'Archive this property? Existing bookings, requests and documents will be retained, but the property will no longer appear in the active property list.'
+      )
+    ) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      await updateClientProperty(property.id, { status: 'inactive' });
+      onArchived();
+    } catch (err: any) {
+      setError(err?.message || 'Unable to archive this property.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-[#00B5B8]/30 bg-white p-5 sm:p-6">
+      <h2 className="font-bold text-lg text-[#1A2B4A]">Edit property</h2>
+      <p className="mt-1 text-xs text-slate-500">
+        The property address is fixed to preserve booking and document links. Create a new property if the address itself changes.
+      </p>
+
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-bold text-slate-600 mb-1">Property name / nickname</label>
+          <input className={inputClass} value={nickname} onChange={(e) => setNickname(e.target.value)} />
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-slate-600 mb-1">Client / property reference</label>
+          <input className={inputClass} value={clientReference} onChange={(e) => setClientReference(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-bold text-slate-600 mb-2">Service categories</label>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORY_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => toggleCategory(option.value)}
+                className={`px-3 py-2 rounded-lg border text-xs font-bold ${
+                  categories.includes(option.value)
+                    ? 'border-[#00B5B8] bg-[#F0FBFB] text-[#006D70]'
+                    : 'border-slate-300 text-slate-600'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-bold text-slate-600 mb-1">Property notes</label>
+          <textarea className={textareaClass} rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+      </div>
+
+      {error && <div className="mt-4 text-sm text-rose-700">{error}</div>}
+
+      <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={archive}
+          className="px-4 py-2.5 text-sm font-semibold text-rose-600 disabled:opacity-50"
+        >
+          Archive Property
+        </button>
+        <div className="flex justify-end gap-2">
+          <button type="button" disabled={saving} onClick={onCancel} className="px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" disabled={saving} onClick={save} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Save Property
+          </button>
+        </div>
       </div>
     </div>
   );
