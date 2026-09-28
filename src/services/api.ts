@@ -10,7 +10,18 @@ import type {
   PropertyDetails,
   ServiceCategory,
 } from '../types/booking';
-import type { ClientPortalDashboard } from '../types/clientPortal';
+import type {
+  ClientApproval,
+  ClientDocumentRequestInput,
+  ClientDocumentSummary,
+  ClientMaintenanceRequestInput,
+  ClientMembership,
+  ClientOnboardingInput,
+  ClientPortalDashboard,
+  ClientProperty,
+  ClientPropertyInput,
+  ClientRequestSummary,
+} from '../types/clientPortal';
 import { getAdminIdToken, getAuthIdToken } from './firebase';
 
 type ApiErrorResponse = {
@@ -164,6 +175,196 @@ export async function fetchClientDashboard(): Promise<ClientPortalDashboard> {
   }
 
   return data.dashboard;
+}
+
+async function clientJson<T>(
+  url: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const headers = new Headers(init.headers || {});
+  if (init.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const res = await clientFetch(url, { ...init, headers });
+  const data = (await res.json().catch(() => ({}))) as T & ApiErrorResponse;
+  if (!res.ok) {
+    throw new Error(data.error || 'The client portal request failed.');
+  }
+  return data;
+}
+
+export async function completeClientOnboarding(
+  input: ClientOnboardingInput
+): Promise<void> {
+  await clientJson('/api/client/onboarding', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createClientProperty(
+  input: ClientPropertyInput
+): Promise<ClientProperty> {
+  const data = await clientJson<{ property: ClientProperty }>(
+    '/api/client/properties',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.property;
+}
+
+export async function updateClientProperty(
+  propertyId: string,
+  changes: Partial<Pick<ClientProperty, 'nickname' | 'clientReference' | 'categories' | 'notes' | 'status'>>
+): Promise<ClientProperty> {
+  const data = await clientJson<{ property: ClientProperty }>(
+    `/api/client/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }
+  );
+  return data.property;
+}
+
+export async function activateClientOrganisation(
+  organisationId: string
+): Promise<void> {
+  await clientJson(
+    `/api/client/organisations/${encodeURIComponent(organisationId)}/activate`,
+    { method: 'POST' }
+  );
+}
+
+export async function inviteClientMember(input: {
+  email: string;
+  role: 'admin' | 'member' | 'viewer';
+}): Promise<ClientMembership> {
+  const data = await clientJson<{ membership: ClientMembership }>(
+    '/api/client/organisation/members',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.membership;
+}
+
+export async function updateClientMember(
+  membershipId: string,
+  changes: {
+    role?: 'admin' | 'member' | 'viewer';
+    status?: 'active' | 'revoked';
+  }
+): Promise<ClientMembership> {
+  const data = await clientJson<{ membership: ClientMembership }>(
+    `/api/client/organisation/members/${encodeURIComponent(membershipId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }
+  );
+  return data.membership;
+}
+
+export async function createClientDocumentRequest(
+  input: ClientDocumentRequestInput
+): Promise<ClientRequestSummary> {
+  const data = await clientJson<{ request: ClientRequestSummary }>(
+    '/api/client/requests/document',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.request;
+}
+
+export async function createClientMaintenanceRequest(
+  input: ClientMaintenanceRequestInput
+): Promise<ClientRequestSummary> {
+  const data = await clientJson<{ request: ClientRequestSummary }>(
+    '/api/client/requests/maintenance',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.request;
+}
+
+export async function uploadClientFile(params: {
+  file: File;
+  propertyId?: string;
+  requestId?: string;
+  documentType?: string;
+}): Promise<ClientDocumentSummary> {
+  const headers = new Headers({
+    'Content-Type': params.file.type || 'application/octet-stream',
+    'x-file-name': encodeURIComponent(params.file.name),
+  });
+  if (params.propertyId) headers.set('x-property-id', params.propertyId);
+  if (params.requestId) headers.set('x-request-id', params.requestId);
+  if (params.documentType) headers.set('x-document-type', params.documentType);
+
+  const res = await clientFetch('/api/client/files/upload', {
+    method: 'POST',
+    headers,
+    body: params.file,
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    document?: ClientDocumentSummary;
+    error?: string;
+  };
+  if (!res.ok || !data.document) {
+    throw new Error(data.error || 'File upload failed.');
+  }
+  return data.document;
+}
+
+export async function generateClientDocumentDraft(
+  requestId: string
+): Promise<{ document: ClientDocumentSummary; approval: ClientApproval }> {
+  return clientJson(
+    `/api/client/requests/${encodeURIComponent(requestId)}/generate-draft`,
+    { method: 'POST' }
+  );
+}
+
+export async function downloadClientDocument(
+  documentId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const res = await clientFetch(
+    `/api/client/documents/${encodeURIComponent(documentId)}/download`
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as ApiErrorResponse;
+    throw new Error(data.error || 'Document download failed.');
+  }
+
+  const disposition = res.headers.get('content-disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : 'document';
+  return { blob: await res.blob(), fileName };
+}
+
+export async function respondClientApproval(
+  approvalId: string,
+  input: {
+    status: 'approved' | 'changes_requested' | 'declined';
+    comment?: string;
+  }
+): Promise<ClientApproval> {
+  const data = await clientJson<{ approval: ClientApproval }>(
+    `/api/client/approvals/${encodeURIComponent(approvalId)}/respond`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.approval;
 }
 
 async function adminFetch(
