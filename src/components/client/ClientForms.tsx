@@ -675,6 +675,17 @@ export function MaintenanceRequestForm({
             <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={Boolean(value.powerAffected)} onChange={(e) => setValue({ ...value, powerAffected: e.target.checked })} /> Power affected</label>
             <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={value.propertySecure !== false} onChange={(e) => setValue({ ...value, propertySecure: e.target.checked })} /> Property secure</label>
           </div>
+          {(value.priority === 'urgent' ||
+            value.activeWater ||
+            value.powerAffected ||
+            value.propertySecure === false) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">
+              <strong>Urgent maintenance is not an emergency-response service.</strong>{' '}
+              If there is an immediate threat to life or safety, call 000. Where it is safe to do so,
+              take reasonable steps to prevent further damage and use the appropriate emergency
+              contractor or authority while ProInspect reviews this request.
+            </div>
+          )}
           <div><label className="block text-xs font-bold text-slate-600 mb-1">Access / contractor notes</label><textarea className={textareaClass} rows={3} value={value.accessNotes || ''} onChange={(e) => setValue({ ...value, accessNotes: e.target.value })} /></div>
           <FilePicker files={files} setFiles={setFiles} />
         </div>
