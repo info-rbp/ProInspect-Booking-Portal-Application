@@ -701,12 +701,34 @@ export async function buildUnifiedClientDashboard(params: {
   propertyLinks: ClientPropertyLink[];
   documents: TenantDocument[];
 }): Promise<UnifiedClientDashboard> {
-  const [requests, approvals, payments, notifications] = await Promise.all([
+  const [requests, approvals, payments, notifications, teamSnapshots] = await Promise.all([
     listClientRequestsForUser(params.user),
     listClientApprovals(params.user),
     listClientPayments(params.user),
     listClientNotifications(params.user),
+    Promise.all(
+      params.user.clientIds.map((clientId) =>
+        adminDb.collection('clientUsers').where('clientIds', 'array-contains', clientId).get()
+      )
+    ),
   ]);
+
+  const teamMap = new Map<string, ClientUserRecord>();
+  teamSnapshots.forEach((snapshot) =>
+    snapshot.docs.forEach((doc) => teamMap.set(doc.id, docWithId<ClientUserRecord>(doc)))
+  );
+  const teamUsers = Array.from(teamMap.values()).map((member) => ({
+    id: member.id,
+    email: member.email,
+    displayName: member.displayName,
+    phone: member.phone,
+    active: member.active,
+    clientRoles: Object.fromEntries(
+      params.user.clientIds
+        .filter((clientId) => member.clientIds.includes(clientId))
+        .map((clientId) => [clientId, member.clientRoles?.[clientId] || 'member'])
+    ),
+  }));
 
   const bookingsByEmail = await adminDb
     .collection('bookings')
@@ -764,5 +786,6 @@ export async function buildUnifiedClientDashboard(params: {
     approvals,
     payments,
     notifications,
+    teamUsers,
   };
 }
