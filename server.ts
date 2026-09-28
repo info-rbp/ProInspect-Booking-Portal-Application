@@ -15,8 +15,14 @@ import type {
   ServiceCategory,
 } from './src/types/booking.js';
 import type {
+  DocumentParty,
+  DocumentRequesterRole,
   DocumentRequestDetails,
   DocumentRequestRecord,
+  DocumentWorkflowAnswer,
+  DocumentWorkflowData,
+  DocumentWorkflowDefinition,
+  DocumentWorkflowField,
   PublicDocumentRequestSummary,
 } from './src/types/documentRequest.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
@@ -72,8 +78,18 @@ import {
 } from './src/server/email.js';
 import {
   isValidAustralianPhone,
-  isValidAustralianPostcode,
+  isWAPostcode,
 } from './src/utils/australianValidation.js';
+import {
+  getDocumentWorkflowDefinition,
+  isWorkflowAnswerPresent,
+  isWorkflowFieldVisible,
+  sensitiveWorkflowFieldIds,
+} from './src/documents/documentWorkflowDefinitions.js';
+import {
+  documentRequestEncryptionIsConfigured,
+  encryptDocumentRequestSecrets,
+} from './src/server/documentRequestSecrets.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -451,12 +467,15 @@ function sanitizeDocumentRequestDetails(
     return { error: 'A property street address and suburb are required.' };
   }
 
-  if (!['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(state)) {
-    return { error: 'Select a valid Australian state or territory.' };
+  if (state !== 'WA') {
+    return {
+      error:
+        'The current Residential document workflows are for Western Australian properties.',
+    };
   }
 
-  if (!isValidAustralianPostcode(postcode)) {
-    return { error: 'Enter a valid Australian postcode.' };
+  if (!isWAPostcode(postcode)) {
+    return { error: 'Enter a valid Western Australian postcode.' };
   }
 
   if (!customerName) {
@@ -485,6 +504,330 @@ function sanitizeDocumentRequestDetails(
       ...(clientReference ? { clientReference } : {}),
       ...(notes ? { notes } : {}),
     },
+  };
+}
+
+const DOCUMENT_REQUESTER_ROLES = new Set<DocumentRequesterRole>([
+  'lessor',
+  'property-manager',
+  'tenant',
+  'other',
+]);
+
+function sanitizeDocumentParty(input: unknown): DocumentParty | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as Record<string, unknown>;
+  const id = normalizeText(value.id, 80) || randomBytes(8).toString('hex');
+  const name = normalizeText(value.name, 180);
+  const address = normalizeText(value.address, 300);
+  const postcode = normalizeText(value.postcode, 4);
+  const email = normalizeText(value.email, 180).toLowerCase();
+  const phone = normalizeText(value.phone, 50);
+
+  if (!name) return null;
+  if (email && !isValidEmail(email)) return null;
+  if (phone && !isValidAustralianPhone(phone)) return null;
+  if (postcode && !isWAPostcode(postcode)) return null;
+
+  return {
+    id,
+    name,
+    ...(address ? { address } : {}),
+    ...(postcode ? { postcode } : {}),
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
+  };
+}
+
+function sanitizeWorkflowValue(
+  input: unknown,
+  depth = 0
+): DocumentWorkflowAnswer | undefined {
+  if (depth > 4) return undefined;
+
+  if (typeof input === 'string') {
+    return input.trim().slice(0, 5000);
+  }
+
+  if (typeof input === 'boolean') return input;
+
+  if (typeof input === 'number') {
+    return Number.isFinite(input) ? input : undefined;
+  }
+
+  if (input === null) return null;
+
+  if (Array.isArray(input)) {
+    const array = input
+      .slice(0, 30)
+      .map((item) => sanitizeWorkflowValue(item, depth + 1))
+      .filter((item) => item !== undefined);
+
+    if (array.every((item) => typeof item === 'string')) {
+      return array as string[];
+    }
+
+    return array
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === 'object' && !Array.isArray(item))
+      )
+      .slice(0, 20);
+  }
+
+  if (typeof input === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, rawValue] of Object.entries(
+      input as Record<string, unknown>
+    ).slice(0, 60)) {
+      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+      if (!safeKey) continue;
+      const sanitized = sanitizeWorkflowValue(rawValue, depth + 1);
+      if (sanitized !== undefined) output[safeKey] = sanitized;
+    }
+    return output;
+  }
+
+  return undefined;
+}
+
+function validOptionValue(
+  field: DocumentWorkflowField,
+  value: DocumentWorkflowAnswer | undefined
+): boolean {
+  if (!field.options?.length) return true;
+  const allowed = new Set(field.options.map((option) => option.value));
+
+  if (field.type === 'multiselect') {
+    return (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === 'string' && allowed.has(item))
+    );
+  }
+
+  return typeof value === 'string' && allowed.has(value);
+}
+
+function validatePartyElectronicConsents(
+  value: DocumentWorkflowAnswer | undefined,
+  parties: DocumentParty[]
+): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const map = value as Record<string, unknown>;
+
+  return parties.every((party) => {
+    const entry = map[party.id];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return false;
+    }
+    const data = entry as Record<string, unknown>;
+    return (
+      (data.email === 'yes' || data.email === 'no') &&
+      (data.fax === 'yes' || data.fax === 'no')
+    );
+  });
+}
+
+function validatePartyPayouts(
+  value: DocumentWorkflowAnswer | undefined,
+  parties: DocumentParty[]
+): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const map = value as Record<string, unknown>;
+
+  return parties.every((party) => {
+    const entry = map[party.id];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return false;
+    }
+
+    const data = entry as Record<string, unknown>;
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount < 0) return false;
+    if (amount === 0) return true;
+
+    return Boolean(
+      normalizeText(data.accountName, 180) &&
+        normalizeText(data.bsb, 20) &&
+        normalizeText(data.accountNumber, 40) &&
+        normalizeText(data.institution, 180)
+    );
+  });
+}
+
+function validateWorkflowField(
+  field: DocumentWorkflowField,
+  value: DocumentWorkflowAnswer | undefined,
+  workflow: DocumentWorkflowData
+): string | null {
+  if (field.required && !isWorkflowAnswerPresent(field, value)) {
+    return `${field.label} is required.`;
+  }
+
+  if (value === undefined || value === null || value === '') return null;
+
+  if (
+    (field.type === 'select' ||
+      field.type === 'radio' ||
+      field.type === 'multiselect') &&
+    !validOptionValue(field, value)
+  ) {
+    return `${field.label} contains an invalid selection.`;
+  }
+
+  if (field.type === 'date') {
+    if (typeof value !== 'string' || !isValidDateKey(value)) {
+      return `${field.label} must be a valid date.`;
+    }
+  }
+
+  if (field.type === 'number' || field.type === 'currency') {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return `${field.label} must be a valid number.`;
+    }
+    if (field.min !== undefined && parsed < field.min) {
+      return `${field.label} is below the permitted minimum.`;
+    }
+    if (field.max !== undefined && parsed > field.max) {
+      return `${field.label} exceeds the permitted maximum.`;
+    }
+  }
+
+  if (field.type === 'tenant-select') {
+    if (
+      typeof value !== 'string' ||
+      !workflow.tenants.some((tenant) => tenant.id === value)
+    ) {
+      return `${field.label} must identify a tenant named in this request.`;
+    }
+  }
+
+  if (field.type === 'party-electronic-consents') {
+    if (
+      !validatePartyElectronicConsents(value, [
+        ...workflow.lessors,
+        ...workflow.tenants,
+      ])
+    ) {
+      return 'Select email and fax notice preferences for each named party.';
+    }
+  }
+
+  if (field.type === 'party-payouts') {
+    if (
+      !validatePartyPayouts(value, [
+        ...workflow.tenants,
+        ...workflow.lessors,
+      ])
+    ) {
+      return 'Complete the proposed bond payment amount for every named party and bank details for each party receiving money.';
+    }
+  }
+
+  return null;
+}
+
+function sanitizeDocumentWorkflow(
+  input: unknown,
+  definition: DocumentWorkflowDefinition
+): {
+  workflow?: DocumentWorkflowData;
+  sensitiveAnswers?: Record<string, DocumentWorkflowAnswer>;
+  error?: string;
+} {
+  if (!input || typeof input !== 'object') {
+    return { error: 'The document-specific workflow is required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const version = Number(value.version);
+  const requesterRole = normalizeText(value.requesterRole, 40) as DocumentRequesterRole;
+
+  if (version !== 1) {
+    return { error: 'Unsupported document workflow version.' };
+  }
+
+  if (!DOCUMENT_REQUESTER_ROLES.has(requesterRole)) {
+    return { error: 'Select a valid requester role.' };
+  }
+
+  if (
+    definition.allowedRequesterRoles &&
+    !definition.allowedRequesterRoles.includes(requesterRole)
+  ) {
+    return {
+      error:
+        'The selected document is not designed for the requester role provided.',
+    };
+  }
+
+  const lessors = Array.isArray(value.lessors)
+    ? value.lessors
+        .slice(0, 10)
+        .map(sanitizeDocumentParty)
+        .filter((party): party is DocumentParty => Boolean(party))
+    : [];
+  const tenants = Array.isArray(value.tenants)
+    ? value.tenants
+        .slice(0, 10)
+        .map(sanitizeDocumentParty)
+        .filter((party): party is DocumentParty => Boolean(party))
+    : [];
+
+  if (lessors.length < (definition.minimumLessors || 0)) {
+    return { error: 'Enter the required landlord / lessor details.' };
+  }
+  if (tenants.length < (definition.minimumTenants || 0)) {
+    return { error: 'Enter the required tenant details.' };
+  }
+
+  const rawAnswers =
+    value.answers && typeof value.answers === 'object' && !Array.isArray(value.answers)
+      ? (value.answers as Record<string, unknown>)
+      : {};
+
+  const permittedFields = definition.sections.flatMap((section) => section.fields);
+  const answers: Record<string, DocumentWorkflowAnswer> = {};
+
+  for (const field of permittedFields) {
+    const sanitized = sanitizeWorkflowValue(rawAnswers[field.id]);
+    if (sanitized !== undefined) answers[field.id] = sanitized;
+  }
+
+  const workflow: DocumentWorkflowData = {
+    version: 1,
+    requesterRole,
+    lessors,
+    tenants,
+    answers,
+  };
+
+  for (const field of permittedFields) {
+    if (!isWorkflowFieldVisible(field, answers)) continue;
+    const validationError = validateWorkflowField(
+      field,
+      answers[field.id],
+      workflow
+    );
+    if (validationError) return { error: validationError };
+  }
+
+  const sensitiveIds = sensitiveWorkflowFieldIds(definition);
+  const sensitiveAnswers: Record<string, DocumentWorkflowAnswer> = {};
+
+  for (const fieldId of sensitiveIds) {
+    if (answers[fieldId] !== undefined) {
+      sensitiveAnswers[fieldId] = answers[fieldId];
+      delete answers[fieldId];
+    }
+  }
+
+  return {
+    workflow,
+    ...(Object.keys(sensitiveAnswers).length
+      ? { sensitiveAnswers }
+      : {}),
   };
 }
 
