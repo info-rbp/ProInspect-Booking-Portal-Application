@@ -1,5 +1,4 @@
 import type {
-  AdminAuditEvent,
   AdminDashboardSummary,
   AdminIntegrationStatus,
   AdminPermission,
@@ -11,9 +10,22 @@ import type {
   AdminStaffUser,
 } from '../types/admin.js';
 import type { BookingRecord } from '../types/booking.js';
-import type { DocumentRequestRecord } from '../types/documentRequest.js';
+import type {
+  AuditEntityType,
+  PlatformResourceName,
+  TenantUserRecord,
+} from '../types/platform.js';
 import { adminDb } from './firebaseAdmin.js';
 import { listBookings } from './store.js';
+import {
+  archivePlatformResource,
+  createPlatformResource,
+  getPlatformResource,
+  listAuditEvents as listCanonicalAuditEvents,
+  listPlatformResources,
+  updatePlatformResource,
+  writeAuditEvent,
+} from './platformStore.js';
 
 const ALL_PERMISSIONS: AdminPermission[] = [
   'dashboard.read',
@@ -95,10 +107,11 @@ const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
 export const ADMIN_RESOURCE_CONFIG: Record<
   AdminResourceName,
   {
-    collection: string;
+    collection: PlatformResourceName;
     read: AdminPermission;
     manage: AdminPermission;
     label: string;
+    entityType: AuditEntityType;
   }
 > = {
   clients: {
@@ -106,48 +119,91 @@ export const ADMIN_RESOURCE_CONFIG: Record<
     read: 'clients.read',
     manage: 'clients.manage',
     label: 'Client',
+    entityType: 'client',
+  },
+  clientUsers: {
+    collection: 'clientUsers',
+    read: 'clients.read',
+    manage: 'clients.manage',
+    label: 'Client user',
+    entityType: 'client_user',
+  },
+  clientMemberships: {
+    collection: 'clientMemberships',
+    read: 'clients.read',
+    manage: 'clients.manage',
+    label: 'Client membership',
+    entityType: 'client_membership',
   },
   properties: {
     collection: 'properties',
     read: 'properties.read',
     manage: 'properties.manage',
     label: 'Property',
+    entityType: 'property',
   },
-  tenants: {
-    collection: 'tenants',
+  clientPropertyLinks: {
+    collection: 'clientPropertyLinks',
+    read: 'properties.read',
+    manage: 'properties.manage',
+    label: 'Client-property relationship',
+    entityType: 'client_property_link',
+  },
+  tenancies: {
+    collection: 'tenancies',
     read: 'tenants.read',
     manage: 'tenants.manage',
-    label: 'Tenant',
+    label: 'Tenancy',
+    entityType: 'tenancy',
+  },
+  tenantUsers: {
+    collection: 'tenantUsers',
+    read: 'tenants.read',
+    manage: 'tenants.manage',
+    label: 'Tenant user',
+    entityType: 'tenant_user',
   },
   propertyDocuments: {
     collection: 'propertyDocuments',
     read: 'documents.read',
     manage: 'documents.manage',
     label: 'Document',
+    entityType: 'document',
   },
   documentRequests: {
     collection: 'documentRequests',
     read: 'document_requests.read',
     manage: 'document_requests.manage',
     label: 'Document request',
+    entityType: 'document_request',
   },
-  maintenanceRequests: {
-    collection: 'maintenanceRequests',
+  workOrders: {
+    collection: 'workOrders',
     read: 'maintenance.read',
     manage: 'maintenance.manage',
-    label: 'Maintenance request',
-  },
-  communications: {
-    collection: 'communications',
-    read: 'communications.read',
-    manage: 'communications.manage',
-    label: 'Communication',
+    label: 'Work order',
+    entityType: 'work_order',
   },
   subscriptions: {
     collection: 'subscriptions',
     read: 'billing.read',
     manage: 'billing.manage',
     label: 'Subscription',
+    entityType: 'subscription',
+  },
+  payments: {
+    collection: 'payments',
+    read: 'billing.read',
+    manage: 'billing.manage',
+    label: 'Payment',
+    entityType: 'payment',
+  },
+  communications: {
+    collection: 'communications',
+    read: 'communications.read',
+    manage: 'communications.manage',
+    label: 'Communication',
+    entityType: 'communication',
   },
 };
 
@@ -173,6 +229,19 @@ function normaliseRole(value: unknown): AdminRole {
     value === 'administrator'
     ? value
     : 'read_only';
+}
+
+function normaliseScope(value: unknown, role: AdminRole): 'global' | 'assigned' {
+  if (role === 'administrator' || role === 'operations_manager' || role === 'read_only') {
+    return 'global';
+  }
+  return value === 'global' ? 'global' : 'assigned';
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.map(String).map((item) => item.trim()).filter(Boolean)))
+    : [];
 }
 
 export async function resolveAdminSession(input: {
@@ -204,9 +273,7 @@ export async function resolveAdminSession(input: {
           },
           { merge: true }
         );
-        if (invited.id !== input.uid) {
-          await invited.ref.delete();
-        }
+        if (invited.id !== input.uid) await invited.ref.delete();
         snapshot = await adminDb.collection('adminUsers').doc(input.uid).get();
         data = snapshot.data() || data;
       }
@@ -226,16 +293,12 @@ export async function resolveAdminSession(input: {
   const role: AdminRole = input.implicitAdministrator
     ? 'administrator'
     : normaliseRole(data.role || 'read_only');
-  const permissionGrants = Array.isArray(data.permissionGrants)
-    ? (data.permissionGrants.filter((value: unknown) =>
-        ALL_PERMISSIONS.includes(value as AdminPermission)
-      ) as AdminPermission[])
-    : [];
-  const permissionRevokes = Array.isArray(data.permissionRevokes)
-    ? (data.permissionRevokes.filter((value: unknown) =>
-        ALL_PERMISSIONS.includes(value as AdminPermission)
-      ) as AdminPermission[])
-    : [];
+  const permissionGrants = strings(data.permissionGrants).filter((value) =>
+    ALL_PERMISSIONS.includes(value as AdminPermission)
+  ) as AdminPermission[];
+  const permissionRevokes = strings(data.permissionRevokes).filter((value) =>
+    ALL_PERMISSIONS.includes(value as AdminPermission)
+  ) as AdminPermission[];
 
   const now = new Date().toISOString();
   if (snapshot.exists) {
@@ -248,6 +311,10 @@ export async function resolveAdminSession(input: {
     displayName: data.displayName ? String(data.displayName) : undefined,
     role,
     permissions: permissionsForRole(role, permissionGrants, permissionRevokes),
+    resourceScope: input.implicitAdministrator ? 'global' : normaliseScope(data.resourceScope, role),
+    assignedServiceIds: strings(data.assignedServiceIds),
+    assignedPropertyIds: strings(data.assignedPropertyIds),
+    assignedClientIds: strings(data.assignedClientIds),
   };
 }
 
@@ -258,127 +325,260 @@ export function hasAdminPermission(
   return Boolean(session?.permissions.includes(permission));
 }
 
+function intersects(a: string[], b: string[]): boolean {
+  const set = new Set(a);
+  return b.some((value) => set.has(value));
+}
+
+async function tenantUserMatchesScope(
+  user: TenantUserRecord,
+  session: AdminSession
+): Promise<boolean> {
+  if (!user.tenancyIds.length) return false;
+  const refs = user.tenancyIds.map((id) => adminDb.collection('tenancies').doc(id));
+  const snapshots = await adminDb.getAll(...refs);
+  return snapshots.some((doc) => {
+    if (!doc.exists) return false;
+    const data = doc.data() || {};
+    return session.assignedPropertyIds.includes(String(data.propertyId || '')) ||
+      session.assignedClientIds.includes(String(data.clientId || ''));
+  });
+}
+
+async function recordMatchesScope(
+  resource: AdminResourceName,
+  record: AdminResourceRecord,
+  session: AdminSession
+): Promise<boolean> {
+  if (session.resourceScope === 'global') return true;
+
+  if (resource === 'clients') return session.assignedClientIds.includes(record.id);
+  if (resource === 'properties') return session.assignedPropertyIds.includes(record.id);
+
+  const clientId = typeof record.clientId === 'string' ? record.clientId : undefined;
+  const propertyId = typeof record.propertyId === 'string' ? record.propertyId : undefined;
+  const assignedStaffId =
+    typeof record.assignedStaffId === 'string' ? record.assignedStaffId : undefined;
+
+  if (assignedStaffId === session.uid) return true;
+  if (clientId && session.assignedClientIds.includes(clientId)) return true;
+  if (propertyId && session.assignedPropertyIds.includes(propertyId)) return true;
+
+  if (resource === 'clientUsers') {
+    const clientIds = Array.isArray(record.clientIds) ? record.clientIds.map(String) : [];
+    return intersects(clientIds, session.assignedClientIds);
+  }
+
+  if (resource === 'clientMemberships') {
+    return session.assignedClientIds.includes(String(record.clientId || ''));
+  }
+
+  if (resource === 'clientPropertyLinks') {
+    return session.assignedClientIds.includes(String(record.clientId || '')) ||
+      session.assignedPropertyIds.includes(String(record.propertyId || ''));
+  }
+
+  if (resource === 'tenantUsers') {
+    return tenantUserMatchesScope(record as unknown as TenantUserRecord, session);
+  }
+
+  if (resource === 'propertyDocuments') {
+    const clientIds = Array.isArray(record.clientIds) ? record.clientIds.map(String) : [];
+    return intersects(clientIds, session.assignedClientIds);
+  }
+
+  return false;
+}
+
+export function bookingMatchesScope(
+  booking: BookingRecord,
+  session: AdminSession
+): boolean {
+  if (session.resourceScope === 'global') return true;
+  if (booking.assignedStaffId === session.uid) return true;
+  if (booking.propertyId && session.assignedPropertyIds.includes(booking.propertyId)) return true;
+  if (booking.clientId && session.assignedClientIds.includes(booking.clientId)) return true;
+  return false;
+}
+
+export function canUpdateBookingForSession(
+  booking: BookingRecord,
+  session: AdminSession
+): boolean {
+  if (session.resourceScope === 'global') return true;
+  return booking.assignedStaffId === session.uid;
+}
+
+export function filterBookingsForSession(
+  bookings: BookingRecord[],
+  session: AdminSession
+): BookingRecord[] {
+  return bookings.filter((booking) => bookingMatchesScope(booking, session));
+}
+
+function auditMetadata(
+  metadata?: Record<string, unknown>
+): Record<string, string | number | boolean | null> | undefined {
+  if (!metadata) return undefined;
+  const safe: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      safe[key] = value;
+    }
+  }
+  return Object.keys(safe).length ? safe : undefined;
+}
+
+function auditEntityType(resourceType: string): AuditEntityType {
+  const mapping: Record<string, AuditEntityType> = {
+    booking: 'booking',
+    service: 'service',
+    settings: 'settings',
+    staff: 'staff',
+    clients: 'client',
+    clientUsers: 'client_user',
+    clientMemberships: 'client_membership',
+    clientPropertyLinks: 'client_property_link',
+    properties: 'property',
+    tenancies: 'tenancy',
+    tenantUsers: 'tenant_user',
+    propertyDocuments: 'document',
+    documentRequests: 'document_request',
+    workOrders: 'work_order',
+    subscriptions: 'subscription',
+    payments: 'payment',
+    communications: 'communication',
+  };
+  return mapping[resourceType] || 'staff';
+}
+
 export async function recordAuditEvent(input: {
-  session: Pick<AdminSession, 'uid' | 'email'>;
+  session: Pick<AdminSession, 'uid' | 'email' | 'displayName'>;
   action: string;
   resourceType: string;
   resourceId?: string;
   summary?: string;
   metadata?: Record<string, unknown>;
+  propertyId?: string;
+  clientId?: string;
+  tenancyId?: string;
 }): Promise<void> {
-  const ref = adminDb.collection('auditEvents').doc();
-  const event: Omit<AdminAuditEvent, 'id'> = {
-    actorUid: input.session.uid,
-    actorEmail: input.session.email,
+  await writeAuditEvent({
+    entityType: auditEntityType(input.resourceType),
+    entityId: input.resourceId || input.resourceType,
     action: input.action,
-    resourceType: input.resourceType,
-    ...(input.resourceId ? { resourceId: input.resourceId } : {}),
-    ...(input.summary ? { summary: input.summary } : {}),
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-    createdAt: new Date().toISOString(),
-  };
-  await ref.set(event);
+    summary: input.summary || input.action,
+    actor: {
+      type: 'staff',
+      id: input.session.uid,
+      email: input.session.email,
+      displayName: input.session.displayName,
+    },
+    propertyId: input.propertyId,
+    clientId: input.clientId,
+    tenancyId: input.tenancyId,
+    metadata: auditMetadata(input.metadata),
+  });
 }
 
-export async function listAuditEvents(limit = 250): Promise<AdminAuditEvent[]> {
-  const snapshot = await adminDb
-    .collection('auditEvents')
-    .orderBy('createdAt', 'desc')
-    .limit(Math.min(Math.max(limit, 1), 500))
-    .get();
-  return snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() as Omit<AdminAuditEvent, 'id'>),
-  }));
+export async function listAuditEvents(limit = 250) {
+  return listCanonicalAuditEvents(limit);
 }
 
 export async function listAdminResource(
   resource: AdminResourceName,
+  session: AdminSession,
   limit = 500
 ): Promise<AdminResourceRecord[]> {
-  const config = ADMIN_RESOURCE_CONFIG[resource];
-  const snapshot = await adminDb
-    .collection(config.collection)
-    .orderBy('updatedAt', 'desc')
-    .limit(Math.min(Math.max(limit, 1), 500))
-    .get()
-    .catch(async () =>
-      adminDb.collection(config.collection).limit(Math.min(Math.max(limit, 1), 500)).get()
-    );
-
-  return snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() as Omit<AdminResourceRecord, 'id'>),
-  }));
+  const records = await listPlatformResources(resource, limit);
+  const scoped = await Promise.all(
+    records.map(async (record) => ({
+      record: record as unknown as AdminResourceRecord,
+      allowed: await recordMatchesScope(
+        resource,
+        record as unknown as AdminResourceRecord,
+        session
+      ),
+    }))
+  );
+  return scoped.filter((item) => item.allowed).map((item) => item.record);
 }
 
 export async function createAdminResource(
   resource: AdminResourceName,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  session: AdminSession
 ): Promise<AdminResourceRecord> {
-  const config = ADMIN_RESOURCE_CONFIG[resource];
-  const ref = adminDb.collection(config.collection).doc();
-  const now = new Date().toISOString();
-  const record = {
-    ...payload,
-    createdAt: now,
-    updatedAt: now,
-    active: payload.active === undefined ? true : Boolean(payload.active),
-  };
-  await ref.set(record);
-  return { id: ref.id, ...record };
+  if (session.resourceScope !== 'global') {
+    const candidate = { id: 'new', ...payload } as AdminResourceRecord;
+    if (!(await recordMatchesScope(resource, candidate, session))) {
+      throw new Error('RESOURCE_SCOPE_FORBIDDEN');
+    }
+  }
+  return createPlatformResource(resource, payload, session.email) as Promise<AdminResourceRecord>;
 }
 
 export async function updateAdminResource(
   resource: AdminResourceName,
   id: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  session: AdminSession
 ): Promise<AdminResourceRecord | null> {
-  const config = ADMIN_RESOURCE_CONFIG[resource];
-  const ref = adminDb.collection(config.collection).doc(id);
-  const existing = await ref.get();
-  if (!existing.exists) return null;
-
-  const changes = {
-    ...payload,
-    id: undefined,
-    createdAt: undefined,
-    updatedAt: new Date().toISOString(),
-  };
-  await ref.set(changes, { merge: true });
-  const updated = await ref.get();
-  return { id: updated.id, ...(updated.data() as Omit<AdminResourceRecord, 'id'>) };
+  const existing = await getPlatformResource(resource, id);
+  if (!existing) return null;
+  if (
+    !(await recordMatchesScope(
+      resource,
+      existing as unknown as AdminResourceRecord,
+      session
+    ))
+  ) {
+    throw new Error('RESOURCE_SCOPE_FORBIDDEN');
+  }
+  return updatePlatformResource(resource, id, payload, session.email) as Promise<AdminResourceRecord | null>;
 }
 
 export async function archiveAdminResource(
   resource: AdminResourceName,
-  id: string
+  id: string,
+  session: AdminSession
 ): Promise<AdminResourceRecord | null> {
-  return updateAdminResource(resource, id, {
-    active: false,
-    archivedAt: new Date().toISOString(),
-  });
+  const existing = await getPlatformResource(resource, id);
+  if (!existing) return null;
+  if (
+    !(await recordMatchesScope(
+      resource,
+      existing as unknown as AdminResourceRecord,
+      session
+    ))
+  ) {
+    throw new Error('RESOURCE_SCOPE_FORBIDDEN');
+  }
+  return archivePlatformResource(resource, id, session.email) as Promise<AdminResourceRecord | null>;
 }
 
 export async function listAdminStaff(): Promise<AdminStaffUser[]> {
   const snapshot = await adminDb.collection('adminUsers').limit(250).get();
   return snapshot.docs.map((doc) => {
     const data = doc.data();
+    const role = normaliseRole(data.role || 'read_only');
     return {
       id: doc.id,
       email: String(data.email || ''),
       displayName: String(data.displayName || data.email || 'Staff member'),
-      role: normaliseRole(data.role || 'read_only'),
+      role,
       active: data.active !== false,
-      assignedServiceIds: Array.isArray(data.assignedServiceIds)
-        ? data.assignedServiceIds.map(String)
-        : [],
-      permissionGrants: Array.isArray(data.permissionGrants)
-        ? data.permissionGrants
-        : [],
-      permissionRevokes: Array.isArray(data.permissionRevokes)
-        ? data.permissionRevokes
-        : [],
+      assignedServiceIds: strings(data.assignedServiceIds),
+      assignedPropertyIds: strings(data.assignedPropertyIds),
+      assignedClientIds: strings(data.assignedClientIds),
+      resourceScope: normaliseScope(data.resourceScope, role),
+      permissionGrants: strings(data.permissionGrants) as AdminPermission[],
+      permissionRevokes: strings(data.permissionRevokes) as AdminPermission[],
       lastLoginAt: data.lastLoginAt,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
@@ -391,6 +591,8 @@ export async function createAdminStaff(input: {
   displayName: string;
   role: AdminRole;
   assignedServiceIds?: string[];
+  assignedPropertyIds?: string[];
+  assignedClientIds?: string[];
 }): Promise<AdminStaffUser> {
   const email = input.email.trim().toLowerCase();
   const existing = await adminDb
@@ -404,6 +606,7 @@ export async function createAdminStaff(input: {
     : existing.docs[0].ref;
   const now = new Date().toISOString();
   const existingData = existing.empty ? {} : existing.docs[0].data();
+  const resourceScope = normaliseScope(existingData.resourceScope, input.role);
 
   const record: Omit<AdminStaffUser, 'id'> = {
     email,
@@ -411,6 +614,9 @@ export async function createAdminStaff(input: {
     role: input.role,
     active: true,
     assignedServiceIds: input.assignedServiceIds || [],
+    assignedPropertyIds: input.assignedPropertyIds || [],
+    assignedClientIds: input.assignedClientIds || [],
+    resourceScope,
     permissionGrants: Array.isArray(existingData.permissionGrants)
       ? existingData.permissionGrants
       : [],
@@ -420,7 +626,6 @@ export async function createAdminStaff(input: {
     createdAt: existingData.createdAt || now,
     updatedAt: now,
   };
-
   await ref.set(record, { merge: true });
   return { id: ref.id, ...record };
 }
@@ -433,6 +638,9 @@ export async function updateAdminStaff(
     | 'role'
     | 'active'
     | 'assignedServiceIds'
+    | 'assignedPropertyIds'
+    | 'assignedClientIds'
+    | 'resourceScope'
     | 'permissionGrants'
     | 'permissionRevokes'
   >>
@@ -441,55 +649,63 @@ export async function updateAdminStaff(
   const existing = await ref.get();
   if (!existing.exists) return null;
 
+  const current = existing.data() || {};
+  const nextRole = input.role ? normaliseRole(input.role) : normaliseRole(current.role);
   const safe: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (input.displayName !== undefined) safe.displayName = input.displayName;
-  if (input.role !== undefined) safe.role = normaliseRole(input.role);
+  if (input.role !== undefined) safe.role = nextRole;
   if (input.active !== undefined) safe.active = Boolean(input.active);
   if (input.assignedServiceIds !== undefined) safe.assignedServiceIds = input.assignedServiceIds;
+  if (input.assignedPropertyIds !== undefined) safe.assignedPropertyIds = input.assignedPropertyIds;
+  if (input.assignedClientIds !== undefined) safe.assignedClientIds = input.assignedClientIds;
+  if (input.resourceScope !== undefined || input.role !== undefined) {
+    safe.resourceScope = normaliseScope(input.resourceScope ?? current.resourceScope, nextRole);
+  }
   if (input.permissionGrants !== undefined) safe.permissionGrants = input.permissionGrants;
   if (input.permissionRevokes !== undefined) safe.permissionRevokes = input.permissionRevokes;
 
   await ref.set(safe, { merge: true });
-
   const updated = await ref.get();
   const data = updated.data() || {};
+  const role = normaliseRole(data.role);
   return {
     id: uid,
     email: String(data.email || ''),
     displayName: String(data.displayName || data.email || 'Staff member'),
-    role: normaliseRole(data.role),
+    role,
     active: data.active !== false,
-    assignedServiceIds: Array.isArray(data.assignedServiceIds) ? data.assignedServiceIds : [],
-    permissionGrants: Array.isArray(data.permissionGrants) ? data.permissionGrants : [],
-    permissionRevokes: Array.isArray(data.permissionRevokes) ? data.permissionRevokes : [],
+    assignedServiceIds: strings(data.assignedServiceIds),
+    assignedPropertyIds: strings(data.assignedPropertyIds),
+    assignedClientIds: strings(data.assignedClientIds),
+    resourceScope: normaliseScope(data.resourceScope, role),
+    permissionGrants: strings(data.permissionGrants) as AdminPermission[],
+    permissionRevokes: strings(data.permissionRevokes) as AdminPermission[],
     lastLoginAt: data.lastLoginAt,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };
 }
 
-async function countCollection(collection: string): Promise<number> {
-  const snapshot = await adminDb.collection(collection).count().get();
-  return snapshot.data().count;
-}
-
 function isOutstandingStatus(status: unknown): boolean {
-  return !['completed', 'cancelled', 'closed', 'delivered', 'issued'].includes(
+  return !['completed', 'cancelled', 'closed', 'delivered', 'issued', 'archived', 'ended'].includes(
     String(status || '').toLowerCase()
   );
 }
 
-export async function getAdminDashboard(): Promise<AdminDashboardSummary> {
-  const [bookings, requests, maintenance, documents, staff, clients, properties, tenants] =
+export async function getAdminDashboard(
+  session: AdminSession
+): Promise<AdminDashboardSummary> {
+  const allBookings = await listBookings();
+  const bookings = filterBookingsForSession(allBookings, session);
+  const [requests, workOrders, documents, clients, properties, tenancies, staff] =
     await Promise.all([
-      listBookings(),
-      listAdminResource('documentRequests'),
-      listAdminResource('maintenanceRequests'),
-      listAdminResource('propertyDocuments'),
+      listAdminResource('documentRequests', session),
+      listAdminResource('workOrders', session),
+      listAdminResource('propertyDocuments', session),
+      listAdminResource('clients', session),
+      listAdminResource('properties', session),
+      listAdminResource('tenancies', session),
       listAdminStaff(),
-      countCollection('clients'),
-      countCollection('properties'),
-      countCollection('tenants'),
     ]);
 
   const today = new Intl.DateTimeFormat('en-CA', {
@@ -502,14 +718,12 @@ export async function getAdminDashboard(): Promise<AdminDashboardSummary> {
     (booking) => booking.appointment.dateKey >= today && booking.status === 'confirmed'
   );
   const outstandingRequests = requests.filter((item) => isOutstandingStatus(item.status));
-  const outstandingMaintenance = maintenance.filter((item) => isOutstandingStatus(item.status));
-  const urgentMaintenance = outstandingMaintenance.filter(
-    (item) => String(item.priority || '').toLowerCase() === 'urgent'
+  const outstandingWorkOrders = workOrders.filter((item) => isOutstandingStatus(item.status));
+  const urgentWorkOrders = outstandingWorkOrders.filter((item) =>
+    ['urgent', 'emergency'].includes(String(item.priority || '').toLowerCase())
   );
   const awaitingReview = documents.filter((item) =>
-    ['draft', 'generated', 'review', 'awaiting_review'].includes(
-      String(item.status || '').toLowerCase()
-    )
+    ['draft', 'generated', 'review'].includes(String(item.status || '').toLowerCase())
   );
 
   const alerts = [
@@ -533,9 +747,9 @@ export async function getAdminDashboard(): Promise<AdminDashboardSummary> {
     },
     {
       type: 'maintenance',
-      label: 'Urgent maintenance',
-      count: urgentMaintenance.length,
-      resource: 'maintenanceRequests',
+      label: 'Urgent work orders',
+      count: urgentWorkOrders.length,
+      resource: 'workOrders',
     },
   ].filter((alert) => alert.count > 0);
 
@@ -556,17 +770,18 @@ export async function getAdminDashboard(): Promise<AdminDashboardSummary> {
       outstanding: outstandingRequests.length,
     },
     maintenance: {
-      total: maintenance.length,
-      outstanding: outstandingMaintenance.length,
-      urgent: urgentMaintenance.length,
+      total: workOrders.length,
+      outstanding: outstandingWorkOrders.length,
+      urgent: urgentWorkOrders.length,
+      workOrders: workOrders.length,
     },
     documents: {
       total: documents.length,
       awaitingReview: awaitingReview.length,
     },
-    clients,
-    properties,
-    tenants,
+    clients: clients.length,
+    properties: properties.length,
+    tenants: tenancies.length,
     activeStaff: staff.filter((member) => member.active).length,
     alerts,
   };
@@ -580,15 +795,17 @@ function countBy<T>(values: T[], key: (value: T) => string): Record<string, numb
   }, {});
 }
 
-export async function getAdminReportSummary(): Promise<AdminReportSummary> {
-  const [bookings, requests, maintenance, clients, properties, subscriptions, staff] =
+export async function getAdminReportSummary(
+  session: AdminSession
+): Promise<AdminReportSummary> {
+  const bookings = filterBookingsForSession(await listBookings(), session);
+  const [requests, workOrders, clients, properties, subscriptions, staff] =
     await Promise.all([
-      listBookings(),
-      listAdminResource('documentRequests'),
-      listAdminResource('maintenanceRequests'),
-      countCollection('clients'),
-      countCollection('properties'),
-      listAdminResource('subscriptions'),
+      listAdminResource('documentRequests', session),
+      listAdminResource('workOrders', session),
+      listAdminResource('clients', session),
+      listAdminResource('properties', session),
+      listAdminResource('subscriptions', session),
       listAdminStaff(),
     ]);
 
@@ -609,9 +826,7 @@ export async function getAdminReportSummary(): Promise<AdminReportSummary> {
   return {
     generatedAt: new Date().toISOString(),
     bookingsByStatus: countBy(bookings, (booking) => booking.status),
-    bookingsByService: Object.entries(
-      countBy(bookings, (booking) => booking.serviceName)
-    )
+    bookingsByService: Object.entries(countBy(bookings, (booking) => booking.serviceName))
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count),
     bookingsByStaff: [...byStaff.values()].sort((a, b) => b.count - a.count),
@@ -620,14 +835,13 @@ export async function getAdminReportSummary(): Promise<AdminReportSummary> {
       (request) => String(request.status || 'submitted')
     ),
     maintenanceByStatus: countBy(
-      maintenance,
-      (request) => String(request.status || 'open')
+      workOrders,
+      (request) => String(request.status || 'triage')
     ),
-    clientCount: clients,
-    propertyCount: properties,
+    clientCount: clients.length,
+    propertyCount: properties.length,
     activeSubscriptionCount: subscriptions.filter(
-      (subscription) => subscription.active !== false &&
-        !['cancelled', 'ended'].includes(String(subscription.status || '').toLowerCase())
+      (subscription) => !['cancelled', 'ended'].includes(String(subscription.status || '').toLowerCase())
     ).length,
   };
 }
@@ -651,7 +865,7 @@ export function getAdminIntegrationStatuses(): AdminIntegrationStatus[] {
       name: 'Firebase / Firestore',
       configured: firebaseConfigured,
       status: firebaseConfigured ? 'connected' : 'configuration_required',
-      detail: 'Authentication and operational data store.',
+      detail: 'Authentication and canonical operational data store.',
     },
     {
       id: 'google-calendar',
@@ -671,9 +885,7 @@ export function getAdminIntegrationStatuses(): AdminIntegrationStatus[] {
       id: 'google-sheets',
       name: 'Google Sheets export',
       configured: Boolean(process.env.GOOGLE_SHEETS_SPREADSHEET_ID),
-      status: process.env.GOOGLE_SHEETS_SPREADSHEET_ID
-        ? 'connected'
-        : 'optional',
+      status: process.env.GOOGLE_SHEETS_SPREADSHEET_ID ? 'connected' : 'optional',
       detail: 'Optional operational spreadsheet synchronisation.',
     },
     {
