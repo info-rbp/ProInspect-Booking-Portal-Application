@@ -534,7 +534,7 @@ export async function createAdminResource(
       throw new Error('RESOURCE_SCOPE_FORBIDDEN');
     }
   }
-  return createPlatformResource(resource, payload, session.email) as Promise<AdminResourceRecord>;
+  return createPlatformResource(resource, payload, session.email) as unknown as Promise<AdminResourceRecord>;
 }
 
 export async function updateAdminResource(
@@ -554,7 +554,7 @@ export async function updateAdminResource(
   ) {
     throw new Error('RESOURCE_SCOPE_FORBIDDEN');
   }
-  return updatePlatformResource(resource, id, payload, session.email) as Promise<AdminResourceRecord | null>;
+  return updatePlatformResource(resource, id, payload, session.email) as unknown as Promise<AdminResourceRecord | null>;
 }
 
 export async function archiveAdminResource(
@@ -573,7 +573,7 @@ export async function archiveAdminResource(
   ) {
     throw new Error('RESOURCE_SCOPE_FORBIDDEN');
   }
-  return archivePlatformResource(resource, id, session.email) as Promise<AdminResourceRecord | null>;
+  return archivePlatformResource(resource, id, session.email) as unknown as Promise<AdminResourceRecord | null>;
 }
 
 export async function listAdminStaff(): Promise<AdminStaffUser[]> {
