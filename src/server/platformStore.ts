@@ -804,11 +804,6 @@ export async function buildUnifiedClientDashboard(params: {
     ...chunk(propertyIdList, 30).map((ids) =>
       adminDb.collection('bookings').where('propertyId', 'in', ids).limit(200).get()
     ),
-    adminDb
-      .collection('bookings')
-      .where('property.customerEmail', '==', params.user.email)
-      .limit(200)
-      .get(),
   ];
 
   const bookingResults = await Promise.allSettled(bookingQueries);
@@ -819,10 +814,7 @@ export async function buildUnifiedClientDashboard(params: {
       const booking = docWithId<BookingRecord>(doc);
       const authorised =
         (booking.clientId ? allowedClientIds.has(booking.clientId) : false) ||
-        (booking.propertyId ? propertyIds.has(booking.propertyId) : false) ||
-        (!booking.clientId &&
-          !booking.propertyId &&
-          booking.property.customerEmail.trim().toLowerCase() === params.user.email.trim().toLowerCase());
+        (booking.propertyId ? propertyIds.has(booking.propertyId) : false);
 
       if (authorised) bookingMap.set(booking.id, booking);
     });
