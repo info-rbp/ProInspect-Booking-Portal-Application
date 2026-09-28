@@ -63,7 +63,7 @@ function docWithId<T>(doc: DocumentSnapshot): T {
 }
 
 function makeReference(prefix: string) {
-  const datePart = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  const datePart = getPerthDateKey(new Date()).replaceAll('-', '');
   return `${prefix}-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
@@ -141,21 +141,45 @@ function validateNormalPayload(
     case 'bond_variation':
       requireText(payload, 'changeType', 'Bond change type');
       break;
-    case 'pcr_response':
+    case 'pcr_response': {
       requireText(payload, 'sourceDocumentId', 'Property Condition Report');
-      if (arrayValue(payload, 'responses').length === 0) {
+      const responses = arrayValue(payload, 'responses');
+      if (responses.length === 0) {
         throw new Error('FORM_FIELD_REQUIRED:PCR responses');
       }
+      const invalidDisagreement = responses.some((item) => {
+        if (!item || typeof item !== 'object') return true;
+        const row = item as Record<string, unknown>;
+        const agreement = typeof row.agreement === 'string' ? row.agreement : '';
+        const comments = typeof row.comments === 'string' ? row.comments.trim() : '';
+        return agreement === 'disagree' && comments.length < 3;
+      });
+      if (invalidDisagreement) {
+        throw new Error('PCR_DISAGREEMENT_COMMENT_REQUIRED');
+      }
       break;
+    }
   }
+}
+
+function deriveResponseStatus(request: TenantFormRequest): TenantFormRequest {
+  if (
+    request.responseDueAt &&
+    new Date(request.responseDueAt).getTime() < Date.now() &&
+    ['submitted', 'delivered', 'under_review'].includes(request.status)
+  ) {
+    return { ...request, status: 'response_period_elapsed' };
+  }
+  return request;
 }
 
 function publicFormRequest(
   request: TenantFormRequest & { attachments?: Array<TenantFormAttachment & { storagePath?: string }> }
 ): TenantFormRequest {
+  const derived = deriveResponseStatus(request);
   return {
-    ...request,
-    attachments: (request.attachments || []).map((attachment) => ({
+    ...derived,
+    attachments: (derived.attachments || []).map((attachment) => ({
       id: attachment.id,
       fileName: attachment.fileName,
       contentType: attachment.contentType,
@@ -163,6 +187,16 @@ function publicFormRequest(
       uploadedAt: attachment.uploadedAt,
     })),
     adminNotes: undefined,
+  };
+}
+
+function adminFormRequest(
+  request: TenantFormRequest & { attachments?: Array<TenantFormAttachment & { storagePath?: string }> }
+): TenantFormRequest {
+  const adminNotes = request.adminNotes;
+  return {
+    ...publicFormRequest(request),
+    adminNotes,
   };
 }
 
@@ -265,18 +299,7 @@ export async function getTenantFormsDashboard(
     .where('tenantUserId', '==', tenant.id)
     .get();
 
-  const now = Date.now();
   const requests = Array.from(normalMap.values())
-    .map((request) => {
-      if (
-        request.responseDueAt &&
-        new Date(request.responseDueAt).getTime() < now &&
-        ['submitted', 'delivered', 'under_review'].includes(request.status)
-      ) {
-        return { ...request, status: 'response_period_elapsed' as const };
-      }
-      return request;
-    })
     .map(publicFormRequest)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -339,8 +362,7 @@ export async function createTenantFormRequest(
         ? addCalendarDays(sourceDocument.uploadedAt, definition.tenantResponseDays)
         : undefined;
 
-  const initialStatus: TenantFormStatus =
-    workflowType === 'pcr_response' ? 'completed' : 'submitted';
+  const initialStatus: TenantFormStatus = 'submitted';
 
   const request: TenantFormRequest = {
     id: ref.id,
@@ -618,7 +640,7 @@ export async function listAdminTenantForms(): Promise<TenantFormRequest[]> {
     .limit(500)
     .get();
   return snapshot.docs.map((doc) =>
-    publicFormRequest(docWithId<TenantFormRequest>(doc))
+    adminFormRequest(docWithId<TenantFormRequest>(doc))
   );
 }
 
@@ -699,7 +721,7 @@ export async function updateAdminTenantForm(
     });
   }
 
-  return publicFormRequest(updated);
+  return adminFormRequest(updated);
 }
 
 export async function getSensitiveEvidenceForAdmin(
