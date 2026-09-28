@@ -33,6 +33,11 @@ import type {
   PaymentStatus,
   WorkOrderStatus,
 } from './src/types/platform.js';
+import type {
+  SensitiveTenantFormStatus,
+  TenantFormCreateInput,
+  TenantFormStatus,
+} from './src/types/tenantForms.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -106,7 +111,9 @@ import {
 } from './src/server/tenantStore.js';
 import {
   deleteTenantFile,
+  saveSensitiveTenantEvidence,
   saveTenantDocumentFile,
+  saveTenantFormAttachment,
   saveTenantRequestAttachment,
   signedTenantFileUrl,
   tenantStorageIsConfigured,
@@ -138,6 +145,21 @@ import {
   listDocumentProducts,
   updateDocumentRequest,
 } from './src/server/documentStore.js';
+import {
+  addSensitiveTenantEvidence,
+  addTenantFormAttachment,
+  createSensitiveTenantFormDraft,
+  createTenantFormRequest,
+  getSensitiveEvidenceForAdmin,
+  getSensitiveEvidenceForTenant,
+  getTenantFormAttachment,
+  getTenantFormsDashboard,
+  listAdminTenantForms,
+  listSensitiveTenantFormsForAdmin,
+  submitSensitiveTenantForm,
+  updateAdminTenantForm,
+  updateSensitiveTenantFormAdmin,
+} from './src/server/tenantFormStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -290,11 +312,11 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
     const permissionMap: Record<string, string[]> = {
       super_admin: ['*'],
-      operations_manager: ['bookings','services','clients','tenants','operations','documents','payments','settings','audit'],
-      operations_officer: ['bookings','clients','tenants','operations','documents'],
+      operations_manager: ['bookings','services','clients','tenants','operations','documents','payments','settings','audit','tenant_forms'],
+      operations_officer: ['bookings','clients','tenants','operations','documents','tenant_forms'],
       inspector: ['bookings','operations','documents'],
       maintenance_coordinator: ['operations','clients','tenants','documents'],
-      document_administrator: ['documents','clients','operations'],
+      document_administrator: ['documents','clients','operations','tenant_forms'],
       read_only: ['bookings','clients','tenants','operations','documents','audit'],
     };
     const permissions = permissionMap[role] || permissionMap.operations_officer;
@@ -567,6 +589,35 @@ function sanitizeTenantRequestInput(input: unknown): {
       payload,
     },
   };
+}
+
+function sanitizeTenantFormPayload(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const clean = (value: unknown, depth: number): unknown => {
+    if (depth > 4) return null;
+    if (typeof value === 'string') return value.trim().slice(0, 5000);
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'boolean' || value === null) return value;
+    if (Array.isArray(value)) {
+      return value.slice(0, 100).map((item) => clean(item, depth + 1));
+    }
+    if (value && typeof value === 'object') {
+      const result: Record<string, unknown> = {};
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, 100)
+        .forEach(([key, raw]) => {
+          const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+          if (!safeKey) return;
+          const next = clean(raw, depth + 1);
+          if (next !== undefined) result[safeKey] = next;
+        });
+      return result;
+    }
+    return null;
+  };
+
+  return clean(input, 0) as Record<string, unknown>;
 }
 
 const SERVICE_ICON_NAMES = new Set([
@@ -1718,6 +1769,256 @@ app.get('/api/tenant/dashboard', tenantRateLimit, requireTenant, async (_req, re
   }
 });
 
+app.get('/api/tenant/forms', tenantRateLimit, requireTenant, async (_req, res) => {
+  try {
+    const dashboard = await getTenantFormsDashboard(res.locals.tenant as TenantUserRecord);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Tenant forms dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenancy forms.' });
+  }
+});
+
+app.post('/api/tenant/forms', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const formDefinitionId = normalizeText(req.body?.formDefinitionId, 128);
+    if (!tenancyId || !formDefinitionId) {
+      return res.status(400).json({ error: 'Tenancy and form are required.' });
+    }
+
+    const request = await createTenantFormRequest(
+      res.locals.tenant as TenantUserRecord,
+      {
+        tenancyId,
+        formDefinitionId,
+        payload: sanitizeTenantFormPayload(req.body?.payload),
+      }
+    );
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('FORM_FIELD_REQUIRED:')) {
+      return res.status(400).json({ error: `${error.message.split(':')[1]} is required.` });
+    }
+    if (error instanceof Error && error.message === 'FORM_NOT_AVAILABLE') {
+      return res.status(400).json({ error: 'That tenancy form is not available.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_ENDED') {
+      return res.status(409).json({ error: 'This workflow cannot be submitted against an ended tenancy.' });
+    }
+    if (error instanceof Error && ['PCR_DOCUMENT_NOT_FOUND','PCR_DOCUMENT_NOT_AUTHORISED'].includes(error.message)) {
+      return res.status(400).json({ error: 'Select a valid tenant-visible Property Condition Report.' });
+    }
+    console.error('Tenant form creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the tenancy form.' });
+  }
+});
+
+app.post(
+  '/api/tenant/forms/:id/attachments',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) return res.status(400).json({ error: 'File name is required.' });
+
+      const stored = await saveTenantFormAttachment({
+        requestId: req.params.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const request = await addTenantFormAttachment(
+        res.locals.tenant as TenantUserRecord,
+        req.params.id,
+        {
+          id: randomBytes(12).toString('hex'),
+          fileName: stored.fileName,
+          contentType: stored.contentType,
+          size: stored.size,
+          uploadedAt: new Date().toISOString(),
+          storagePath: stored.storagePath,
+        }
+      );
+      if (!request) {
+        await deleteTenantFile(stored.storagePath).catch(() => undefined);
+        return res.status(404).json({ error: 'Tenant form request not found.' });
+      }
+      return res.status(201).json({ success: true, request });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Tenant form attachment upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the attachment.' });
+    }
+  }
+);
+
+app.get(
+  '/api/tenant/forms/:requestId/attachments/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const attachment = await getTenantFormAttachment(
+        res.locals.tenant as TenantUserRecord,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment?.storagePath) return res.status(404).json({ error: 'Attachment not found.' });
+      return res.json({ url: await signedTenantFileUrl(attachment.storagePath) });
+    } catch (error) {
+      console.error('Tenant form attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
+
+app.post('/api/tenant/forms-sensitive', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const formDefinitionId = normalizeText(req.body?.formDefinitionId, 128);
+    if (!tenancyId || !formDefinitionId) {
+      return res.status(400).json({ error: 'Tenancy and sensitive workflow are required.' });
+    }
+    const request = await createSensitiveTenantFormDraft(
+      res.locals.tenant as TenantUserRecord,
+      {
+        tenancyId,
+        formDefinitionId,
+        payload: sanitizeTenantFormPayload(req.body?.payload),
+      }
+    );
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('FORM_FIELD_REQUIRED:')) {
+      return res.status(400).json({ error: `${error.message.split(':')[1]} is required.` });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    console.error('Sensitive tenant form draft failed:', error);
+    return res.status(500).json({ error: 'Unable to start the private tenancy workflow.' });
+  }
+});
+
+app.post(
+  '/api/tenant/forms-sensitive/:id/evidence',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose an evidence file to upload.' });
+      }
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) return res.status(400).json({ error: 'File name is required.' });
+
+      const stored = await saveSensitiveTenantEvidence({
+        requestId: req.params.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+      const request = await addSensitiveTenantEvidence(
+        res.locals.tenant as TenantUserRecord,
+        req.params.id,
+        {
+          id: randomBytes(12).toString('hex'),
+          fileName: stored.fileName,
+          contentType: stored.contentType,
+          size: stored.size,
+          uploadedAt: new Date().toISOString(),
+          storagePath: stored.storagePath,
+        }
+      );
+      if (!request) {
+        await deleteTenantFile(stored.storagePath).catch(() => undefined);
+        return res.status(404).json({ error: 'Private tenancy workflow not found.' });
+      }
+      return res.status(201).json({ success: true });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Secure evidence storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That evidence file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Evidence files must be no larger than 20 MB.' });
+      }
+      console.error('Sensitive tenant evidence upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the evidence.' });
+    }
+  }
+);
+
+app.post('/api/tenant/forms-sensitive/:id/submit', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const request = await submitSensitiveTenantForm(
+      res.locals.tenant as TenantUserRecord,
+      req.params.id
+    );
+    if (!request) return res.status(404).json({ error: 'Private tenancy workflow not found.' });
+    return res.json({ success: true, request: {
+      id: request.id,
+      reference: request.reference,
+      formName: request.formName,
+      status: request.status,
+      submittedAt: request.submittedAt,
+    }});
+  } catch (error) {
+    if (error instanceof Error && error.message === 'SENSITIVE_EVIDENCE_REQUIRED') {
+      return res.status(400).json({ error: 'At least one qualifying evidence document is required before submission.' });
+    }
+    console.error('Sensitive tenant form submission failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the private tenancy workflow.' });
+  }
+});
+
+app.get(
+  '/api/tenant/forms-sensitive/:requestId/evidence/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const evidence = await getSensitiveEvidenceForTenant(
+        res.locals.tenant as TenantUserRecord,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!evidence?.storagePath) return res.status(404).json({ error: 'Evidence not found.' });
+      return res.json({ url: await signedTenantFileUrl(evidence.storagePath) });
+    } catch (error) {
+      console.error('Sensitive tenant evidence download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the evidence.' });
+    }
+  }
+);
+
 app.post('/api/tenant/requests', tenantWriteRateLimit, requireTenant, async (req, res) => {
   try {
     const tenant = res.locals.tenant as TenantUserRecord;
@@ -2545,6 +2846,123 @@ app.post('/api/admin/client-property-links', requireAdmin, async (req, res) => {
     return res.status(500).json({ error: 'Unable to link the client to the property.' });
   }
 });
+
+app.get('/api/admin/tenant-forms', requireAdmin, requireAdminPermission('tenant_forms'), async (_req, res) => {
+  try {
+    return res.json({ requests: await listAdminTenantForms() });
+  } catch (error) {
+    console.error('Admin tenant forms load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenant form requests.' });
+  }
+});
+
+app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminPermission('tenant_forms'), async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 64);
+    const allowedStatuses = new Set<TenantFormStatus>([
+      'draft','submitted','delivered','under_review','action_required',
+      'more_information_required','approved','approved_with_conditions','declined',
+      'commissioner_review_required','response_period_elapsed','ready_for_lodgement',
+      'lodged','awaiting_parties','agreed','disputed','processed','completed','closed',
+    ]);
+    const status = rawStatus ? rawStatus as TenantFormStatus : undefined;
+    if (status && !allowedStatuses.has(status)) {
+      return res.status(400).json({ error: 'Invalid tenant form status.' });
+    }
+
+    const serviceMethod = normalizeText(req.body?.serviceMethod, 32) as
+      | 'portal' | 'email' | 'hand' | 'post' | 'bondsonline' | 'bonds_upload' | '';
+    if (serviceMethod && !['portal','email','hand','post','bondsonline','bonds_upload'].includes(serviceMethod)) {
+      return res.status(400).json({ error: 'Invalid service method.' });
+    }
+
+    const request = await updateAdminTenantForm(
+      req.params.id,
+      {
+        status,
+        adminNotes: req.body?.adminNotes === undefined
+          ? undefined
+          : normalizeText(req.body.adminNotes, 3000),
+        serviceMethod: serviceMethod || undefined,
+        generatedDocumentId: normalizeText(req.body?.generatedDocumentId, 128) || undefined,
+        finalDocumentId: normalizeText(req.body?.finalDocumentId, 128) || undefined,
+      },
+      { id: res.locals.admin.uid, email: res.locals.admin.email }
+    );
+    if (!request) return res.status(404).json({ error: 'Tenant form request not found.' });
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin tenant form update failed:', error);
+    return res.status(500).json({ error: 'Unable to update tenant form request.' });
+  }
+});
+
+app.get(
+  '/api/admin/sensitive-tenant-forms',
+  requireAdmin,
+  requireAdminPermission('sensitive_tenancy'),
+  async (_req, res) => {
+    try {
+      return res.json({ requests: await listSensitiveTenantFormsForAdmin() });
+    } catch (error) {
+      console.error('Restricted tenant forms load failed:', error);
+      return res.status(500).json({ error: 'Unable to load restricted tenancy workflows.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/sensitive-tenant-forms/:id',
+  requireAdmin,
+  requireAdminPermission('sensitive_tenancy'),
+  async (req, res) => {
+    try {
+      const rawStatus = normalizeText(req.body?.status, 64);
+      const allowed = new Set<SensitiveTenantFormStatus>([
+        'draft','submitted','restricted_review','notice_prepared',
+        'notice_served','tenancy_record_updating','completed',
+      ]);
+      const status = rawStatus ? rawStatus as SensitiveTenantFormStatus : undefined;
+      if (status && !allowed.has(status)) {
+        return res.status(400).json({ error: 'Invalid restricted workflow status.' });
+      }
+      const request = await updateSensitiveTenantFormAdmin(
+        req.params.id,
+        {
+          status,
+          restrictedNotes: req.body?.restrictedNotes === undefined
+            ? undefined
+            : normalizeText(req.body.restrictedNotes, 3000),
+        },
+        res.locals.admin.uid
+      );
+      if (!request) return res.status(404).json({ error: 'Restricted tenancy workflow not found.' });
+      return res.json({ success: true, request });
+    } catch (error) {
+      console.error('Restricted tenant form update failed:', error);
+      return res.status(500).json({ error: 'Unable to update restricted tenancy workflow.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/sensitive-tenant-forms/:requestId/evidence/:attachmentId/download',
+  requireAdmin,
+  requireAdminPermission('sensitive_tenancy'),
+  async (req, res) => {
+    try {
+      const evidence = await getSensitiveEvidenceForAdmin(
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!evidence?.storagePath) return res.status(404).json({ error: 'Evidence not found.' });
+      return res.json({ url: await signedTenantFileUrl(evidence.storagePath) });
+    } catch (error) {
+      console.error('Restricted evidence download failed:', error);
+      return res.status(500).json({ error: 'Unable to open restricted evidence.' });
+    }
+  }
+);
 
 app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
   try {
