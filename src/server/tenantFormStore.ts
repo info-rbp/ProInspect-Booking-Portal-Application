@@ -31,6 +31,32 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+let definitionsSeeded: Promise<void> | null = null;
+
+export async function ensureTenantFormDefinitions() {
+  if (!definitionsSeeded) {
+    definitionsSeeded = (async () => {
+      const batch = adminDb.batch();
+      TENANT_FORM_DEFINITIONS.forEach((definition) => {
+        const ref = adminDb.collection('formDefinitions').doc(definition.id);
+        batch.set(
+          ref,
+          {
+            ...definition,
+            updatedAt: nowIso(),
+          },
+          { merge: true }
+        );
+      });
+      await batch.commit();
+    })().catch((error) => {
+      definitionsSeeded = null;
+      throw error;
+    });
+  }
+  await definitionsSeeded;
+}
+
 function docWithId<T>(doc: DocumentSnapshot): T {
   return { ...(doc.data() as object), id: doc.id } as T;
 }
@@ -219,6 +245,7 @@ async function validatePcrSource(params: {
 export async function getTenantFormsDashboard(
   tenant: TenantUserRecord
 ): Promise<TenantFormsDashboard> {
+  await ensureTenantFormDefinitions();
   const tenancyIds = tenant.tenancyIds;
   const normalSnapshots = await Promise.all(
     tenancyIds.map((tenancyId) =>
@@ -275,6 +302,7 @@ export async function createTenantFormRequest(
   tenant: TenantUserRecord,
   input: TenantFormCreateInput
 ): Promise<TenantFormRequest> {
+  await ensureTenantFormDefinitions();
   const definition = getTenantFormDefinition(input.formDefinitionId);
   if (!definition || definition.sensitive || definition.workflowType === 'family_violence_termination') {
     throw new Error('FORM_NOT_AVAILABLE');
@@ -416,6 +444,7 @@ export async function createSensitiveTenantFormDraft(
   tenant: TenantUserRecord,
   input: TenantFormCreateInput
 ): Promise<SensitiveTenantFormRequest> {
+  await ensureTenantFormDefinitions();
   const definition = getTenantFormDefinition(input.formDefinitionId);
   if (!definition || !definition.sensitive || definition.workflowType !== 'family_violence_termination') {
     throw new Error('FORM_NOT_AVAILABLE');
