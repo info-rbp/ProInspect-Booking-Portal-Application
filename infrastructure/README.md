@@ -31,7 +31,7 @@ The current production configuration manages:
 
 The production bucket is deliberately **not** the existing Firebase default bucket. Terraform creates:
 
-`business-plan-applicatio-17047-proinspect-client-documents-production`
+`proinspect-client-docs-696236368989-production`
 
 This lets the repository own the Client Portal storage resource cleanly without attempting to take over an existing Firebase-managed bucket.
 
