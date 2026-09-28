@@ -89,3 +89,31 @@ run "reject_public_operator" {
   variables { operator_principal = "allUsers" }
   expect_failures = [var.operator_principal]
 }
+
+run "production_cutover_boundaries" {
+  command = plan
+  variables {
+    project_id                      = "business-plan-applicatio-17047"
+    environment                     = "production"
+    runtime_service_account_email   = "proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com"
+    terraform_service_account_email = "proinspect-prod-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com"
+    staging_email_recipient         = ""
+    artifact_repository_id          = "existing-production-artifacts"
+  }
+  assert {
+    condition     = length(google_service_account_iam_member.production_federation) == 1 && length(google_service_account_iam_member.github_terraform) == 0
+    error_message = "Production and staging federation grants must be distinct."
+  }
+  assert {
+    condition     = contains(keys(local.secret_environment), "PRODUCTION_RELEASE_TOKEN") && local.stage3_runtime_environment.STAGING_EMAIL_RECIPIENT == ""
+    error_message = "Production candidates must be guarded without redirecting real customer notifications."
+  }
+  assert {
+    condition     = google_artifact_registry_repository.platform.repository_id == "existing-production-artifacts"
+    error_message = "Preserve the reviewed existing production artifact repository."
+  }
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "stage4-production.yml") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment:production")
+    error_message = "Production OIDC must be bound to the dedicated workflow and environment."
+  }
+}

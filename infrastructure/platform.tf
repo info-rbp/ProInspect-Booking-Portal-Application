@@ -47,14 +47,16 @@ locals {
     payment_webhook_token      = "${local.resource_prefix}-payment-webhook-token"
   }
   all_secret_ids = merge(local.secret_ids, local.integration_secret_ids)
-  secret_environment = {
+  secret_environment = merge({
     ACCESS_DATA_ENCRYPTION_KEY = local.secret_ids.access_data_encryption_key
     RESEND_API_KEY             = local.secret_ids.resend_api_key
     GOOGLE_MAPS_API_KEY        = local.secret_ids.google_maps_api_key
     REPORT_HANDOFF_SIGNING_KEY = local.integration_secret_ids.report_handoff_signing_key
     REPORT_INGEST_TOKEN        = local.integration_secret_ids.report_ingest_token
     PAYMENT_WEBHOOK_TOKEN      = local.integration_secret_ids.payment_webhook_token
-  }
+    }, var.environment == "production" ? {
+    PRODUCTION_RELEASE_TOKEN = google_secret_manager_secret.production_release_token[0].secret_id
+  } : {})
   index_file = jsondecode(file("${path.module}/../firestore.indexes.json"))
   indexes    = { for index in local.index_file.indexes : substr(sha256(jsonencode(index)), 0, 20) => index }
   fields     = { for field in try(local.index_file.fieldOverrides, []) : "${field.collectionGroup}/${field.fieldPath}" => field }
@@ -83,7 +85,7 @@ resource "google_service_account" "runtime" {
 resource "google_service_account" "platform" {
   for_each     = toset(["build", "deploy", "migration", "gateway"])
   project      = var.project_id
-  account_id   = "proinspect-${var.environment}-${each.key}"
+  account_id   = var.environment == "production" ? "proinspect-prod-${each.key}" : "proinspect-${var.environment}-${each.key}"
   display_name = "ProInspect ${var.environment} ${each.key}"
   lifecycle { prevent_destroy = true }
   depends_on = [google_project_service.required]
@@ -196,7 +198,7 @@ resource "google_secret_manager_secret_iam_member" "integration_runtime" {
 resource "google_storage_bucket" "operations" {
   for_each                    = toset(["release-evidence", "migration-backups", "build-sources"])
   project                     = var.project_id
-  name                        = "${var.project_id}-proinspect-${each.key}"
+  name                        = lookup(var.operations_bucket_names, each.key, "${var.project_id}-proinspect-${each.key}")
   location                    = var.storage_location
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
@@ -208,7 +210,7 @@ resource "google_storage_bucket" "operations" {
 resource "google_artifact_registry_repository" "platform" {
   project       = var.project_id
   location      = var.region
-  repository_id = "proinspect-${var.environment}"
+  repository_id = var.artifact_repository_id != "" ? var.artifact_repository_id : "proinspect-${var.environment}"
   format        = "DOCKER"
   lifecycle { prevent_destroy = true }
   depends_on = [google_project_service.required]
@@ -290,7 +292,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "google.subject"          = "assertion.sub"
     "attribute.repository_id" = "assertion.repository_id"
   }
-  attribute_condition = "assertion.repository_id == '${var.github_repository_id}' && assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/release/platform-unification' && assertion.sub == 'repo:${var.github_repository}:environment:${var.environment}'"
+  attribute_condition = var.environment == "production" ? "assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '235419395' && assertion.repository == '${var.github_repository}' && assertion.sub == 'repo:${var.github_repository}:environment:production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '${var.github_repository}/.github/workflows/stage4-production.yml@' + assertion.ref" : "assertion.repository_id == '${var.github_repository_id}' && assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/release/platform-unification' && assertion.sub == 'repo:${var.github_repository}:environment:${var.environment}'"
   oidc { issuer_uri = "https://token.actions.githubusercontent.com" }
 }
 resource "google_service_account_iam_member" "github_deploy" {
@@ -348,7 +350,7 @@ output "stage3_manifest" {
     buckets            = { for key, bucket in google_storage_bucket.operations : key => bucket.name }
     documentBucket     = google_storage_bucket.client_documents.name
     secretBindings     = local.secret_environment
-    requiredSecrets    = concat(["ACCESS_DATA_ENCRYPTION_KEY", "RESEND_API_KEY", "REPORT_HANDOFF_SIGNING_KEY", "REPORT_INGEST_TOKEN"], var.payment_checkout_url_template != "" ? ["PAYMENT_WEBHOOK_TOKEN"] : [])
+    requiredSecrets    = concat(["ACCESS_DATA_ENCRYPTION_KEY", "RESEND_API_KEY", "REPORT_HANDOFF_SIGNING_KEY", "REPORT_INGEST_TOKEN"], var.payment_checkout_url_template != "" ? ["PAYMENT_WEBHOOK_TOKEN"] : [], var.environment == "production" ? ["PRODUCTION_RELEASE_TOKEN"] : [])
     runtimeEnvironment = local.stage3_runtime_environment
     authSupportEmail   = var.auth_support_email
     authDomains        = var.auth_authorized_domains

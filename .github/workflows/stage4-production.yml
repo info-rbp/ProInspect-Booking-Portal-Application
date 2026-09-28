@@ -1,0 +1,141 @@
+name: Stage 4 production cutover
+
+on:
+  push:
+    branches: [release/platform-unification, main]
+    paths: [ops/stage4-production-request.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: proinspect-production-cutover
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: Production readiness and request validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      action: ${{ steps.request.outputs.action }}
+      source: ${{ steps.request.outputs.sourceSha }}
+      release: ${{ steps.request.outputs.releaseId }}
+      approval: ${{ steps.request.outputs.approve }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate source, request and actual GitHub production protections
+        id: request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/stage4/request.py
+
+  production:
+    name: Approved production operation
+    needs: request
+    if: needs.request.outputs.action != 'disabled'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      ACTION: ${{ needs.request.outputs.action }}
+      SOURCE_SHA: ${{ needs.request.outputs.source }}
+      RELEASE_ID: ${{ needs.request.outputs.release }}
+      APPROVAL: ${{ needs.request.outputs.approval }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact production source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate private descriptor before any Google authentication
+        env:
+          CONFIG_B64: ${{ secrets.STAGE4_PRODUCTION_CONFIG_B64 }}
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          RECEIPT_B64: ${{ secrets.STAGE4_OPERATOR_RECEIPT_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import base64, json, os, pathlib, sys
+          sys.path.insert(0,'scripts/stage4')
+          from common import validate, PROJECT, require, save
+          required=['CONFIG_B64','PROJECT_ID','TERRAFORM_SA','WIF_PROVIDER']
+          missing=[k for k in required if not os.environ.get(k)]
+          require(not missing,'Missing production environment settings: '+', '.join(missing))
+          config=json.loads(base64.b64decode(os.environ['CONFIG_B64'],validate=True))
+          require(os.environ['PROJECT_ID']==PROJECT==config.get('projectId'),'Incorrect production project.')
+          require(os.environ['TERRAFORM_SA']==config['terraform']['terraform_service_account_email'],'Terraform identity mismatch.')
+          require(config['sourceSha']==os.environ['SOURCE_SHA'] and config['releaseId']==os.environ['RELEASE_ID'],
+              'Descriptor source/release must match the reviewed request; it is never silently rewritten.')
+          validate(config)
+          save('infrastructure/environments/production.local.json',config)
+          if os.environ.get('RECEIPT_B64'):
+              receipt=json.loads(base64.b64decode(os.environ['RECEIPT_B64'],validate=True))
+              save('private-evidence/stage4-operator.private.json',receipt)
+          PY
+          python3 scripts/stage4/release.py validate --config infrastructure/environments/production.local.json
+      - name: Verify exact-source CI before issuing Google credentials
+        run: |
+          python3 - <<'PY'
+          import os,sys
+          sys.path.insert(0,'scripts/stage4')
+          from common import verify_ci
+          verify_ci(os.environ['SOURCE_SHA'])
+          PY
+      - name: Keyless production Google authentication
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Install the locked application dependencies
+        run: npm ci
+      - name: Execute the explicitly requested production phase
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTION" = readiness ]; then
+            gcloud projects describe business-plan-applicatio-17047 \
+              --impersonate-service-account="$TERRAFORM_SA" \
+              --format='value(projectId)'
+            echo "Production environment and keyless authentication checked. No deployment or migration executed." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          RECEIPT=()
+          if [ -f private-evidence/stage4-operator.private.json ]; then
+            RECEIPT=(--receipt private-evidence/stage4-operator.private.json)
+          fi
+          python3 scripts/stage4/release.py "$ACTION" \
+            --config infrastructure/environments/production.local.json \
+            --approve "$APPROVAL" "${RECEIPT[@]}"
+      - name: Remove runner-only private configuration
+        if: always()
+        run: |
+          rm -f infrastructure/environments/production.local.json private-evidence/stage4-operator.private.json
+# Operational evidence is stored only in the protected GCS checkpoint bucket.
+# No deployment job receives contents:write; main cannot be merged by this workflow.

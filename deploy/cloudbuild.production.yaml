@@ -1,0 +1,10 @@
+# Builds exactly one pinned source image. No deployment or infrastructure apply here.
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: [build, '--label=org.opencontainers.image.revision=${_SOURCE_SHA}', '--tag=${_IMAGE}', .]
+images: ['${_IMAGE}']
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+timeout: 1200s

@@ -222,6 +222,13 @@ export async function makePlan(source: Snapshot, target: Target, transform: (db:
 
 export async function applyPlan(db: Firestore, plan: Plan, target: Target, approvedDigest: string, version: string) {
   validateTarget(target, true);
+  return commitValidatedPlan(db, plan, target, approvedDigest, version);
+}
+
+/** Shared atomic writer. Caller must enforce its stage-specific authorization.
+ * The Stage 3 wrapper remains production-locked; Stage 4 verifies a cutover permit. */
+export async function commitValidatedPlan(db: Firestore, plan: Plan, target: Target, approvedDigest: string, version: string) {
+  validateTarget(target, false);
   const { digest, ...body } = plan;
   if (digestOf(body) !== digest || digest !== approvedDigest || !isDeepStrictEqual(plan.target, target) || plan.migrationVersion !== version || plan.schemaVersion !== 1) fail('Plan approval, target, version or digest mismatch.');
   if (!Number.isFinite(Date.parse(plan.createdAt)) || Date.now() - Date.parse(plan.createdAt) > 24 * 3600_000 || Date.parse(plan.createdAt) > Date.now() + 60_000) fail('Plan expired or future-dated.');

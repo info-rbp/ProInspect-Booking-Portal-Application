@@ -62,6 +62,7 @@ jobs:
           npm run freeze:check
           npm run stage2:check
           npm run stage3:check
+          npm run stage4:check
       - name: Offline infrastructure and control-plane regressions
         run: |
           terraform fmt -check -recursive infrastructure
@@ -69,6 +70,8 @@ jobs:
           terraform -chdir=infrastructure validate
           terraform -chdir=infrastructure test -no-color
           npm run stage3:test:controls
+          npm run stage4:test:controls
+          npm run stage4:test
       - name: Original migration dry-run immutability
         timeout-minutes: 8
         env:
@@ -106,5 +109,18 @@ jobs:
         with:
           name: stage3-repository-acceptance
           path: stage3-repository-evidence.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Record production-code verification only
+        run: |
+          python3 - <<'PY'
+          import os,json,datetime
+          evidence={'schemaVersion':1,'sourceSha':os.environ['GITHUB_SHA'],'runId':os.environ['GITHUB_RUN_ID'],'status':'passed','scope':'Stage 4 repository tests only','liveProductionAccepted':False,'completedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+          open('/tmp/stage4-repository-evidence.json','w').write(json.dumps(evidence,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage4-repository-acceptance
+          path: /tmp/stage4-repository-evidence.json
           retention-days: 14
           if-no-files-found: error

@@ -26,7 +26,7 @@ for (const name of required) {
 }
 
 async function request(path, init) {
-  const response = await fetch(`${baseUrl}${path}`, { ...init, redirect: 'error', signal: AbortSignal.timeout(60000), headers: {...init?.headers, ...(process.env.E2E_CLOUD_RUN_ID_TOKEN ? {'X-Serverless-Authorization': 'Bearer '+process.env.E2E_CLOUD_RUN_ID_TOKEN} : {})} });
+  const response = await fetch(`${baseUrl}${path}`, { ...init, redirect: 'error', signal: AbortSignal.timeout(60000), headers: {...init?.headers, ...(process.env.E2E_PRODUCTION_RELEASE_TOKEN ? {'X-ProInspect-Release-Token':process.env.E2E_PRODUCTION_RELEASE_TOKEN} : {}), ...(process.env.E2E_CLOUD_RUN_ID_TOKEN ? {'X-Serverless-Authorization': 'Bearer '+process.env.E2E_CLOUD_RUN_ID_TOKEN} : {})} });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(

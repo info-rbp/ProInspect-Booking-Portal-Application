@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { productionReleaseGate } from './src/server/productionReleaseGate.js';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -229,6 +230,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
 const PORT = Number(process.env.PORT || 3000);
 const TIMEZONE = 'Australia/Perth';
 const PERTH_OFFSET = '+08:00';
@@ -236,6 +238,9 @@ const SLOT_INTERVAL_MINUTES = 15;
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(productionReleaseGate(async () =>
+  (await adminDb.collection('_releaseControl').doc('active').get()).data() || {}
+));
 app.use(express.json({ limit: '256kb' }));
 
 type RateBucket = { count: number; resetAt: number };
@@ -4875,7 +4880,7 @@ app.post('/api/admin/tenant-inspections', requireAdmin, requireAdminWritePermiss
 });
 
 async function startServer() {
-  await ensureSeedData();
+  if (!process.env.PRODUCTION_RELEASE_ID) await ensureSeedData();
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
