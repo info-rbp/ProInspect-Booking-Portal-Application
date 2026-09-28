@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "disabled",
+  "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "9334937cc03890b01c7018026b452acaf24c0dc0",
+  "sourceSha": "ede545044a0934006b08d17831c05c58f3accc05",
   "approve": "",
-  "note": "Production request only. Never put credentials, secret payloads or customer data here. Select an exact Stage 4 source that passed CI."
+  "note": "Non-mutating production readiness only: check protected environment, exact-source verification and configured keyless access. No infrastructure apply, migration, deployment, traffic change or main merge is requested."
 }
