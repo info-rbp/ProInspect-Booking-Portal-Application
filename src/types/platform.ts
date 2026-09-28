@@ -147,7 +147,12 @@ export interface WorkOrder {
   updatedAt: string;
 }
 
-export type ApprovalStatus = 'pending' | 'approved' | 'changes_requested' | 'declined';
+export type ApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'approved_with_conditions'
+  | 'changes_requested'
+  | 'declined';
 
 export interface ClientApproval {
   id: string;
