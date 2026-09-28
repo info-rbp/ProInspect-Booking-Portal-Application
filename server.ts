@@ -1917,6 +1917,105 @@ app.get('/api/client/documents/:id/download', clientRateLimit, requireClient, as
   }
 });
 
+app.post('/api/client/properties', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const user = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const role = user.clientRoles?.[clientId] || (user.clientIds.includes(clientId) ? 'owner' : undefined);
+    if (!clientId || !role || role === 'viewer') {
+      return res.status(403).json({ error: 'Your client role cannot add properties.' });
+    }
+
+    const streetAddress = normalizeText(req.body?.streetAddress, 180);
+    const suburb = normalizeText(req.body?.suburb, 100);
+    const state = normalizeText(req.body?.state, 10).toUpperCase() || 'WA';
+    const postcode = normalizeText(req.body?.postcode, 10);
+    if (!streetAddress || !suburb || !postcode) {
+      return res.status(400).json({ error: 'Street address, suburb and postcode are required.' });
+    }
+
+    const property = await createTenantProperty({
+      streetAddress,
+      unit: normalizeText(req.body?.unit, 80) || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType: normalizeText(req.body?.propertyType, 80) || undefined,
+      primaryClientId: clientId,
+      clientReference: normalizeText(req.body?.clientReference, 100) || undefined,
+    });
+
+    await writeAuditEvent({
+      entityType: 'property',
+      entityId: property.id,
+      action: 'created',
+      summary: `Property ${property.streetAddress}, ${property.suburb} added through Client Portal.`,
+      actor: { type: 'client', id: user.id, email: user.email, displayName: user.displayName },
+      propertyId: property.id,
+      clientId,
+    });
+
+    return res.status(201).json({ success: true, property });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client account not found.' });
+    }
+    console.error('Client property creation failed:', error);
+    return res.status(500).json({ error: 'Unable to add the property.' });
+  }
+});
+
+app.post('/api/client/team-users', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const requester = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'owner' : undefined);
+    if (!clientId || !requesterRole || !['owner', 'admin'].includes(requesterRole)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can add portal users.' });
+    }
+
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const role = normalizeText(req.body?.role, 20) as 'admin' | 'member' | 'viewer';
+    if (!isValidEmail(email) || displayName.length < 2 || !['admin', 'member', 'viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Name, valid email and client role are required.' });
+    }
+
+    const clientUser = await createClientUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      clientIds: [clientId],
+      clientRoles: { [clientId]: role },
+    });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: clientId,
+      action: 'portal_user_added',
+      summary: `${displayName} added to the Client Portal as ${role}.`,
+      actor: { type: 'client', id: requester.id, email: requester.email },
+      clientId,
+      metadata: { clientUserId: clientUser.id, role },
+    });
+
+    return res.status(201).json({
+      success: true,
+      clientUser,
+      portalUrl: `${publicBaseUrl(req)}/client`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_USER_EMAIL_EXISTS') {
+      return res.status(409).json({ error: 'A Client Portal user already exists for that email address.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client account not found.' });
+    }
+    console.error('Client team user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to add the Client Portal user.' });
+  }
+});
+
 app.post('/api/client/requests', clientRateLimit, requireClient, async (req, res) => {
   try {
     const user = res.locals.clientUser as ClientUserRecord;
