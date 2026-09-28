@@ -281,7 +281,7 @@ export async function reorderAdminServices(
 
 export async function updateAdminBooking(
   id: string,
-  updates: { status?: string; adminNotes?: string }
+  updates: { status?: string; adminNotes?: string; assignedStaffId?: string; clientId?: string; propertyId?: string }
 ): Promise<BookingRecord> {
   const res = await adminFetch(`/api/admin/bookings/${encodeURIComponent(id)}`, {
     method: 'PATCH',

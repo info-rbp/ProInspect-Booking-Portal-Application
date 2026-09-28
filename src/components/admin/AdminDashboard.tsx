@@ -85,8 +85,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const session = await verifyAdminSession();
       setPermissions(session.permissions);
-      const can = (permission: string) =>
-        session.permissions.includes('*') || session.permissions.includes(permission);
+      const can = (permission: string) => session.permissions.includes(permission as any);
 
       const [bkList, srvList, stData] = await Promise.all([
         can('bookings.read') ? fetchAdminBookings() : Promise.resolve([] as BookingRecord[]),

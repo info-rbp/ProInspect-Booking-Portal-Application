@@ -412,6 +412,74 @@ function adminResourceFailure(res: Response, error: unknown, fallback: string) {
   return res.status(500).json({ error: fallback });
 }
 
+async function requireTenant(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Tenant authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified tenant email address is required.' });
+    }
+
+    const tenant = await findAndLinkTenantUser({
+      uid: decoded.uid,
+      email,
+    });
+
+    if (!tenant) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect tenancy.',
+      });
+    }
+
+    res.locals.tenant = tenant;
+    return next();
+  } catch (error) {
+    console.error('Tenant authentication failed:', error);
+    return res.status(401).json({ error: 'Tenant session is invalid or has expired.' });
+  }
+}
+
+async function requireClient(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Client authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified client email address is required.' });
+    }
+
+    const clientUser = await findAndLinkClientUser({
+      uid: decoded.uid,
+      email,
+    });
+
+    if (!clientUser) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect client account.',
+      });
+    }
+
+    res.locals.clientUser = clientUser;
+    return next();
+  } catch (error) {
+    console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
   const hours = Math.floor(minutesAfterMidnight / 60);
   const minutes = minutesAfterMidnight % 60;
@@ -2639,7 +2707,7 @@ app.get('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
   const resource = req.params.resource;
   if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
   const config = ADMIN_RESOURCE_CONFIG[resource];
-  if (!hasAdminPermission(adminSession(res), config.readPermission)) {
+  if (!hasAdminPermission(adminSession(res), config.read)) {
     return res.status(403).json({ error: 'You do not have permission to read this resource.' });
   }
   try {
@@ -2653,7 +2721,7 @@ app.post('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
   const resource = req.params.resource;
   if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
   const config = ADMIN_RESOURCE_CONFIG[resource];
-  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
     return res.status(403).json({ error: 'You do not have permission to create this resource.' });
   }
   try {
@@ -2677,7 +2745,7 @@ app.patch('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) =
   const resource = req.params.resource;
   if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
   const config = ADMIN_RESOURCE_CONFIG[resource];
-  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
     return res.status(403).json({ error: 'You do not have permission to update this resource.' });
   }
   try {
@@ -2702,7 +2770,7 @@ app.delete('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) 
   const resource = req.params.resource;
   if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
   const config = ADMIN_RESOURCE_CONFIG[resource];
-  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
     return res.status(403).json({ error: 'You do not have permission to archive this resource.' });
   }
   try {

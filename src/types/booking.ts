@@ -170,6 +170,7 @@ export interface BookingRecord {
   };
   status: BookingStatus;
   adminNotes?: string;
+  assignedStaffId?: string;
   confirmationEmail?: {
     status: ConfirmationEmailStatus;
     attemptedAt?: string;
