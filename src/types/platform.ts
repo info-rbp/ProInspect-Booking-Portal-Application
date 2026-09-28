@@ -67,6 +67,10 @@ export interface PropertyRecord {
   state: string;
   postcode: string;
   propertyType?: string;
+  addressKey?: string;
+  placeId?: string;
+  latitude?: number;
+  longitude?: number;
   primaryClientId?: string;
   clientName?: string;
   clientReference?: string;
