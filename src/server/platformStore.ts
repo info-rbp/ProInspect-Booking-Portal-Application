@@ -128,6 +128,10 @@ export async function createClientRequestRecord(input: {
   if (!input.clientUser.clientIds.includes(input.clientId)) {
     throw new Error('CLIENT_NOT_AUTHORISED');
   }
+  const requestRole = input.clientUser.clientRoles?.[input.clientId] || 'owner';
+  if (requestRole === 'viewer') {
+    throw new Error('CLIENT_ROLE_FORBIDDEN');
+  }
 
   if (input.propertyId) {
     const links = await adminDb
@@ -276,7 +280,7 @@ export async function createApproval(input: Omit<ClientApproval, 'id' | 'referen
 export async function respondApproval(params: {
   approvalId: string;
   user: ClientUserRecord;
-  status: 'approved' | 'changes_requested' | 'declined';
+  status: 'approved' | 'approved_with_conditions' | 'changes_requested' | 'declined';
   comment?: string;
 }): Promise<ClientApproval | null> {
   const ref = adminDb.collection('clientApprovals').doc(params.approvalId);
@@ -284,6 +288,13 @@ export async function respondApproval(params: {
   if (!doc.exists) return null;
   const approval = docWithId<ClientApproval>(doc);
   if (!params.user.clientIds.includes(approval.clientId)) throw new Error('CLIENT_NOT_AUTHORISED');
+  const approvalRole = params.user.clientRoles?.[approval.clientId] || 'owner';
+  if (!['owner', 'admin'].includes(approvalRole)) {
+    throw new Error('CLIENT_APPROVAL_FORBIDDEN');
+  }
+  if (params.status === 'approved_with_conditions' && !params.comment?.trim()) {
+    throw new Error('APPROVAL_CONDITIONS_REQUIRED');
+  }
 
   const respondedAt = nowIso();
   const patch = {
@@ -320,14 +331,15 @@ export async function respondApproval(params: {
       const mappedStatus =
         params.status === 'approved'
           ? 'approved'
-          : params.status === 'declined'
-            ? 'declined'
-            : 'action_required';
+          : params.status === 'changes_requested'
+            ? 'action_required'
+            : 'under_review';
       await tenantFormRef.set(
         {
           status: mappedStatus,
           respondedAt,
           responseOutcome: params.status,
+          ...(params.comment ? { clientResponseComment: params.comment.trim() } : {}),
           updatedAt: respondedAt,
         },
         { merge: true }
