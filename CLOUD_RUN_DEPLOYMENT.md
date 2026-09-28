@@ -473,3 +473,28 @@ https://www.consumerprotection.wa.gov.au/rental-forms-and-notices
 Prescribed-form content should not be recreated as a modified ProInspect legal form.
 The portal collects structured data and workflow evidence; official statutory output
 must continue to use the current approved form/template and official bond process.
+
+
+## Architecture-freeze pre-merge gate
+
+The `tenant-portal` branch is frozen for broad feature development. Before merging
+it into `main`, use a staging/integration branch and complete all of the following:
+
+- take a Firestore export/backup;
+- run `npm run migrate:portal:dry`;
+- resolve duplicate property address keys before any migration apply;
+- review bookings reported without reliable client context rather than inferring
+  landlord identity from the booking requester;
+- deploy the committed Firestore indexes;
+- confirm browser Firestore and Storage access remain denied;
+- confirm `REPORT_INGEST_TOKEN`, `PAYMENT_WEBHOOK_TOKEN`, Storage signing,
+  tenant email-link Authentication and Resend configuration in staging;
+- test owner/admin/member/viewer Client Portal roles;
+- test read-only and operational Staff Portal roles;
+- test a post-tenancy bond-release workflow;
+- test Form 2 only with a specifically authorised restricted staff account;
+- run `npm run test:e2e:portal-security` with the optional role-specific tokens;
+- run the controlled booking smoke test.
+
+Do not use production as the first environment in which the migration or combined
+portal architecture is exercised.
