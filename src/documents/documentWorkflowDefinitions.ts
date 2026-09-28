@@ -104,14 +104,14 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           {
             id: 'propertyManagerPhone',
             label: 'Property manager telephone',
-            type: 'text',
+            type: 'phone',
             required: true,
             showWhen: { fieldId: 'propertyManagerIncluded', equals: 'yes' },
           },
           {
             id: 'propertyManagerEmail',
             label: 'Property manager email',
-            type: 'text',
+            type: 'email',
             required: true,
             showWhen: { fieldId: 'propertyManagerIncluded', equals: 'yes' },
           },
