@@ -411,3 +411,64 @@ export async function sendClientPortalInvitationEmail(params: {
     text,
   });
 }
+
+
+export async function sendClientPortalRequestNotification(params: {
+  requestId: string;
+  requestType: 'document' | 'maintenance' | 'general';
+  title: string;
+  organisationName: string;
+  submittedByName: string;
+  submittedByEmail: string;
+  propertyAddress?: string;
+  priority?: string;
+  staffUrl: string;
+}): Promise<ConfirmationEmailResult> {
+  const typeLabel =
+    params.requestType === 'maintenance'
+      ? 'Maintenance request'
+      : params.requestType === 'document'
+        ? 'Document request'
+        : 'Client request';
+
+  const notifyTo =
+    process.env.DOCUMENT_REQUEST_NOTIFY_TO?.trim() || 'info@proinspect.systems';
+
+  const text = [
+    `New ProInspect Client Portal ${typeLabel.toLowerCase()}.`,
+    '',
+    `Request: ${params.requestId}`,
+    `Organisation: ${params.organisationName}`,
+    `Submitted by: ${params.submittedByName} <${params.submittedByEmail}>`,
+    params.propertyAddress ? `Property: ${params.propertyAddress}` : '',
+    params.priority ? `Priority: ${params.priority}` : '',
+    `Title: ${params.title}`,
+    '',
+    `Staff Portal: ${params.staffUrl}`,
+  ].filter(Boolean).join('\n');
+
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.5;max-width:700px;margin:0 auto;">
+      <div style="border-bottom:4px solid #00B5B8;padding:20px 0 16px;">
+        <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#007F82;">ProInspect</div>
+        <h1 style="font-size:22px;margin:6px 0 0;">New ${escapeHtml(typeLabel)}</h1>
+      </div>
+      <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
+        <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Request</td><td style="padding:10px 14px;">${escapeHtml(params.requestId)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;">Organisation</td><td style="padding:10px 14px;">${escapeHtml(params.organisationName)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;">Submitted by</td><td style="padding:10px 14px;">${escapeHtml(params.submittedByName)} · ${escapeHtml(params.submittedByEmail)}</td></tr>
+        ${params.propertyAddress ? `<tr><td style="padding:10px 14px;font-weight:700;">Property</td><td style="padding:10px 14px;">${escapeHtml(params.propertyAddress)}</td></tr>` : ''}
+        ${params.priority ? `<tr><td style="padding:10px 14px;font-weight:700;">Priority</td><td style="padding:10px 14px;">${escapeHtml(params.priority)}</td></tr>` : ''}
+        <tr><td style="padding:10px 14px;font-weight:700;">Title</td><td style="padding:10px 14px;">${escapeHtml(params.title)}</td></tr>
+      </table>
+      <p><a href="${escapeHtml(params.staffUrl)}" style="display:inline-block;background:#007F82;color:#fff;text-decoration:none;font-weight:700;padding:11px 16px;border-radius:8px;">Open ProInspect</a></p>
+    </div>
+  `;
+
+  return sendResendEmail({
+    to: [notifyTo],
+    subject: `New Client Portal ${typeLabel.toLowerCase()} – ${params.organisationName}`,
+    html,
+    text,
+  });
+}
