@@ -453,7 +453,7 @@ export function DocumentRequestForm({
           <FilePicker files={files} setFiles={setFiles} />
           <label className="flex items-start gap-2 rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700">
             <input type="checkbox" checked={generateDraft} onChange={(e) => setGenerateDraft(e.target.checked)} className="mt-1" />
-            <span><strong>Generate a working draft now.</strong><br /><span className="text-xs text-slate-500">The generated document is marked draft/review required and appears in Approvals before it is treated as ready for issue.</span></span>
+            <span><strong>Generate a preparation summary now.</strong><br /><span className="text-xs text-slate-500">The summary records your drafting instructions for review. It is not the completed legal or statutory document and cannot be issued or signed as one.</span></span>
           </label>
         </div>
         {error && <div className="mt-4 text-sm text-rose-700">{error}</div>}
