@@ -1437,189 +1437,568 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
 });
 
 app.get('/api/admin/session', requireAdmin, (_req, res) => {
-  return res.json({ authorised: true });
+  return res.json({ authorised: true, session: adminSession(res) });
 });
 
-app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
-  try {
-    const bookings = await listBookingsWithAccessSecrets();
-    return res.json({ bookings });
-  } catch (error) {
-    console.error('Admin bookings load failed:', error);
-    return res.status(500).json({ error: 'Unable to load bookings.' });
+app.get(
+  '/api/admin/dashboard',
+  requireAdmin,
+  requirePermission('dashboard.read'),
+  async (_req, res) => {
+    try {
+      return res.json({ summary: await getAdminDashboard() });
+    } catch (error) {
+      console.error('Admin dashboard load failed:', error);
+      return res.status(500).json({ error: 'Unable to load the admin dashboard.' });
+    }
   }
-});
+);
 
-app.get('/api/admin/services', requireAdmin, async (_req, res) => {
-  try {
-    const services = await listServices(false);
-    return res.json({ services });
-  } catch (error) {
-    console.error('Admin services load failed:', error);
-    return res.status(500).json({ error: 'Unable to load services.' });
+app.get(
+  '/api/admin/bookings',
+  requireAdmin,
+  requirePermission('bookings.read'),
+  async (_req, res) => {
+    try {
+      const session = adminSession(res);
+      const bookings = hasAdminPermission(session, 'bookings.sensitive_access')
+        ? await listBookingsWithAccessSecrets()
+        : await listBookings();
+      return res.json({ bookings });
+    } catch (error) {
+      console.error('Admin bookings load failed:', error);
+      return res.status(500).json({ error: 'Unable to load bookings.' });
+    }
   }
-});
+);
 
-app.post('/api/admin/services', requireAdmin, async (req, res) => {
-  try {
-    const existingServices = await listServices(false);
-    const nextOrder =
-      existingServices.reduce((highest, service) => Math.max(highest, service.order || 0), 0) + 1;
-    const parsed = sanitizeServiceConfiguration(
-      {
-        ...(req.body || {}),
-        order: nextOrder,
-      },
-      {
-        fallbackOrder: nextOrder,
-      }
-    );
-
-    if (!parsed.service) {
-      return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
+app.get(
+  '/api/admin/services',
+  requireAdmin,
+  requirePermission('services.read'),
+  async (_req, res) => {
+    try {
+      const services = await listServices(false);
+      return res.json({ services });
+    } catch (error) {
+      console.error('Admin services load failed:', error);
+      return res.status(500).json({ error: 'Unable to load services.' });
     }
-
-    const created = await createService(parsed.service);
-    return res.status(201).json({ success: true, service: created });
-  } catch (error) {
-    if (error instanceof Error && error.message === 'SERVICE_ALREADY_EXISTS') {
-      return res.status(409).json({
-        error: 'A service with this ID already exists. Choose a different service name or ID.',
-      });
-    }
-
-    console.error('Admin service creation failed:', error);
-    return res.status(500).json({ error: 'Unable to create service.' });
   }
-});
+);
 
-app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
-  try {
-    const serviceId = req.params.id;
-    const existing = await getService(serviceId);
-
-    if (!existing) {
-      return res.status(404).json({ error: 'Service not found.' });
-    }
-
-    const parsed = sanitizeServiceConfiguration(
-      {
-        ...existing,
-        ...(req.body || {}),
-        id: existing.id,
-        order: existing.order,
-      },
-      {
-        existingId: existing.id,
-        fallbackOrder: existing.order,
-      }
-    );
-
-    if (!parsed.service) {
-      return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
-    }
-
-    const updated = await updateService(serviceId, parsed.service);
-    return res.json({ success: true, service: updated });
-  } catch (error) {
-    console.error('Admin service update failed:', error);
-    return res.status(500).json({ error: 'Unable to update service.' });
-  }
-});
-
-app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
-  try {
-    const rawServiceIds: unknown = req.body?.serviceIds;
-
-    if (
-      !Array.isArray(rawServiceIds) ||
-      rawServiceIds.some((id: unknown) => typeof id !== 'string')
-    ) {
-      return res.status(400).json({
-        error: 'Service order must be supplied as a list of service IDs.',
-      });
-    }
-
-    const serviceIds = rawServiceIds as string[];
-    const currentServices = await listServices(false);
-    const currentIds = new Set(currentServices.map((service) => service.id));
-    const suppliedIds = new Set(serviceIds);
-
-    if (
-      serviceIds.length !== currentServices.length ||
-      suppliedIds.size !== serviceIds.length ||
-      serviceIds.some((id) => !currentIds.has(id))
-    ) {
-      return res.status(400).json({
-        error: 'The reorder request must include every current service exactly once.',
-      });
-    }
-
-    const services = await reorderServices(serviceIds);
-    return res.json({ success: true, services });
-  } catch (error) {
-    console.error('Admin service reorder failed:', error);
-    return res.status(500).json({ error: 'Unable to reorder services.' });
-  }
-});
-
-app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
-  try {
-    const settings = await getSettings();
-    return res.json({
-      settings: {
-        ...settings,
-        calendarConnected: calendarIsConfigured(),
-      },
-    });
-  } catch (error) {
-    console.error('Admin settings load failed:', error);
-    return res.status(500).json({ error: 'Unable to load settings.' });
-  }
-});
-
-app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
-  try {
-    const booking = await getBooking(req.params.id);
-    if (!booking) {
-      return res.status(404).json({ error: 'Booking not found.' });
-    }
-
-    const status = req.body?.status;
-    const adminNotes =
-      req.body?.adminNotes === undefined
-        ? undefined
-        : normalizeText(req.body.adminNotes, 2000);
-
-    if (status && !['confirmed', 'completed', 'cancelled'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid booking status.' });
-    }
-
-    if (booking.status === 'cancelled' && status && status !== 'cancelled') {
-      return res.status(409).json({
-        error: 'Cancelled bookings cannot be reactivated. Create a new booking instead.',
-      });
-    }
-
-    if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
-      const service = await getService(booking.serviceId);
-      await deleteEvent(
-        booking.calendarEventId,
-        booking.calendarId || service?.calendarId
+app.post(
+  '/api/admin/services',
+  requireAdmin,
+  requirePermission('services.manage'),
+  async (req, res) => {
+    try {
+      const existingServices = await listServices(false);
+      const nextOrder =
+        existingServices.reduce((highest, service) => Math.max(highest, service.order || 0), 0) + 1;
+      const parsed = sanitizeServiceConfiguration(
+        { ...(req.body || {}), order: nextOrder },
+        { fallbackOrder: nextOrder }
       );
+
+      if (!parsed.service) {
+        return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
+      }
+
+      const created = await createService(parsed.service);
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'service.created',
+        resourceType: 'service',
+        resourceId: created.id,
+        summary: `Created service ${created.name}`,
+      });
+      return res.status(201).json({ success: true, service: created });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'SERVICE_ALREADY_EXISTS') {
+        return res.status(409).json({
+          error: 'A service with this ID already exists. Choose a different service name or ID.',
+        });
+      }
+      console.error('Admin service creation failed:', error);
+      return res.status(500).json({ error: 'Unable to create service.' });
     }
-
-    const updated = await updateBooking(booking.id, {
-      ...(status ? { status } : {}),
-      ...(adminNotes !== undefined ? { adminNotes } : {}),
-    });
-
-    return res.json({ success: true, booking: updated });
-  } catch (error) {
-    console.error('Admin booking update failed:', error);
-    return res.status(500).json({ error: 'Unable to update booking.' });
   }
-});
+);
+
+app.patch(
+  '/api/admin/services/:id',
+  requireAdmin,
+  requirePermission('services.manage'),
+  async (req, res) => {
+    try {
+      const serviceId = req.params.id;
+      const existing = await getService(serviceId);
+      if (!existing) return res.status(404).json({ error: 'Service not found.' });
+
+      const parsed = sanitizeServiceConfiguration(
+        { ...existing, ...(req.body || {}), id: existing.id, order: existing.order },
+        { existingId: existing.id, fallbackOrder: existing.order }
+      );
+      if (!parsed.service) {
+        return res.status(400).json({ error: parsed.error || 'Invalid service configuration.' });
+      }
+
+      const updated = await updateService(serviceId, parsed.service);
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'service.updated',
+        resourceType: 'service',
+        resourceId: serviceId,
+        summary: `Updated service ${updated?.name || serviceId}`,
+      });
+      return res.json({ success: true, service: updated });
+    } catch (error) {
+      console.error('Admin service update failed:', error);
+      return res.status(500).json({ error: 'Unable to update service.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/services/reorder',
+  requireAdmin,
+  requirePermission('services.manage'),
+  async (req, res) => {
+    try {
+      const rawServiceIds: unknown = req.body?.serviceIds;
+      if (
+        !Array.isArray(rawServiceIds) ||
+        rawServiceIds.some((id: unknown) => typeof id !== 'string')
+      ) {
+        return res.status(400).json({
+          error: 'Service order must be supplied as a list of service IDs.',
+        });
+      }
+
+      const serviceIds = rawServiceIds as string[];
+      const currentServices = await listServices(false);
+      const currentIds = new Set(currentServices.map((service) => service.id));
+      const suppliedIds = new Set(serviceIds);
+
+      if (
+        serviceIds.length !== currentServices.length ||
+        suppliedIds.size !== serviceIds.length ||
+        serviceIds.some((id) => !currentIds.has(id))
+      ) {
+        return res.status(400).json({
+          error: 'The reorder request must include every current service exactly once.',
+        });
+      }
+
+      const services = await reorderServices(serviceIds);
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'service.reordered',
+        resourceType: 'service',
+        summary: 'Changed booking service display order',
+      });
+      return res.json({ success: true, services });
+    } catch (error) {
+      console.error('Admin service reorder failed:', error);
+      return res.status(500).json({ error: 'Unable to reorder services.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/settings',
+  requireAdmin,
+  requirePermission('settings.read'),
+  async (_req, res) => {
+    try {
+      const settings = await getSettings();
+      return res.json({
+        settings: { ...settings, calendarConnected: calendarIsConfigured() },
+      });
+    } catch (error) {
+      console.error('Admin settings load failed:', error);
+      return res.status(500).json({ error: 'Unable to load settings.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/settings',
+  requireAdmin,
+  requirePermission('settings.update'),
+  async (req, res) => {
+    try {
+      const existing = await getSettings();
+      const minimumNoticeHours = integerInRange(
+        req.body?.minimumNoticeHours ?? existing.minimumNoticeHours,
+        0,
+        720
+      );
+      const maxFutureBookingDays = integerInRange(
+        req.body?.maxFutureBookingDays ?? existing.maxFutureBookingDays,
+        1,
+        365
+      );
+      if (minimumNoticeHours === null || maxFutureBookingDays === null) {
+        return res.status(400).json({ error: 'Invalid scheduling settings.' });
+      }
+
+      const allowedDayKeys = [
+        'monday','tuesday','wednesday','thursday','friday','saturday','sunday',
+      ] as const;
+      const operatingHours = { ...existing.operatingHours };
+      if (req.body?.operatingHours && typeof req.body.operatingHours === 'object') {
+        for (const day of allowedDayKeys) {
+          const supplied = req.body.operatingHours[day];
+          if (!supplied) continue;
+          const open = normalizeText(supplied.open, 5);
+          const close = normalizeText(supplied.close, 5);
+          if (!/^\d{2}:\d{2}$/.test(open) || !/^\d{2}:\d{2}$/.test(close)) {
+            return res.status(400).json({ error: `Invalid operating hours for ${day}.` });
+          }
+          operatingHours[day] = {
+            open,
+            close,
+            active: supplied.active !== false,
+          };
+        }
+      }
+
+      const settings: BusinessSettings = {
+        ...existing,
+        minimumNoticeHours,
+        maxFutureBookingDays,
+        operatingHours,
+      };
+      await adminDb.collection('settings').doc('business').set(settings, { merge: true });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'settings.updated',
+        resourceType: 'settings',
+        resourceId: 'business',
+        summary: 'Updated business scheduling settings',
+      });
+      return res.json({
+        success: true,
+        settings: { ...settings, calendarConnected: calendarIsConfigured() },
+      });
+    } catch (error) {
+      console.error('Admin settings update failed:', error);
+      return res.status(500).json({ error: 'Unable to update settings.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/bookings/:id',
+  requireAdmin,
+  requirePermission('bookings.update'),
+  async (req, res) => {
+    try {
+      const booking = await getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+
+      const status = req.body?.status;
+      if (status && !['confirmed', 'completed', 'cancelled'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid booking status.' });
+      }
+      if (
+        status === 'cancelled' &&
+        booking.status !== 'cancelled' &&
+        !hasAdminPermission(adminSession(res), 'bookings.cancel')
+      ) {
+        return res.status(403).json({ error: 'You do not have permission to cancel bookings.' });
+      }
+      if (booking.status === 'cancelled' && status && status !== 'cancelled') {
+        return res.status(409).json({
+          error: 'Cancelled bookings cannot be reactivated. Create a new booking instead.',
+        });
+      }
+
+      if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
+        const service = await getService(booking.serviceId);
+        await deleteEvent(booking.calendarEventId, booking.calendarId || service?.calendarId);
+      }
+
+      const adminNotes =
+        req.body?.adminNotes === undefined
+          ? undefined
+          : normalizeText(req.body.adminNotes, 2000);
+      const assignedStaffId =
+        req.body?.assignedStaffId === undefined
+          ? undefined
+          : normalizeText(req.body.assignedStaffId, 128);
+      const clientId =
+        req.body?.clientId === undefined ? undefined : normalizeText(req.body.clientId, 128);
+      const propertyId =
+        req.body?.propertyId === undefined ? undefined : normalizeText(req.body.propertyId, 128);
+
+      const updated = await updateBooking(booking.id, {
+        ...(status ? { status } : {}),
+        ...(adminNotes !== undefined ? { adminNotes } : {}),
+        ...(assignedStaffId !== undefined ? { assignedStaffId } : {}),
+        ...(clientId !== undefined ? { clientId } : {}),
+        ...(propertyId !== undefined ? { propertyId } : {}),
+      });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'booking.updated',
+        resourceType: 'booking',
+        resourceId: booking.id,
+        summary: `Updated booking ${booking.bookingReference}`,
+        metadata: { status, assignedStaffId, clientId, propertyId },
+      });
+      return res.json({ success: true, booking: updated });
+    } catch (error) {
+      console.error('Admin booking update failed:', error);
+      return res.status(500).json({ error: 'Unable to update booking.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/staff',
+  requireAdmin,
+  requirePermission('users.read'),
+  async (_req, res) => {
+    try {
+      return res.json({ staff: await listAdminStaff() });
+    } catch (error) {
+      console.error('Admin staff load failed:', error);
+      return res.status(500).json({ error: 'Unable to load staff.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/staff',
+  requireAdmin,
+  requirePermission('users.manage'),
+  async (req, res) => {
+    try {
+      const email = normalizeText(req.body?.email, 254).toLowerCase();
+      const displayName = normalizeText(req.body?.displayName, 120);
+      const role = req.body?.role as AdminRole;
+      if (!isValidEmail(email) || !displayName) {
+        return res.status(400).json({ error: 'A valid email and display name are required.' });
+      }
+      if (!['administrator','operations_manager','inspector','read_only'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid staff role.' });
+      }
+      const staff = await createAdminStaff({
+        email,
+        displayName,
+        role,
+        assignedServiceIds: Array.isArray(req.body?.assignedServiceIds)
+          ? req.body.assignedServiceIds.map(String)
+          : [],
+      });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'staff.created',
+        resourceType: 'staff',
+        resourceId: staff.id,
+        summary: `Created staff access for ${staff.email}`,
+      });
+      return res.status(201).json({ success: true, staff });
+    } catch (error) {
+      console.error('Admin staff creation failed:', error);
+      return res.status(500).json({ error: 'Unable to create staff access.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/staff/:uid',
+  requireAdmin,
+  requirePermission('users.manage'),
+  async (req, res) => {
+    try {
+      if (req.params.uid === adminSession(res).uid && req.body?.active === false) {
+        return res.status(409).json({ error: 'You cannot disable your own administrator account.' });
+      }
+      const staff = await updateAdminStaff(req.params.uid, {
+        ...(req.body?.displayName !== undefined
+          ? { displayName: normalizeText(req.body.displayName, 120) }
+          : {}),
+        ...(req.body?.role !== undefined ? { role: req.body.role as AdminRole } : {}),
+        ...(req.body?.active !== undefined ? { active: Boolean(req.body.active) } : {}),
+        ...(Array.isArray(req.body?.assignedServiceIds)
+          ? { assignedServiceIds: req.body.assignedServiceIds.map(String) }
+          : {}),
+        ...(Array.isArray(req.body?.permissionGrants)
+          ? { permissionGrants: req.body.permissionGrants }
+          : {}),
+        ...(Array.isArray(req.body?.permissionRevokes)
+          ? { permissionRevokes: req.body.permissionRevokes }
+          : {}),
+      });
+      if (!staff) return res.status(404).json({ error: 'Staff user not found.' });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: 'staff.updated',
+        resourceType: 'staff',
+        resourceId: staff.id,
+        summary: `Updated staff access for ${staff.email}`,
+      });
+      return res.json({ success: true, staff });
+    } catch (error) {
+      console.error('Admin staff update failed:', error);
+      return res.status(500).json({ error: 'Unable to update staff access.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/resources/:resource',
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (!isAdminResourceName(req.params.resource)) {
+        return res.status(404).json({ error: 'Unknown admin resource.' });
+      }
+      const config = ADMIN_RESOURCE_CONFIG[req.params.resource];
+      if (!hasAdminPermission(adminSession(res), config.read)) {
+        return res.status(403).json({ error: 'You do not have permission to view this resource.' });
+      }
+      return res.json({ records: await listAdminResource(req.params.resource) });
+    } catch (error) {
+      console.error('Admin resource load failed:', error);
+      return res.status(500).json({ error: 'Unable to load this resource.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/resources/:resource',
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (!isAdminResourceName(req.params.resource)) {
+        return res.status(404).json({ error: 'Unknown admin resource.' });
+      }
+      const resource = req.params.resource;
+      const config = ADMIN_RESOURCE_CONFIG[resource];
+      if (!hasAdminPermission(adminSession(res), config.manage)) {
+        return res.status(403).json({ error: 'You do not have permission to manage this resource.' });
+      }
+      if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        return res.status(400).json({ error: 'A valid record is required.' });
+      }
+      const record = await createAdminResource(resource, req.body);
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: `${resource}.created`,
+        resourceType: resource,
+        resourceId: record.id,
+        summary: `Created ${config.label.toLowerCase()} record`,
+      });
+      return res.status(201).json({ success: true, record });
+    } catch (error) {
+      console.error('Admin resource creation failed:', error);
+      return res.status(500).json({ error: 'Unable to create this record.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/resources/:resource/:id',
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (!isAdminResourceName(req.params.resource)) {
+        return res.status(404).json({ error: 'Unknown admin resource.' });
+      }
+      const resource = req.params.resource;
+      const config = ADMIN_RESOURCE_CONFIG[resource];
+      if (!hasAdminPermission(adminSession(res), config.manage)) {
+        return res.status(403).json({ error: 'You do not have permission to manage this resource.' });
+      }
+      const record = await updateAdminResource(resource, req.params.id, req.body || {});
+      if (!record) return res.status(404).json({ error: 'Record not found.' });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: `${resource}.updated`,
+        resourceType: resource,
+        resourceId: record.id,
+        summary: `Updated ${config.label.toLowerCase()} record`,
+      });
+      return res.json({ success: true, record });
+    } catch (error) {
+      console.error('Admin resource update failed:', error);
+      return res.status(500).json({ error: 'Unable to update this record.' });
+    }
+  }
+);
+
+app.delete(
+  '/api/admin/resources/:resource/:id',
+  requireAdmin,
+  async (req, res) => {
+    try {
+      if (!isAdminResourceName(req.params.resource)) {
+        return res.status(404).json({ error: 'Unknown admin resource.' });
+      }
+      const resource = req.params.resource;
+      const config = ADMIN_RESOURCE_CONFIG[resource];
+      if (!hasAdminPermission(adminSession(res), config.manage)) {
+        return res.status(403).json({ error: 'You do not have permission to manage this resource.' });
+      }
+      const record = await archiveAdminResource(resource, req.params.id);
+      if (!record) return res.status(404).json({ error: 'Record not found.' });
+      await recordAuditEvent({
+        session: adminSession(res),
+        action: `${resource}.archived`,
+        resourceType: resource,
+        resourceId: record.id,
+        summary: `Archived ${config.label.toLowerCase()} record`,
+      });
+      return res.json({ success: true, record });
+    } catch (error) {
+      console.error('Admin resource archive failed:', error);
+      return res.status(500).json({ error: 'Unable to archive this record.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/reports/summary',
+  requireAdmin,
+  requirePermission('reports.read'),
+  async (_req, res) => {
+    try {
+      return res.json({ report: await getAdminReportSummary() });
+    } catch (error) {
+      console.error('Admin report load failed:', error);
+      return res.status(500).json({ error: 'Unable to generate the management summary.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/integrations',
+  requireAdmin,
+  requirePermission('integrations.read'),
+  (_req, res) => {
+    return res.json({ integrations: getAdminIntegrationStatuses() });
+  }
+);
+
+app.get(
+  '/api/admin/audit',
+  requireAdmin,
+  requirePermission('audit.read'),
+  async (req, res) => {
+    try {
+      const limit = Number(req.query.limit || 250);
+      return res.json({ events: await listAuditEvents(Number.isFinite(limit) ? limit : 250) });
+    } catch (error) {
+      console.error('Admin audit load failed:', error);
+      return res.status(500).json({ error: 'Unable to load the audit trail.' });
+    }
+  }
+);
 
 async function startServer() {
   await ensureSeedData();
