@@ -560,7 +560,10 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                       <div className="mt-2 font-bold text-[#1A2B4A]">{request.title}</div>
                       <div className="mt-1 text-xs text-slate-500">{formatDate(request.createdAt)}</div>
                     </div>
-                    {request.type === 'document' && !request.generatedDocumentId && data.membership.role !== 'viewer' && (
+                    {request.type === 'document' &&
+                      typeof request.details?.documentType === 'string' &&
+                      !request.generatedDocumentId &&
+                      data.membership.role !== 'viewer' && (
                       <button type="button" disabled={actionId === request.id} onClick={() => generateDraft(request.id)} className="text-xs font-bold text-[#006D70]">{actionId === request.id ? 'Generating…' : 'Generate Preparation Summary'}</button>
                     )}
                   </div>
