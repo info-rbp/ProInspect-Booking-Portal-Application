@@ -6,3 +6,13 @@ coverage/
 *.log
 .env*
 !.env.example
+
+private-evidence/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars*
+**/imports.generated.tf
+infrastructure/environments/*.local.json
+gha-creds-*.json

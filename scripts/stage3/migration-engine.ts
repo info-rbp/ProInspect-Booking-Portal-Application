@@ -16,7 +16,7 @@ export type Snapshot = Record<string, Record<string, Row>>;
 export type Target = { environment: 'emulator' | 'staging' | 'production'; projectId: string; databaseId: string };
 export type Change = { collection: string; id: string; before: Row | null; after: Row };
 export type Plan = { schemaVersion: 1; target: Target; createdAt: string; sourceSha: string; migrationVersion: string; sourceHash: string; beforeCounts: Record<string, number>; afterCounts: Record<string, number>; changes: Change[]; digest: string };
-const fail = (message: string): never => { throw new Error(message); };
+function fail(message: string): never { throw new Error(message); }
 export const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 // Encode Firestore-native values without converting timestamps/references into ordinary maps.
@@ -33,7 +33,7 @@ export function encode(value: any): any {
   if (typeof value.path === 'string' && value.firestore && typeof value.get === 'function') return { $stage3: 'reference', path: value.path };
   if (Array.isArray(value)) return value.map(encode);
   if (Object.getPrototypeOf(value) !== Object.prototype) fail('Unsupported Firestore value; extend the lossless codec before migration.');
-  if (Object.hasOwn(value, '$stage3')) fail('Reserved migration codec key in document; manual review required.');
+  if (Object.prototype.hasOwnProperty.call(value, '$stage3')) fail('Reserved migration codec key in document; manual review required.');
   return Object.fromEntries(Object.keys(value).sort().filter(k => value[k] !== undefined).map(k => [k, encode(value[k])]));
 }
 export function decode(value: any, db: Firestore): any {
@@ -156,7 +156,7 @@ export function planningDatabase(source: Snapshot) {
     data[name] ||= {};
     const doc = (id: string): any => {
       if (!id || typeof id !== 'string' || id.includes('/')) fail('Invalid document ID.');
-      const ref: any = { id, path: `${name}/${id}`, get: async () => ({ id, exists: Object.hasOwn(data[name],id), data: () => structuredClone(data[name][id]), ref }), set: async (value: Row, options?: {merge?: boolean}) => {
+      const ref: any = { id, path: `${name}/${id}`, get: async () => ({ id, exists: Object.prototype.hasOwnProperty.call(data[name],id), data: () => structuredClone(data[name][id]), ref }), set: async (value: Row, options?: {merge?: boolean}) => {
         // Proposed values already contain encoded source values; preserve their tags.
         const clean = JSON.parse(JSON.stringify(value));
         data[name][id] = options?.merge ? merge(data[name][id] || {}, clean) : clean;
@@ -245,6 +245,7 @@ export async function runMigration(transform: (db: any) => Promise<void>) {
       if (digestOf(await snapshot(db)) !== digestOf(before)) fail('Database changed during dry run; no plan accepted.');
       const path = value('--plan') || 'private-evidence/stage3/migration-plan.json';
       save(path,plan);
+      if (value('--evidence')) save(value('--evidence')!, {schemaVersion:1,status:'passed',target,sourceSha:sha,migrationVersion:version,planDigest:plan.digest,dryRun:true,changes:plan.changes.length,completedAt:new Date().toISOString(),beforeCounts:plan.beforeCounts,afterCounts:plan.afterCounts,integrity:'passed'});
       console.log(JSON.stringify({dryRun:true, planDigest:plan.digest, changes:plan.changes.length, beforeCounts:plan.beforeCounts, afterCounts:plan.afterCounts, integrity:'passed'},null,2));
       console.log('Dry run only. Plan contains private data; never upload it to public CI artifacts.');
     }

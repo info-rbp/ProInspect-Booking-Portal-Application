@@ -1,8 +1,10 @@
 import 'dotenv/config';
 import { createHash } from 'crypto';
-import { adminDb } from '../src/server/firebaseAdmin.js';
+import { runMigration } from './stage3/migration-engine.js';
+import { pathToFileURL } from 'node:url';
 
-const apply = process.argv.includes('--apply');
+// Only the private planning database is exposed to transform.
+const apply = true;
 
 function normalise(value: unknown): string {
   return typeof value === 'string'
@@ -15,7 +17,7 @@ function propertyKey(property: any): string {
     normalise(property.unit),
     normalise(property.streetAddress),
     normalise(property.suburb),
-    normalise(property.state).toUpperCase(),
+    normalise(property.state || 'WA').toUpperCase(),
     normalise(property.postcode),
   ].join('|');
 }
@@ -28,7 +30,8 @@ function clientNameKey(value: unknown) {
   return normalise(value);
 }
 
-async function main() {
+export async function transform(adminDb: any) {
+  const legacyPropertyIds = new Map<string, string>();
   const [
     bookingSnapshot,
     propertySnapshot,
@@ -49,7 +52,7 @@ async function main() {
     adminDb.collection('clientDocuments').get(),
   ]);
 
-  const legacyMembershipDocs = membershipSnapshot.docs.filter((doc) => {
+  const legacyMembershipDocs = membershipSnapshot.docs.filter((doc: any) => {
     const data = doc.data() as any;
     return typeof data.organisationId === 'string' && !data.clientId;
   });
@@ -76,7 +79,7 @@ async function main() {
     legacyClientPropertiesScanned: legacyProperties.size,
     legacyClientDocumentsScanned: legacyDocuments.size,
     legacyRecordsMigrated: 0,
-    dryRun: !apply,
+    dryRun: !process.argv.includes('--apply'),
   };
 
   const propertiesByAddress = new Map<string, string>();
@@ -128,7 +131,7 @@ async function main() {
     if (!duplicateClientNames.has(key)) clientsByName.set(key, doc.id);
   }
 
-  const knownClientIds = new Set(clientSnapshot.docs.map((doc) => doc.id));
+  const knownClientIds = new Set(clientSnapshot.docs.map((doc: any) => doc.id));
   const clientUsersByUid = new Map<string, { id: string; data: any }>();
   const clientUsersByEmail = new Map<string, { id: string; data: any }>();
 
@@ -224,8 +227,9 @@ async function main() {
       current.clientRoles && typeof current.clientRoles === 'object'
         ? current.clientRoles as Record<string, string>
         : {};
-    const nextClientIds = Array.from(new Set([...currentIds, clientId]));
-    const nextRoles = { ...currentRoles, [clientId]: role };
+    const nextClientIds = status === 'active' ? Array.from(new Set([...currentIds, clientId])) : currentIds.filter(id => id !== clientId);
+    const nextRoles = { ...currentRoles };
+    if (status === 'active') nextRoles[clientId] = role; else delete nextRoles[clientId];
     const now = new Date().toISOString();
 
     summary.legacyClientMembershipsMigrated += 1;
@@ -239,7 +243,7 @@ async function main() {
         displayName: old.displayName || current.displayName || email || 'Client User',
         phone: current.phone,
         firebaseUid: uid || current.firebaseUid || undefined,
-        active: status === 'active' && current.active !== false,
+        active: nextClientIds.length > 0 && current.active !== false,
         clientIds: nextClientIds,
         clientRoles: nextRoles,
         createdAt: current.createdAt || old.createdAt || now,
@@ -269,7 +273,7 @@ async function main() {
 
   // Backfill explicit roles for client users created before clientRoles existed.
   for (const doc of clientUserSnapshot.docs) {
-    const user = doc.data() as any;
+    const user = (await doc.ref.get()).data() as any;
     const clientIds: string[] = Array.isArray(user.clientIds)
       ? Array.from(
           new Set<string>(
@@ -295,7 +299,7 @@ async function main() {
       if (['owner', 'admin', 'member', 'viewer'].includes(existing)) {
         nextRoles[clientId] = existing as 'owner' | 'admin' | 'member' | 'viewer';
       } else {
-        nextRoles[clientId] = index === 0 ? 'owner' : 'member';
+        nextRoles[clientId] = 'viewer'; // Never infer ownership from array position.
         changed = true;
       }
     });
@@ -304,7 +308,8 @@ async function main() {
       const membershipId = stableId('cm', `${doc.id}|${clientId}`);
       const membershipRef = adminDb.collection('clientMemberships').doc(membershipId);
       const membershipDoc = await membershipRef.get();
-      if (!membershipDoc.exists) {
+      const matchingMembership = (await adminDb.collection('clientMemberships').get()).docs.find((m: any) => { const d = m.data(); return d.clientId === clientId && d.clientUserId === doc.id; });
+      if (!membershipDoc.exists && !matchingMembership) {
         summary.clientMembershipsBackfilled += 1;
         if (apply) {
           const now = new Date().toISOString();
@@ -479,6 +484,7 @@ async function main() {
     }
 
     const propertyId = propertiesByAddress.get(key) || old.id || doc.id;
+    legacyPropertyIds.set(doc.id, propertyId);
     const propertyRef = adminDb.collection('properties').doc(propertyId);
     const clientRef = clientId ? adminDb.collection('clients').doc(clientId) : null;
     const now = new Date().toISOString();
@@ -560,7 +566,7 @@ async function main() {
 
         await target.set({
           id: doc.id,
-          propertyId: rawPropertyId,
+          propertyId: legacyPropertyIds.get(rawPropertyId) || rawPropertyId,
           clientIds: clientId ? [clientId] : [],
           audiences: ['client'],
           title: old.name || old.title || old.documentType || 'Imported Document',
@@ -580,12 +586,12 @@ async function main() {
 
   console.log(JSON.stringify(summary, null, 2));
 
-  if (!apply) {
+  if (!process.argv.includes('--apply')) {
     console.log('Dry run only. Review duplicate counts and relationship counts before using --apply.');
   }
 }
 
-main().catch((error) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runMigration(transform).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

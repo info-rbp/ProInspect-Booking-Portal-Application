@@ -48,12 +48,12 @@ locals {
   }
   all_secret_ids = merge(local.secret_ids, local.integration_secret_ids)
   secret_environment = {
-    ACCESS_DATA_ENCRYPTION_KEY  = local.secret_ids.access_data_encryption_key
-    RESEND_API_KEY              = local.secret_ids.resend_api_key
-    GOOGLE_MAPS_API_KEY         = local.secret_ids.google_maps_api_key
-    REPORT_HANDOFF_SIGNING_KEY  = local.integration_secret_ids.report_handoff_signing_key
-    REPORT_INGEST_TOKEN         = local.integration_secret_ids.report_ingest_token
-    PAYMENT_WEBHOOK_TOKEN       = local.integration_secret_ids.payment_webhook_token
+    ACCESS_DATA_ENCRYPTION_KEY = local.secret_ids.access_data_encryption_key
+    RESEND_API_KEY             = local.secret_ids.resend_api_key
+    GOOGLE_MAPS_API_KEY        = local.secret_ids.google_maps_api_key
+    REPORT_HANDOFF_SIGNING_KEY = local.integration_secret_ids.report_handoff_signing_key
+    REPORT_INGEST_TOKEN        = local.integration_secret_ids.report_ingest_token
+    PAYMENT_WEBHOOK_TOKEN      = local.integration_secret_ids.payment_webhook_token
   }
   index_file = jsondecode(file("${path.module}/../firestore.indexes.json"))
   indexes    = { for index in local.index_file.indexes : substr(sha256(jsonencode(index)), 0, 20) => index }
@@ -92,9 +92,9 @@ resource "google_firestore_database" "platform" {
   name                              = var.firestore_database_id
   location_id                       = var.firestore_location
   type                              = "FIRESTORE_NATIVE"
-  delete_protection_state            = "DELETE_PROTECTION_ENABLED"
+  delete_protection_state           = "DELETE_PROTECTION_ENABLED"
   deletion_policy                   = "ABANDON"
-  point_in_time_recovery_enablement  = "POINT_IN_TIME_RECOVERY_ENABLED"
+  point_in_time_recovery_enablement = "POINT_IN_TIME_RECOVERY_ENABLED"
   lifecycle { prevent_destroy = true }
   depends_on = [google_project_service.required]
 }
@@ -142,17 +142,19 @@ resource "google_firestore_field" "canonical" {
   }
 }
 resource "google_firebase_project" "platform" {
-  provider = google
-  project  = var.project_id
+  provider   = google-beta
+  project    = var.project_id
   depends_on = [google_project_service.required]
 }
 resource "google_firebase_web_app" "platform" {
+  provider     = google-beta
   project      = var.project_id
   display_name = "ProInspect ${var.environment} portal"
-  depends_on = [google_firebase_project.platform]
+  depends_on   = [google_firebase_project.platform]
   lifecycle { prevent_destroy = true }
 }
 data "google_firebase_web_app_config" "platform" {
+  provider   = google-beta
   project    = var.project_id
   web_app_id = google_firebase_web_app.platform.app_id
 }
@@ -170,22 +172,24 @@ resource "google_firebaserules_release" "firestore" {
   project      = var.project_id
   name         = var.firestore_database_id == "(default)" ? "cloud.firestore" : "cloud.firestore/${var.firestore_database_id}"
   ruleset_name = "projects/${var.project_id}/rulesets/${google_firebaserules_ruleset.firestore.name}"
-  depends_on = [google_firestore_database.platform]
+  depends_on   = [google_firestore_database.platform]
 }
 resource "google_secret_manager_secret" "integration" {
   for_each  = local.integration_secret_ids
   project   = var.project_id
   secret_id = each.value
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   lifecycle { prevent_destroy = true }
   depends_on = [google_project_service.required]
 }
 resource "google_secret_manager_secret_iam_member" "integration_runtime" {
-  for_each  = google_secret_manager_secret.integration
-  project   = var.project_id
-  secret_id = each.value.secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.runtime_service_account_email}"
+  for_each   = google_secret_manager_secret.integration
+  project    = var.project_id
+  secret_id  = each.value.secret_id
+  role       = "roles/secretmanager.secretAccessor"
+  member     = "serviceAccount:${var.runtime_service_account_email}"
   depends_on = [google_service_account.runtime]
 }
 resource "google_storage_bucket" "operations" {
@@ -217,13 +221,13 @@ resource "google_artifact_registry_repository_iam_member" "builder" {
 }
 resource "google_project_iam_member" "platform" {
   for_each = {
-    build_log       = { identity = "build", role = "roles/logging.logWriter" }
-    deploy_run      = { identity = "deploy", role = "roles/run.developer" }
-    deploy_invoke   = { identity = "deploy", role = "roles/run.invoker" }
-    deploy_build    = { identity = "deploy", role = "roles/cloudbuild.builds.editor" }
-    deploy_secrets  = { identity = "deploy", role = "roles/secretmanager.viewer" }
-    deploy_read     = { identity = "deploy", role = "roles/artifactregistry.reader" }
-    migration_data  = { identity = "migration", role = "roles/datastore.user" }
+    build_log        = { identity = "build", role = "roles/logging.logWriter" }
+    deploy_run       = { identity = "deploy", role = "roles/run.developer" }
+    deploy_invoke    = { identity = "deploy", role = "roles/run.invoker" }
+    deploy_build     = { identity = "deploy", role = "roles/cloudbuild.builds.editor" }
+    deploy_secrets   = { identity = "deploy", role = "roles/secretmanager.viewer" }
+    deploy_read      = { identity = "deploy", role = "roles/artifactregistry.reader" }
+    migration_data   = { identity = "migration", role = "roles/datastore.user" }
     migration_backup = { identity = "migration", role = "roles/datastore.importExportAdmin" }
   }
   project = var.project_id
@@ -257,9 +261,9 @@ resource "google_storage_bucket_iam_member" "migration_backup" {
   member = "serviceAccount:${google_service_account.platform["migration"].email}"
 }
 resource "google_storage_bucket_iam_member" "firestore_backup" {
-  bucket = google_storage_bucket.operations["migration-backups"].name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-firestore.iam.gserviceaccount.com"
+  bucket     = google_storage_bucket.operations["migration-backups"].name
+  role       = "roles/storage.objectAdmin"
+  member     = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-firestore.iam.gserviceaccount.com"
   depends_on = [google_firestore_database.platform]
 }
 resource "google_storage_bucket_iam_member" "runtime_legacy" {
@@ -272,7 +276,7 @@ resource "google_iam_workload_identity_pool" "github" {
   count                     = var.enable_github_federation ? 1 : 0
   project                   = var.project_id
   workload_identity_pool_id = "proinspect-${var.environment}"
-  depends_on = [google_project_service.stage3, google_project_service.required]
+  depends_on                = [google_project_service.stage3, google_project_service.required]
 }
 resource "google_iam_workload_identity_pool_provider" "github" {
   count                              = var.enable_github_federation ? 1 : 0

@@ -17,7 +17,9 @@
     "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs",
     "freeze:check": "node scripts/premerge-freeze-check.mjs",
     "test:migration-preflight": "tsx scripts/verify-tenant-migration-preflight.ts",
-    "stage2:check": "node scripts/stage2-integration-check.mjs"
+    "stage2:check": "node scripts/stage2-integration-check.mjs",
+    "stage3:test": "node --import tsx --test scripts/stage3/tests/*.test.ts",
+    "stage3:check": "python3 scripts/stage3/control.py check-repository"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

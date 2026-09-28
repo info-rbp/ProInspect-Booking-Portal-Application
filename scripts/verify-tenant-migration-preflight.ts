@@ -101,6 +101,7 @@ async function seed() {
     createdAt: '2026-09-28T00:00:00.000Z',
   });
 
+  batch.set(adminDb.collection('clientPropertyLinks').doc('fixture-property-link'), {clientId:'client-existing', propertyId:'property-existing', role:'owner', active:true});
   await batch.commit();
 }
 
