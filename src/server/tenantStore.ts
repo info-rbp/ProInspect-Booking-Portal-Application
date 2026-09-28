@@ -1,6 +1,13 @@
 import { randomBytes } from 'crypto';
 import type {
   AdminTenantPortalSnapshot,
+  ClientPortalDashboard,
+  ClientPropertyLink,
+  ClientPropertyRole,
+  ClientRecord,
+  ClientType,
+  ClientUserRecord,
+  PortalAudience,
   TenancyRecord,
   TenantDocument,
   TenantDocumentCategory,
@@ -36,6 +43,24 @@ async function getDocumentsByIds<T>(
   const refs = ids.map((id) => adminDb.collection(collection).doc(id));
   const snapshots = await adminDb.getAll(...refs);
   return snapshots.filter((doc) => doc.exists).map((doc) => docWithId<T>(doc));
+}
+
+async function getPropertyScopedCollection<T>(
+  collection: string,
+  propertyIds: string[]
+): Promise<T[]> {
+  if (propertyIds.length === 0) return [];
+  const results = await Promise.all(
+    propertyIds.map((propertyId) =>
+      adminDb.collection(collection).where('propertyId', '==', propertyId).get()
+    )
+  );
+
+  const byId = new Map<string, T>();
+  results.forEach((snapshot) => {
+    snapshot.docs.forEach((doc) => byId.set(doc.id, docWithId<T>(doc)));
+  });
+  return Array.from(byId.values());
 }
 
 async function getTenantScopedCollection<T>(
@@ -158,11 +183,25 @@ export async function getTenantPortalDashboard(
     .filter((tenancy) => propertyMap.has(tenancy.propertyId))
     .map((tenancy) => tenancy.id);
 
-  const [requests, documents, inspections] = await Promise.all([
+  const validPropertyIds = Array.from(
+    new Set(
+      activeTenancies
+        .filter((tenancy) => propertyMap.has(tenancy.propertyId))
+        .map((tenancy) => tenancy.propertyId)
+    )
+  );
+
+  const [requests, allDocuments, inspections] = await Promise.all([
     getTenantScopedCollection<TenantRequest>('tenantRequests', validTenancyIds),
-    getTenantScopedCollection<TenantDocument>('tenantDocuments', validTenancyIds),
+    getPropertyScopedCollection<TenantDocument>('propertyDocuments', validPropertyIds),
     getTenantScopedCollection<TenantInspection>('tenantInspections', validTenancyIds),
   ]);
+
+  const documents = allDocuments.filter((document) => {
+    if (!(document.audiences || []).includes('tenant')) return false;
+    if (!document.tenancyId) return true;
+    return validTenancyIds.includes(document.tenancyId);
+  });
 
   const publicRequests = requests
     .map(publicTenantRequest)
@@ -173,6 +212,8 @@ export async function getTenantPortalDashboard(
       id: document.id,
       tenancyId: document.tenancyId,
       propertyId: document.propertyId,
+      clientIds: document.clientIds || [],
+      audiences: document.audiences || ['tenant'],
       title: document.title,
       category: document.category,
       fileName: document.fileName,
@@ -301,24 +342,52 @@ export async function getTenantDocumentForUser(
   tenant: TenantUserRecord,
   documentId: string
 ): Promise<(TenantDocument & { storagePath?: string }) | null> {
-  const doc = await adminDb.collection('tenantDocuments').doc(documentId).get();
+  const doc = await adminDb.collection('propertyDocuments').doc(documentId).get();
   if (!doc.exists) return null;
   const document = docWithId<TenantDocument & { storagePath?: string }>(doc);
-  return (await tenantHasActiveTenancy(tenant, document.tenancyId)) ? document : null;
+
+  if (!(document.audiences || []).includes('tenant')) return null;
+
+  const tenancies = await getDocumentsByIds<TenancyRecord>('tenancies', tenant.tenancyIds);
+  const activeTenancies = tenancies.filter(
+    (tenancy) => tenancy.status !== 'ended' && tenancy.propertyId === document.propertyId
+  );
+  if (activeTenancies.length === 0) return null;
+
+  if (document.tenancyId && !activeTenancies.some((tenancy) => tenancy.id === document.tenancyId)) {
+    return null;
+  }
+
+  return document;
 }
 
 export async function listAdminTenantPortal(): Promise<AdminTenantPortalSnapshot> {
-  const [properties, tenancies, tenantUsers, requests, documents, inspections] =
-    await Promise.all([
-      adminDb.collection('properties').orderBy('updatedAt', 'desc').limit(500).get(),
-      adminDb.collection('tenancies').orderBy('updatedAt', 'desc').limit(500).get(),
-      adminDb.collection('tenantUsers').orderBy('updatedAt', 'desc').limit(500).get(),
-      adminDb.collection('tenantRequests').orderBy('updatedAt', 'desc').limit(500).get(),
-      adminDb.collection('tenantDocuments').orderBy('uploadedAt', 'desc').limit(500).get(),
-      adminDb.collection('tenantInspections').orderBy('scheduledStart', 'desc').limit(500).get(),
-    ]);
+  const [
+    clients,
+    clientUsers,
+    clientPropertyLinks,
+    properties,
+    tenancies,
+    tenantUsers,
+    requests,
+    documents,
+    inspections,
+  ] = await Promise.all([
+    adminDb.collection('clients').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('clientUsers').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('clientPropertyLinks').orderBy('updatedAt', 'desc').limit(1000).get(),
+    adminDb.collection('properties').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('tenancies').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('tenantUsers').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('tenantRequests').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('propertyDocuments').orderBy('uploadedAt', 'desc').limit(1000).get(),
+    adminDb.collection('tenantInspections').orderBy('scheduledStart', 'desc').limit(500).get(),
+  ]);
 
   return {
+    clients: clients.docs.map((doc) => docWithId<ClientRecord>(doc)),
+    clientUsers: clientUsers.docs.map((doc) => docWithId<ClientUserRecord>(doc)),
+    clientPropertyLinks: clientPropertyLinks.docs.map((doc) => docWithId<ClientPropertyLink>(doc)),
     properties: properties.docs.map((doc) => docWithId<TenantProperty>(doc)),
     tenancies: tenancies.docs.map((doc) => docWithId<TenancyRecord>(doc)),
     tenantUsers: tenantUsers.docs.map((doc) => docWithId<TenantUserRecord>(doc)),
@@ -335,9 +404,17 @@ export async function createTenantProperty(input: {
   state: string;
   postcode: string;
   propertyType?: string;
+  primaryClientId?: string;
   clientName?: string;
   clientReference?: string;
 }): Promise<TenantProperty> {
+  let primaryClient: ClientRecord | null = null;
+  if (input.primaryClientId) {
+    const clientDoc = await adminDb.collection('clients').doc(input.primaryClientId).get();
+    if (!clientDoc.exists) throw new Error('CLIENT_NOT_FOUND');
+    primaryClient = docWithId<ClientRecord>(clientDoc);
+  }
+
   const ref = adminDb.collection('properties').doc();
   const now = nowIso();
   const property: TenantProperty = {
@@ -348,13 +425,24 @@ export async function createTenantProperty(input: {
     state: input.state,
     postcode: input.postcode,
     propertyType: input.propertyType,
-    clientName: input.clientName,
+    primaryClientId: primaryClient?.id,
+    clientName: input.clientName || primaryClient?.name,
     clientReference: input.clientReference,
     status: 'active',
     createdAt: now,
     updatedAt: now,
   };
   await ref.set(property);
+
+  if (primaryClient) {
+    await createClientPropertyLink({
+      clientId: primaryClient.id,
+      propertyId: property.id,
+      role: 'owner',
+      primary: true,
+    });
+  }
+
   return property;
 }
 
@@ -368,14 +456,16 @@ export async function createTenancy(input: {
   notes?: string;
   status?: TenancyRecord['status'];
 }): Promise<TenancyRecord> {
-  const property = await adminDb.collection('properties').doc(input.propertyId).get();
-  if (!property.exists) throw new Error('PROPERTY_NOT_FOUND');
+  const propertyDoc = await adminDb.collection('properties').doc(input.propertyId).get();
+  if (!propertyDoc.exists) throw new Error('PROPERTY_NOT_FOUND');
+  const property = docWithId<TenantProperty>(propertyDoc);
 
   const ref = adminDb.collection('tenancies').doc();
   const now = nowIso();
   const tenancy: TenancyRecord = {
     id: ref.id,
     propertyId: input.propertyId,
+    clientId: property.primaryClientId,
     status: input.status || 'active',
     startDate: input.startDate,
     endDate: input.endDate,
@@ -436,8 +526,10 @@ export async function updateTenantRequestAdmin(
 }
 
 export async function createTenantDocumentRecord(input: {
-  tenancyId: string;
+  tenancyId?: string;
   propertyId: string;
+  clientIds?: string[];
+  audiences?: PortalAudience[];
   title: string;
   category: TenantDocumentCategory;
   fileName: string;
@@ -446,11 +538,41 @@ export async function createTenantDocumentRecord(input: {
   storagePath: string;
   uploadedBy: string;
 }): Promise<TenantDocument> {
-  const ref = adminDb.collection('tenantDocuments').doc();
+  const propertyDoc = await adminDb.collection('properties').doc(input.propertyId).get();
+  if (!propertyDoc.exists) throw new Error('PROPERTY_NOT_FOUND');
+
+  if (input.tenancyId) {
+    const tenancy = await getTenancyById(input.tenancyId);
+    if (!tenancy || tenancy.propertyId !== input.propertyId) {
+      throw new Error('TENANCY_PROPERTY_MISMATCH');
+    }
+  }
+
+  const links = await adminDb
+    .collection('clientPropertyLinks')
+    .where('propertyId', '==', input.propertyId)
+    .get();
+  const linkedClientIds = links.docs
+    .map((doc) => docWithId<ClientPropertyLink>(doc))
+    .filter((link) => link.active)
+    .map((link) => link.clientId);
+
+  const requestedClientIds = input.clientIds?.length
+    ? Array.from(new Set(input.clientIds))
+    : linkedClientIds;
+
+  if (requestedClientIds.some((clientId) => !linkedClientIds.includes(clientId))) {
+    throw new Error('CLIENT_PROPERTY_MISMATCH');
+  }
+
+  const audiences = Array.from(new Set(input.audiences?.length ? input.audiences : ['tenant']));
+  const ref = adminDb.collection('propertyDocuments').doc();
   const document: TenantDocument & { storagePath: string } = {
     id: ref.id,
     tenancyId: input.tenancyId,
     propertyId: input.propertyId,
+    clientIds: requestedClientIds,
+    audiences,
     title: input.title,
     category: input.category,
     fileName: input.fileName,
@@ -567,4 +689,267 @@ export async function updateTenancyAdmin(
   await ref.set(patch, { merge: true });
 
   return docWithId<TenancyRecord>(await ref.get());
+}
+
+
+export async function createClient(input: {
+  name: string;
+  clientType: ClientType;
+  email?: string;
+  phone?: string;
+  externalReference?: string;
+}): Promise<ClientRecord> {
+  const ref = adminDb.collection('clients').doc();
+  const now = nowIso();
+  const client: ClientRecord = {
+    id: ref.id,
+    name: input.name.trim(),
+    clientType: input.clientType,
+    email: input.email?.trim(),
+    phone: input.phone?.trim(),
+    externalReference: input.externalReference?.trim(),
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(client);
+  return client;
+}
+
+export async function createClientPropertyLink(input: {
+  clientId: string;
+  propertyId: string;
+  role: ClientPropertyRole;
+  primary?: boolean;
+}): Promise<ClientPropertyLink> {
+  const [clientDoc, propertyDoc] = await Promise.all([
+    adminDb.collection('clients').doc(input.clientId).get(),
+    adminDb.collection('properties').doc(input.propertyId).get(),
+  ]);
+  if (!clientDoc.exists) throw new Error('CLIENT_NOT_FOUND');
+  if (!propertyDoc.exists) throw new Error('PROPERTY_NOT_FOUND');
+
+  const existing = await adminDb
+    .collection('clientPropertyLinks')
+    .where('clientId', '==', input.clientId)
+    .where('propertyId', '==', input.propertyId)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    const current = docWithId<ClientPropertyLink>(existing.docs[0]);
+    const updatedAt = nowIso();
+    await existing.docs[0].ref.set(
+      {
+        role: input.role,
+        primary: Boolean(input.primary),
+        active: true,
+        updatedAt,
+      },
+      { merge: true }
+    );
+    return {
+      ...current,
+      role: input.role,
+      primary: Boolean(input.primary),
+      active: true,
+      updatedAt,
+    };
+  }
+
+  const ref = adminDb.collection('clientPropertyLinks').doc();
+  const now = nowIso();
+  const link: ClientPropertyLink = {
+    id: ref.id,
+    clientId: input.clientId,
+    propertyId: input.propertyId,
+    role: input.role,
+    primary: Boolean(input.primary),
+    active: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(link);
+
+  if (link.primary) {
+    const client = docWithId<ClientRecord>(clientDoc);
+    await propertyDoc.ref.set(
+      {
+        primaryClientId: client.id,
+        clientName: client.name,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  }
+
+  return link;
+}
+
+export async function createClientUser(input: {
+  email: string;
+  displayName: string;
+  phone?: string;
+  clientIds: string[];
+}): Promise<ClientUserRecord> {
+  const emailLower = normalizeTenantEmail(input.email);
+  const existing = await adminDb
+    .collection('clientUsers')
+    .where('emailLower', '==', emailLower)
+    .limit(1)
+    .get();
+  if (!existing.empty) throw new Error('CLIENT_USER_EMAIL_EXISTS');
+
+  const clientIds = Array.from(new Set(input.clientIds));
+  const clients = await getDocumentsByIds<ClientRecord>('clients', clientIds);
+  if (clients.length !== clientIds.length) throw new Error('CLIENT_NOT_FOUND');
+
+  const ref = adminDb.collection('clientUsers').doc();
+  const now = nowIso();
+  const user: ClientUserRecord = {
+    id: ref.id,
+    email: input.email.trim(),
+    emailLower,
+    displayName: input.displayName.trim(),
+    phone: input.phone?.trim(),
+    clientIds,
+    active: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(user);
+  return user;
+}
+
+export async function findAndLinkClientUser(params: {
+  uid: string;
+  email: string;
+}): Promise<ClientUserRecord | null> {
+  const emailLower = normalizeTenantEmail(params.email);
+  const uidMatch = await adminDb
+    .collection('clientUsers')
+    .where('firebaseUid', '==', params.uid)
+    .limit(1)
+    .get();
+
+  if (!uidMatch.empty) {
+    const user = docWithId<ClientUserRecord>(uidMatch.docs[0]);
+    if (!user.active || user.emailLower !== emailLower) return null;
+    const updatedAt = nowIso();
+    await uidMatch.docs[0].ref.set({ lastLoginAt: updatedAt, updatedAt }, { merge: true });
+    return { ...user, lastLoginAt: updatedAt, updatedAt };
+  }
+
+  const emailMatch = await adminDb
+    .collection('clientUsers')
+    .where('emailLower', '==', emailLower)
+    .limit(1)
+    .get();
+  if (emailMatch.empty) return null;
+
+  const userRef = emailMatch.docs[0].ref;
+  let linked: ClientUserRecord | null = null;
+  await adminDb.runTransaction(async (transaction) => {
+    const current = await transaction.get(userRef);
+    if (!current.exists) return;
+    const data = current.data() as ClientUserRecord;
+    if (!data.active) return;
+    if (data.firebaseUid && data.firebaseUid !== params.uid) return;
+
+    const updatedAt = nowIso();
+    transaction.set(
+      userRef,
+      { firebaseUid: params.uid, lastLoginAt: updatedAt, updatedAt },
+      { merge: true }
+    );
+    linked = {
+      ...data,
+      id: current.id,
+      firebaseUid: params.uid,
+      lastLoginAt: updatedAt,
+      updatedAt,
+    };
+  });
+  return linked;
+}
+
+export async function getClientPortalDashboard(
+  clientUser: ClientUserRecord
+): Promise<ClientPortalDashboard> {
+  const clients = (await getDocumentsByIds<ClientRecord>('clients', clientUser.clientIds))
+    .filter((client) => client.status === 'active');
+
+  const linkSnapshots = await Promise.all(
+    clients.map((client) =>
+      adminDb.collection('clientPropertyLinks').where('clientId', '==', client.id).get()
+    )
+  );
+  const propertyLinks = linkSnapshots
+    .flatMap((snapshot) => snapshot.docs.map((doc) => docWithId<ClientPropertyLink>(doc)))
+    .filter((link) => link.active);
+
+  const properties = await getDocumentsByIds<TenantProperty>(
+    'properties',
+    Array.from(new Set(propertyLinks.map((link) => link.propertyId)))
+  );
+  const propertyIds = properties.map((property) => property.id);
+  const allDocuments = await getPropertyScopedCollection<TenantDocument>(
+    'propertyDocuments',
+    propertyIds
+  );
+  const allowedClientIds = clients.map((client) => client.id);
+  const documents = allDocuments
+    .filter(
+      (document) =>
+        (document.audiences || []).includes('client') &&
+        (document.clientIds || []).some((clientId) => allowedClientIds.includes(clientId))
+    )
+    .map((document) => {
+      const { storagePath: _storagePath, ...publicDocument } =
+        document as TenantDocument & { storagePath?: string };
+      return publicDocument;
+    })
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+
+  return {
+    clientUser: {
+      id: clientUser.id,
+      email: clientUser.email,
+      displayName: clientUser.displayName,
+      phone: clientUser.phone,
+    },
+    clients,
+    properties,
+    propertyLinks,
+    documents,
+  };
+}
+
+export async function getClientDocumentForUser(
+  clientUser: ClientUserRecord,
+  documentId: string
+): Promise<(TenantDocument & { storagePath?: string }) | null> {
+  const doc = await adminDb.collection('propertyDocuments').doc(documentId).get();
+  if (!doc.exists) return null;
+  const document = docWithId<TenantDocument & { storagePath?: string }>(doc);
+
+  if (!(document.audiences || []).includes('client')) return null;
+  if (!(document.clientIds || []).some((clientId) => clientUser.clientIds.includes(clientId))) {
+    return null;
+  }
+
+  const links = await adminDb
+    .collection('clientPropertyLinks')
+    .where('propertyId', '==', document.propertyId)
+    .get();
+  const authorised = links.docs
+    .map((linkDoc) => docWithId<ClientPropertyLink>(linkDoc))
+    .some(
+      (link) =>
+        link.active &&
+        clientUser.clientIds.includes(link.clientId) &&
+        (document.clientIds || []).includes(link.clientId)
+    );
+
+  return authorised ? document : null;
 }
