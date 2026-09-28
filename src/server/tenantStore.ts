@@ -809,6 +809,7 @@ export async function createClientUser(input: {
   displayName: string;
   phone?: string;
   clientIds: string[];
+  clientRoles?: Record<string, 'owner' | 'admin' | 'member' | 'viewer'>;
 }): Promise<ClientUserRecord> {
   const emailLower = normalizeTenantEmail(input.email);
   const existing = await adminDb
@@ -831,6 +832,12 @@ export async function createClientUser(input: {
     displayName: input.displayName.trim(),
     phone: input.phone?.trim(),
     clientIds,
+    clientRoles: Object.fromEntries(
+      clientIds.map((clientId) => [
+        clientId,
+        input.clientRoles?.[clientId] || 'owner',
+      ])
+    ),
     active: true,
     createdAt: now,
     updatedAt: now,
