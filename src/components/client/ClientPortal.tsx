@@ -30,6 +30,7 @@ import {
 import {
   AddPropertyForm,
   ClientOnboardingWizard,
+  EditPropertyForm,
   DocumentRequestForm,
   MaintenanceRequestForm,
 } from './ClientForms';
@@ -106,6 +107,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addingProperty, setAddingProperty] = useState(false);
+  const [editingProperty, setEditingProperty] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [approvalComments, setApprovalComments] = useState<Record<string, string>>({});
 
@@ -472,10 +474,31 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                     <button type="button" onClick={() => onBookProperty ? onBookProperty(selectedProperty) : onNavigate('/book')} className="px-3 py-2 rounded-lg bg-[#007F82] text-white text-xs font-bold">Book Service</button>
                     <button type="button" onClick={() => onNavigate(`/portal/requests/maintenance?propertyId=${encodeURIComponent(selectedProperty.id)}`)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Maintenance</button>
                     <button type="button" onClick={() => onNavigate(`/portal/requests/document?propertyId=${encodeURIComponent(selectedProperty.id)}`)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Request Document</button>
+                    {data.membership.role !== 'viewer' && (
+                      <button type="button" onClick={() => setEditingProperty((current) => !current)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">
+                        {editingProperty ? 'Close Edit' : 'Edit Property'}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {selectedProperty.notes && <div className="mt-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{selectedProperty.notes}</div>}
               </div>
+
+              {editingProperty && data.membership.role !== 'viewer' && (
+                <EditPropertyForm
+                  property={selectedProperty}
+                  onSaved={async () => {
+                    setEditingProperty(false);
+                    await load();
+                  }}
+                  onArchived={async () => {
+                    setEditingProperty(false);
+                    await load();
+                    onNavigate('/portal/properties');
+                  }}
+                  onCancel={() => setEditingProperty(false)}
+                />
+              )}
 
               {[
                 ['Bookings', data.bookings.filter((item) => item.propertyId === selectedProperty.id), (item: any) => `${item.serviceName} · ${item.appointment.dateString} ${item.appointment.timeString}`],
