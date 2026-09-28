@@ -533,6 +533,10 @@
           "type": "string",
           "maxLength": 128
         },
+        "draftGenerationStatus": {
+          "type": "string",
+          "enum": ["generating", "generated", "failed"]
+        },
         "createdAt": {
           "type": "string",
           "maxLength": 50
