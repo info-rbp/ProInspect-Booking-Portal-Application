@@ -10,7 +10,8 @@ import type {
   PropertyDetails,
   ServiceCategory,
 } from '../types/booking';
-import { getAdminIdToken } from './firebase';
+import type { ClientPortalDashboard } from '../types/clientPortal';
+import { getAdminIdToken, getAuthIdToken } from './firebase';
 
 type ApiErrorResponse = {
   error?: string;
@@ -34,6 +35,8 @@ type AdminServiceReorderResponse = { services: InspectionService[] } & ApiErrorR
 type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
 type AddressAutocompleteResponse = { suggestions: AddressSuggestion[] } & ApiErrorResponse;
 type AddressValidationResponse = { result: AddressValidationResult } & ApiErrorResponse;
+type ClientSessionResponse = { authorised: boolean };
+type ClientDashboardResponse = { dashboard: ClientPortalDashboard } & ApiErrorResponse;
 
 export async function fetchServices(): Promise<InspectionService[]> {
   const res = await fetch('/api/services');
@@ -103,9 +106,13 @@ export async function submitBooking(payload: {
   access: unknown;
   appointment: { start: string };
 }): Promise<{ success: boolean; booking: PublicBookingSummary; message?: string }> {
+  const idToken = await getAuthIdToken();
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (idToken) headers.set('Authorization', `Bearer ${idToken}`);
+
   const res = await fetch('/api/bookings/create', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -118,6 +125,45 @@ export async function submitBooking(payload: {
   }
 
   return data;
+}
+
+async function clientFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const idToken = await getAuthIdToken();
+
+  if (!idToken) {
+    throw new Error('Client authentication is required.');
+  }
+
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${idToken}`);
+
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
+export async function verifyClientSession(): Promise<void> {
+  const res = await clientFetch('/api/client/session');
+  const data = (await res.json().catch(() => ({}))) as Partial<ClientSessionResponse> & ApiErrorResponse;
+
+  if (!res.ok || data.authorised !== true) {
+    throw new Error(data.error || 'This account could not be verified for the ProInspect Client Portal.');
+  }
+}
+
+export async function fetchClientDashboard(): Promise<ClientPortalDashboard> {
+  const res = await clientFetch('/api/client/dashboard');
+  const data = (await res.json()) as ClientDashboardResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to load the client portal.');
+  }
+
+  return data.dashboard;
 }
 
 async function adminFetch(
