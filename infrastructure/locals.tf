@@ -4,7 +4,7 @@ locals {
   client_documents_bucket_name = (
     trimspace(var.client_documents_bucket_name) != ""
     ? var.client_documents_bucket_name
-    : format("%s-proinspect-client-documents-%s", var.project_id, var.environment)
+    : format("proinspect-client-docs-%s-%s", data.google_project.current.number, var.environment)
   )
 
   runtime_project_roles = toset([
