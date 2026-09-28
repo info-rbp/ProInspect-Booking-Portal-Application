@@ -12,7 +12,9 @@
     "lint": "tsc --noEmit",
     "container:build": "docker build -t proinspect-booking-portal .",
     "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs",
-    "test:architecture": "tsx scripts/verify-platform-architecture.ts"
+    "test:architecture": "tsx scripts/verify-platform-architecture.ts",
+    "migrate:platform": "tsx scripts/migrate-admin-platform.ts",
+    "migrate:platform:apply": "tsx scripts/migrate-admin-platform.ts --apply"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
