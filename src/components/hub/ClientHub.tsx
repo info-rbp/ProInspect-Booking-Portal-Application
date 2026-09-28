@@ -1,8 +1,8 @@
 import React from 'react';
-import { ArrowRight, CalendarCheck2, FileText, Home } from 'lucide-react';
+import { ArrowRight, CalendarCheck2, FileText, Home, Building2 } from 'lucide-react';
 
 interface ClientHubProps {
-  onNavigate: (path: '/book' | '/request-document' | '/tenant') => void;
+  onNavigate: (path: '/book' | '/request-document' | '/tenant' | '/client') => void;
 }
 
 export const ClientHub: React.FC<ClientHubProps> = ({ onNavigate }) => {
@@ -20,7 +20,7 @@ export const ClientHub: React.FC<ClientHubProps> = ({ onNavigate }) => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
         <button
           type="button"
           onClick={() => onNavigate('/book')}
@@ -60,6 +60,24 @@ export const ClientHub: React.FC<ClientHubProps> = ({ onNavigate }) => {
             <ArrowRight className="w-4 h-4" />
           </span>
         </button>
+        <button
+          type="button"
+          onClick={() => onNavigate('/client')}
+          className="group text-left rounded-2xl border-2 border-slate-200 bg-white p-6 sm:p-7 hover:border-[#00B5B8] hover:shadow-md transition-all"
+        >
+          <div className="w-12 h-12 rounded-xl bg-[#F0FBFB] text-[#007F82] flex items-center justify-center">
+            <Building2 className="w-6 h-6" />
+          </div>
+          <h2 className="mt-5 text-xl font-extrabold text-[#1A2B4A]">Client Portal</h2>
+          <p className="mt-2 text-sm text-slate-600 leading-relaxed min-h-[3.5rem]">
+            View properties, bookings, documents, approvals, payments and operational requests.
+          </p>
+          <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#006D70] group-hover:gap-3 transition-all">
+            Open Client Portal
+            <ArrowRight className="w-4 h-4" />
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => onNavigate('/tenant')}
