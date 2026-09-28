@@ -56,6 +56,33 @@ async function getTenantScopedCollection<T>(
   return Array.from(byId.values());
 }
 
+function publicTenantRequest(request: TenantRequest): TenantRequest {
+  return {
+    id: request.id,
+    reference: request.reference,
+    requestType: request.requestType,
+    tenantUserId: request.tenantUserId,
+    tenancyId: request.tenancyId,
+    propertyId: request.propertyId,
+    title: request.title,
+    details: request.details,
+    priority: request.priority,
+    status: request.status,
+    accessPermission: request.accessPermission,
+    preferredAccessNotes: request.preferredAccessNotes,
+    payload: request.payload || {},
+    attachments: (request.attachments || []).map((attachment) => ({
+      id: attachment.id,
+      fileName: attachment.fileName,
+      contentType: attachment.contentType,
+      size: attachment.size,
+      uploadedAt: attachment.uploadedAt,
+    })),
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+  };
+}
+
 export async function findAndLinkTenantUser(params: {
   uid: string;
   email: string;
@@ -138,30 +165,7 @@ export async function getTenantPortalDashboard(
   ]);
 
   const publicRequests = requests
-    .map((request) => ({
-      id: request.id,
-      reference: request.reference,
-      requestType: request.requestType,
-      tenantUserId: request.tenantUserId,
-      tenancyId: request.tenancyId,
-      propertyId: request.propertyId,
-      title: request.title,
-      details: request.details,
-      priority: request.priority,
-      status: request.status,
-      accessPermission: request.accessPermission,
-      preferredAccessNotes: request.preferredAccessNotes,
-      payload: request.payload || {},
-      attachments: (request.attachments || []).map((attachment) => ({
-        id: attachment.id,
-        fileName: attachment.fileName,
-        contentType: attachment.contentType,
-        size: attachment.size,
-        uploadedAt: attachment.uploadedAt,
-      })),
-      createdAt: request.createdAt,
-      updatedAt: request.updatedAt,
-    }))
+    .map(publicTenantRequest)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const publicDocuments = documents
@@ -267,7 +271,7 @@ export async function addTenantRequestAttachment(
 
   await ref.set({ attachments, updatedAt: nowIso() }, { merge: true });
   const updated = await ref.get();
-  return docWithId<TenantRequest>(updated);
+  return publicTenantRequest(docWithId<TenantRequest>(updated));
 }
 
 export async function getTenantRequestAttachmentForUser(
