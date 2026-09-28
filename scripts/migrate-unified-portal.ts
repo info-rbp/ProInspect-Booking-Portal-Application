@@ -34,6 +34,8 @@ async function main() {
     propertySnapshot,
     clientSnapshot,
     clientUserSnapshot,
+    membershipSnapshot,
+    legacyOrganisations,
     legacyProperties,
     legacyDocuments,
   ] = await Promise.all([
@@ -41,9 +43,16 @@ async function main() {
     adminDb.collection('properties').get(),
     adminDb.collection('clients').get(),
     adminDb.collection('clientUsers').get(),
+    adminDb.collection('clientMemberships').get(),
+    adminDb.collection('clientOrganisations').get(),
     adminDb.collection('clientProperties').get(),
     adminDb.collection('clientDocuments').get(),
   ]);
+
+  const legacyMembershipDocs = membershipSnapshot.docs.filter((doc) => {
+    const data = doc.data() as any;
+    return typeof data.organisationId === 'string' && !data.clientId;
+  });
 
   const summary = {
     bookingsScanned: bookingSnapshot.size,
@@ -59,6 +68,11 @@ async function main() {
     bookingsWithoutClientContext: 0,
     clientRolesBackfilled: 0,
     clientMembershipsBackfilled: 0,
+    legacyClientOrganisationsScanned: legacyOrganisations.size,
+    legacyClientOrganisationsMigrated: 0,
+    legacyClientMembershipsScanned: legacyMembershipDocs.length,
+    legacyClientMembershipsMigrated: 0,
+    legacyClientMembershipsRequiringReview: 0,
     legacyClientPropertiesScanned: legacyProperties.size,
     legacyClientDocumentsScanned: legacyDocuments.size,
     legacyRecordsMigrated: 0,
@@ -112,6 +126,145 @@ async function main() {
       continue;
     }
     if (!duplicateClientNames.has(key)) clientsByName.set(key, doc.id);
+  }
+
+  const knownClientIds = new Set(clientSnapshot.docs.map((doc) => doc.id));
+  const clientUsersByUid = new Map<string, { id: string; data: any }>();
+  const clientUsersByEmail = new Map<string, { id: string; data: any }>();
+
+  for (const doc of clientUserSnapshot.docs) {
+    const data = doc.data() as any;
+    if (typeof data.firebaseUid === 'string' && data.firebaseUid.trim()) {
+      clientUsersByUid.set(data.firebaseUid.trim(), { id: doc.id, data });
+    }
+    const emailLower =
+      typeof data.emailLower === 'string' && data.emailLower.trim()
+        ? data.emailLower.trim().toLowerCase()
+        : typeof data.email === 'string'
+          ? data.email.trim().toLowerCase()
+          : '';
+    if (emailLower) clientUsersByEmail.set(emailLower, { id: doc.id, data });
+  }
+
+  const legacyClientType = (entityType: unknown) => {
+    switch (normalise(entityType)) {
+      case 'individual': return 'landlord';
+      case 'agency': return 'agency';
+      case 'company': return 'commercial_landlord';
+      case 'strata': return 'strata_company';
+      default: return 'other';
+    }
+  };
+
+  // Convert the frozen Client Portal organisation model into canonical clients.
+  for (const doc of legacyOrganisations.docs) {
+    const old = doc.data() as any;
+    const name = typeof old.name === 'string' ? old.name.trim() : '';
+    if (!name) {
+      console.warn('Skipping legacy client organisation without a name:', doc.id);
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const clientId = doc.id;
+    const clientRef = adminDb.collection('clients').doc(clientId);
+    const existingClient = await clientRef.get();
+
+    summary.legacyClientOrganisationsMigrated += 1;
+    knownClientIds.add(clientId);
+    const nameKey = clientNameKey(name);
+    if (nameKey && !duplicateClientNames.has(nameKey)) clientsByName.set(nameKey, clientId);
+
+    if (apply) {
+      const existing = existingClient.exists ? existingClient.data() as any : {};
+      await clientRef.set({
+        id: clientId,
+        name,
+        clientType: existing.clientType || legacyClientType(old.entityType),
+        email: existing.email || old.billingEmail || undefined,
+        billingEmail: old.billingEmail || existing.billingEmail || undefined,
+        phone: old.phone || existing.phone || undefined,
+        abn: old.abn || existing.abn || undefined,
+        acn: old.acn || existing.acn || undefined,
+        externalReference: existing.externalReference,
+        status: existing.status || 'active',
+        createdAt: existing.createdAt || old.createdAt || now,
+        updatedAt: now,
+        legacyEntityType: old.entityType || undefined,
+        migrationSource: 'legacy-client-organisation',
+      }, { merge: true });
+    }
+  }
+
+  // Convert legacy membership documents that used organisationId/uid into the
+  // canonical clientId/clientUserId relationship without inventing ownership.
+  for (const doc of legacyMembershipDocs) {
+    const old = doc.data() as any;
+    const clientId = typeof old.organisationId === 'string' ? old.organisationId.trim() : '';
+    const email = typeof old.email === 'string' ? old.email.trim().toLowerCase() : '';
+    const uid = typeof old.uid === 'string' ? old.uid.trim() : '';
+    const role = ['owner','admin','member','viewer'].includes(old.role) ? old.role : 'member';
+    const status = ['active','invited','revoked'].includes(old.status) ? old.status : 'invited';
+
+    if (!clientId || !knownClientIds.has(clientId) || (!uid && !email)) {
+      summary.legacyClientMembershipsRequiringReview += 1;
+      console.warn('Legacy client membership requires manual review:', doc.id);
+      continue;
+    }
+
+    const existingUser =
+      (uid ? clientUsersByUid.get(uid) : undefined) ||
+      (email ? clientUsersByEmail.get(email) : undefined);
+    const userId = existingUser?.id || stableId('client_user', uid || email);
+    const current = existingUser?.data || {};
+    const currentIds = Array.isArray(current.clientIds)
+      ? (current.clientIds as unknown[]).filter((id): id is string => typeof id === 'string')
+      : [];
+    const currentRoles =
+      current.clientRoles && typeof current.clientRoles === 'object'
+        ? current.clientRoles as Record<string, string>
+        : {};
+    const nextClientIds = Array.from(new Set([...currentIds, clientId]));
+    const nextRoles = { ...currentRoles, [clientId]: role };
+    const now = new Date().toISOString();
+
+    summary.legacyClientMembershipsMigrated += 1;
+
+    if (apply) {
+      const userRef = adminDb.collection('clientUsers').doc(userId);
+      await userRef.set({
+        id: userId,
+        email: email || current.email || '',
+        emailLower: email || current.emailLower || '',
+        displayName: old.displayName || current.displayName || email || 'Client User',
+        phone: current.phone,
+        firebaseUid: uid || current.firebaseUid || undefined,
+        active: status === 'active' && current.active !== false,
+        clientIds: nextClientIds,
+        clientRoles: nextRoles,
+        createdAt: current.createdAt || old.createdAt || now,
+        updatedAt: now,
+        lastLoginAt: current.lastLoginAt,
+        migrationSource: 'legacy-client-membership',
+      }, { merge: true });
+
+      await doc.ref.set({
+        id: doc.id,
+        clientId,
+        clientUserId: userId,
+        email: email || current.email || '',
+        role,
+        status,
+        invitedBy: old.invitedByUid || undefined,
+        createdAt: old.createdAt || now,
+        updatedAt: now,
+        migrationSource: 'legacy-client-membership',
+      });
+
+      const mapped = { id: userId, data: { ...current, clientIds: nextClientIds, clientRoles: nextRoles } };
+      if (uid) clientUsersByUid.set(uid, mapped);
+      if (email) clientUsersByEmail.set(email, mapped);
+    }
   }
 
   // Backfill explicit roles for client users created before clientRoles existed.
