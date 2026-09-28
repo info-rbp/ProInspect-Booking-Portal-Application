@@ -2998,7 +2998,7 @@ app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('c
       displayName,
       phone: normalizeText(req.body?.phone, 40) || undefined,
       clientIds,
-      clientRoles: Object.fromEntries(clientIds.map((clientId) => [clientId, role])),
+      clientRoles: Object.fromEntries(clientIds.map((clientId: string) => [clientId, role])),
     });
 
     return res.status(201).json({
