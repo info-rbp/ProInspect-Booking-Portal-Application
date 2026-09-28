@@ -174,7 +174,10 @@ Configure:
 ```text
 BOOKING_EMAIL_FROM=ProInspect <bookings@proinspect.systems>
 BOOKING_EMAIL_REPLY_TO=info@proinspect.systems
+DOCUMENT_REQUEST_NOTIFY_TO=info@proinspect.systems
 ```
+
+The public document catalogue uses the same Resend credentials for the customer confirmation and the internal ProInspect notification.
 
 Set `APP_URL` to the active public booking origin. Until the custom domain is
 live, use the current Cloud Run service URL. After
