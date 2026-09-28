@@ -1160,3 +1160,16 @@ export async function getAdminSensitiveEvidenceDownloadUrl(
   if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open restricted evidence.');
   return data.url;
 }
+
+
+export async function getAdminTenantFormAttachmentDownloadUrl(
+  requestId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await adminFetch(
+    `/api/admin/tenant-forms/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open tenant form attachment.');
+  return data.url;
+}
