@@ -1,3 +1,5 @@
+import type { AuditEvent, PlatformResourceName } from './platform';
+
 export type AdminRole =
   | 'administrator'
   | 'operations_manager'
@@ -44,6 +46,10 @@ export interface AdminSession {
   displayName?: string;
   role: AdminRole;
   permissions: AdminPermission[];
+  resourceScope: 'global' | 'assigned';
+  assignedServiceIds: string[];
+  assignedPropertyIds: string[];
+  assignedClientIds: string[];
 }
 
 export interface AdminStaffUser {
@@ -53,6 +59,9 @@ export interface AdminStaffUser {
   role: AdminRole;
   active: boolean;
   assignedServiceIds?: string[];
+  assignedPropertyIds?: string[];
+  assignedClientIds?: string[];
+  resourceScope?: 'global' | 'assigned';
   permissionGrants?: AdminPermission[];
   permissionRevokes?: AdminPermission[];
   lastLoginAt?: string;
@@ -60,15 +69,7 @@ export interface AdminStaffUser {
   updatedAt?: string;
 }
 
-export type AdminResourceName =
-  | 'clients'
-  | 'properties'
-  | 'tenants'
-  | 'propertyDocuments'
-  | 'documentRequests'
-  | 'maintenanceRequests'
-  | 'communications'
-  | 'subscriptions';
+export type AdminResourceName = PlatformResourceName;
 
 export interface AdminResourceRecord {
   id: string;
@@ -86,17 +87,7 @@ export interface AdminResourceRecord {
   [key: string]: unknown;
 }
 
-export interface AdminAuditEvent {
-  id: string;
-  actorUid: string;
-  actorEmail: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  summary?: string;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-}
+export type AdminAuditEvent = AuditEvent;
 
 export interface AdminDashboardSummary {
   bookings: {
@@ -116,6 +107,7 @@ export interface AdminDashboardSummary {
     total: number;
     outstanding: number;
     urgent: number;
+    workOrders: number;
   };
   documents: {
     total: number;
