@@ -890,7 +890,7 @@ export async function createClientRequest(input: {
 
 export async function respondClientApproval(
   approvalId: string,
-  input: { status: 'approved' | 'changes_requested' | 'declined'; comment?: string }
+  input: { status: 'approved' | 'approved_with_conditions' | 'changes_requested' | 'declined'; comment?: string }
 ): Promise<ClientApproval> {
   const res = await clientFetch(`/api/client/approvals/${encodeURIComponent(approvalId)}/respond`, {
     method: 'POST',
@@ -1172,4 +1172,15 @@ export async function getAdminTenantFormAttachmentDownloadUrl(
   const data = (await res.json()) as { url?: string; error?: string };
   if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open tenant form attachment.');
   return data.url;
+}
+
+
+export async function markTenantNotificationRead(notificationId: string): Promise<void> {
+  const res = await tenantFetch(`/api/tenant/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || 'Unable to mark notification as read.');
+  }
 }
