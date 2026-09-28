@@ -789,38 +789,67 @@ export async function buildUnifiedClientDashboard(params: {
     ),
   }));
 
-  const bookingsByEmail = await adminDb
-    .collection('bookings')
-    .where('property.customerEmail', '==', params.user.email)
-    .limit(200)
-    .get()
-    .catch(() => null);
-
   const propertyIds = new Set(params.properties.map((property) => property.id));
-  const bookings = bookingsByEmail
-    ? bookingsByEmail.docs.map((doc) => docWithId<BookingRecord & { propertyId?: string }>(doc))
-        .filter((booking) => !booking.propertyId || propertyIds.has(booking.propertyId))
-        .map((booking) => ({
-          id: booking.id,
-          bookingReference: booking.bookingReference,
-          propertyId: booking.propertyId,
-          serviceName: booking.serviceName,
-          status: booking.status,
-          appointment: {
-            start: booking.appointment.start,
-            end: booking.appointment.end,
-            dateString: booking.appointment.dateString,
-            timeString: booking.appointment.timeString,
-          },
-          property: {
-            streetAddress: booking.property.streetAddress,
-            unit: booking.property.unit,
-            suburb: booking.property.suburb,
-            state: booking.property.state,
-            postcode: booking.property.postcode,
-          },
-        }))
-    : [];
+  const allowedClientIds = new Set(params.user.clientIds);
+  const propertyIdList = Array.from(propertyIds);
+  const chunk = <T,>(items: T[], size: number): T[][] =>
+    Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+      items.slice(index * size, index * size + size)
+    );
+
+  const bookingQueries: Promise<FirebaseFirestore.QuerySnapshot>[] = [
+    ...params.user.clientIds.map((clientId) =>
+      adminDb.collection('bookings').where('clientId', '==', clientId).limit(200).get()
+    ),
+    ...chunk(propertyIdList, 30).map((ids) =>
+      adminDb.collection('bookings').where('propertyId', 'in', ids).limit(200).get()
+    ),
+    adminDb
+      .collection('bookings')
+      .where('property.customerEmail', '==', params.user.email)
+      .limit(200)
+      .get(),
+  ];
+
+  const bookingResults = await Promise.allSettled(bookingQueries);
+  const bookingMap = new Map<string, BookingRecord>();
+  bookingResults.forEach((result) => {
+    if (result.status !== 'fulfilled') return;
+    result.value.docs.forEach((doc) => {
+      const booking = docWithId<BookingRecord>(doc);
+      const authorised =
+        (booking.clientId ? allowedClientIds.has(booking.clientId) : false) ||
+        (booking.propertyId ? propertyIds.has(booking.propertyId) : false) ||
+        (!booking.clientId &&
+          !booking.propertyId &&
+          booking.property.customerEmail.trim().toLowerCase() === params.user.email.trim().toLowerCase());
+
+      if (authorised) bookingMap.set(booking.id, booking);
+    });
+  });
+
+  const bookings = Array.from(bookingMap.values())
+    .sort((a, b) => b.appointment.start.localeCompare(a.appointment.start))
+    .map((booking) => ({
+      id: booking.id,
+      bookingReference: booking.bookingReference,
+      propertyId: booking.propertyId,
+      serviceName: booking.serviceName,
+      status: booking.status,
+      appointment: {
+        start: booking.appointment.start,
+        end: booking.appointment.end,
+        dateString: booking.appointment.dateString,
+        timeString: booking.appointment.timeString,
+      },
+      property: {
+        streetAddress: booking.property.streetAddress,
+        unit: booking.property.unit,
+        suburb: booking.property.suburb,
+        state: booking.property.state,
+        postcode: booking.property.postcode,
+      },
+    }));
 
   const memberships: ClientMembership[] = params.user.clientIds.map((clientId) => ({
     clientId,
