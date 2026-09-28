@@ -15,6 +15,7 @@ import {
   reorderAdminServices,
   updateAdminBooking,
   updateAdminClientRequest,
+  updateAdminDocumentRequest,
   updateAdminService,
 } from '../../services/api';
 import { logoutAdmin } from '../../services/firebase';
@@ -141,6 +142,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setClientRequests((prev) =>
       prev.map((request) => (request.id === id ? updated : request))
     );
+  };
+
+  const handleUpdatePublicDocumentStatus = async (
+    id: string,
+    status: DocumentRequestRecord['status']
+  ) => {
+    const updated = await updateAdminDocumentRequest(id, status);
+    setPublicDocumentRequests((prev) =>
+      prev.map((request) => (request.id === id ? updated : request))
+    );
+
+    // The server synchronises any signed-in Client Portal mirror. Refresh those
+    // lightweight records so staff immediately see the same state everywhere.
+    const requestList = await fetchAdminClientRequests();
+    setClientRequests(requestList);
   };
 
   const handleDownloadClientDocument = async (documentId: string) => {
@@ -574,6 +590,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           documents={clientDocuments}
           publicDocumentRequests={publicDocumentRequests}
           onUpdateStatus={handleUpdateClientRequestStatus}
+          onUpdatePublicDocumentStatus={handleUpdatePublicDocumentStatus}
           onDownloadDocument={handleDownloadClientDocument}
         />
       )}
