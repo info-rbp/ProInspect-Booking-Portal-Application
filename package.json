@@ -14,7 +14,8 @@
     "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs",
     "migrate:portal:dry": "tsx scripts/migrate-unified-portal.ts",
     "migrate:portal": "tsx scripts/migrate-unified-portal.ts --apply",
-    "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs"
+    "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs",
+    "freeze:check": "node scripts/premerge-freeze-check.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
