@@ -2361,6 +2361,10 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
       return res.status(500).json({ error: 'This document is missing its storage reference.' });
     }
 
+    if (!document.storagePath) {
+      return res.status(500).json({ error: 'This document is missing its storage reference.' });
+    }
+
     const stream = openClientFileStream(document.storagePath);
     stream.on('error', (error) => {
       console.error('Client document stream failed:', error);
@@ -2953,6 +2957,10 @@ app.get('/api/admin/client-documents/:id/download', requireAdmin, async (req, re
       `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`
     );
     res.setHeader('Cache-Control', 'private, no-store');
+
+    if (!document.storagePath) {
+      return res.status(500).json({ error: 'This document is missing its storage reference.' });
+    }
 
     const stream = openClientFileStream(document.storagePath);
     stream.on('error', (error) => {
