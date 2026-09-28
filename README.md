@@ -85,6 +85,31 @@ Use GitHub as the source of truth for reviewed code changes:
 4. Keep runtime configuration in Cloud Run and Google IAM rather than in GitHub.
 
 
+## Infrastructure as Code
+
+The `client-portal` branch includes a repository-managed Google Cloud infrastructure layer under `infrastructure/`.
+
+Terraform manages the supporting infrastructure required by the application rather than allowing the running Cloud Run container to create resources itself. The current layer covers required Google APIs, a dedicated private Client Portal document bucket, Secret Manager containers and the runtime IAM bindings required for Firestore, Firebase Authentication, Storage and Google API quota usage.
+
+The existing application deployment remains separate: Cloud Build continues to build/deploy the Docker application, while `cloudbuild.infrastructure.yaml` applies Terraform and updates the existing Cloud Run service with the resulting runtime configuration.
+
+A one-time bootstrap script creates the Terraform state bucket and Terraform build identity:
+
+```bash
+chmod +x infrastructure/bootstrap.sh
+./infrastructure/bootstrap.sh business-plan-applicatio-17047
+```
+
+After bootstrap, infrastructure can be applied through Cloud Build:
+
+```bash
+gcloud builds submit --config cloudbuild.infrastructure.yaml .
+```
+
+Secret payloads are deliberately not stored in Terraform state. Terraform creates the Secret Manager containers and IAM permissions; secret versions are added directly to Secret Manager.
+
+See `infrastructure/README.md` for the full design and operating procedure.
+
 ## Service management
 
 Authorised staff can manage the live booking catalogue from **Staff Portal > Booking Services**.
