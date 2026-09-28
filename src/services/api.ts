@@ -13,6 +13,7 @@ import type {
 import type {
   DocumentProduct,
   DocumentRequestDetails,
+  DocumentRequestRecord,
   DocumentWorkflowData,
   PublicDocumentRequestSummary,
 } from '../types/documentRequest';
@@ -32,6 +33,7 @@ type BookingCreateResponse = {
   message?: string;
 } & ApiErrorResponse;
 type AdminBookingsResponse = { bookings: BookingRecord[] };
+type AdminDocumentRequestsResponse = { requests: DocumentRequestRecord[] };
 type AdminServicesResponse = { services: InspectionService[] };
 type AdminSettingsResponse = { settings: BusinessSettings };
 type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
@@ -199,6 +201,13 @@ export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   if (!res.ok) throw new Error('Failed to load bookings.');
   const data = (await res.json()) as AdminBookingsResponse;
   return data.bookings;
+}
+
+export async function fetchAdminDocumentRequests(): Promise<DocumentRequestRecord[]> {
+  const res = await adminFetch('/api/admin/document-requests');
+  if (!res.ok) throw new Error('Failed to load document requests.');
+  const data = (await res.json()) as AdminDocumentRequestsResponse;
+  return data.requests;
 }
 
 export async function fetchAdminServices(): Promise<InspectionService[]> {
