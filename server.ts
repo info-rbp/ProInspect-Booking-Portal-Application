@@ -38,6 +38,7 @@ import {
   getSettings,
   listBookingsWithAccessSecrets,
   listDocumentProducts,
+  listDocumentRequestsWithSecrets,
   getDocumentProduct,
   listServices,
   newBookingId,
@@ -1025,6 +1026,8 @@ app.get('/api/health', (_req, res) => {
     calendarConfigured: calendarIsConfigured(),
     bookingEmailConfigured: bookingEmailIsConfigured(),
     sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
+    documentRequestEncryptionConfigured:
+      documentRequestEncryptionIsConfigured(),
     addressValidationMode: addressValidationMode(),
     timezone: TIMEZONE,
   });
@@ -1823,6 +1826,18 @@ app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Admin bookings load failed:', error);
     return res.status(500).json({ error: 'Unable to load bookings.' });
+  }
+});
+
+app.get('/api/admin/document-requests', requireAdmin, async (_req, res) => {
+  try {
+    const requests = await listDocumentRequestsWithSecrets();
+    return res.json({ requests });
+  } catch (error) {
+    console.error('Admin document requests load failed:', error);
+    return res.status(500).json({
+      error: 'Unable to load document requests.',
+    });
   }
 });
 
