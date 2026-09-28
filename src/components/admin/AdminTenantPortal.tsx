@@ -21,7 +21,9 @@ import {
   createAdminTenantProperty,
   createAdminTenantUser,
   fetchAdminTenantPortal,
+  updateAdminTenancy,
   updateAdminTenantRequest,
+  updateAdminTenantUser,
   uploadAdminTenantDocument,
 } from '../../services/api';
 
@@ -430,6 +432,104 @@ export const AdminTenantPortal: React.FC = () => {
             <input placeholder="Phone" value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value })} className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <button disabled={busy || snapshot.tenancies.length === 0} className="w-full h-10 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">Create Tenant Access</button>
           </form>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 font-extrabold text-[#1A2B4A]">
+              Tenant Access
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
+              {snapshot.tenantUsers.map((tenant) => (
+                <div key={tenant.id} className="px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="font-bold text-sm text-slate-800 truncate">{tenant.displayName}</div>
+                    <div className="text-xs text-slate-500 truncate">{tenant.email}</div>
+                    <div className="text-[10px] uppercase font-bold mt-1 text-slate-400">
+                      {tenant.active ? 'Active access' : 'Access disabled'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      void withBusy(async () => {
+                        await updateAdminTenantUser(tenant.id, { active: !tenant.active });
+                        setMessage(
+                          tenant.active
+                            ? `${tenant.displayName} portal access disabled.`
+                            : `${tenant.displayName} portal access restored.`
+                        );
+                      });
+                    }}
+                    className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold border disabled:opacity-50 ${
+                      tenant.active
+                        ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                        : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {tenant.active ? 'Disable' : 'Restore'}
+                  </button>
+                </div>
+              ))}
+              {snapshot.tenantUsers.length === 0 && (
+                <div className="p-8 text-sm text-center text-slate-500">No tenant users created.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 font-extrabold text-[#1A2B4A]">
+              Tenancy Status
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">
+              {snapshot.tenancies.map((tenancy) => {
+                const property = propertyById.get(tenancy.propertyId);
+                return (
+                  <div key={tenancy.id} className="px-5 py-4 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-slate-800 truncate">
+                        {property ? `${property.streetAddress}, ${property.suburb}` : tenancy.id}
+                      </div>
+                      <div className="text-xs text-slate-500 capitalize">{tenancy.status}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        const nextStatus = tenancy.status === 'ended' ? 'active' : 'ended';
+                        const endDate =
+                          nextStatus === 'ended'
+                            ? new Date().toISOString().slice(0, 10)
+                            : undefined;
+                        void withBusy(async () => {
+                          await updateAdminTenancy(tenancy.id, {
+                            status: nextStatus,
+                            endDate,
+                          });
+                          setMessage(
+                            nextStatus === 'ended'
+                              ? 'Tenancy marked ended.'
+                              : 'Tenancy restored to active.'
+                          );
+                        });
+                      }}
+                      className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold border disabled:opacity-50 ${
+                        tenancy.status === 'ended'
+                          ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                          : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                      }`}
+                    >
+                      {tenancy.status === 'ended' ? 'Reactivate' : 'End Tenancy'}
+                    </button>
+                  </div>
+                );
+              })}
+              {snapshot.tenancies.length === 0 && (
+                <div className="p-8 text-sm text-center text-slate-500">No tenancies created.</div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
