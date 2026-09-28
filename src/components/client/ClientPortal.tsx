@@ -3,13 +3,15 @@ import type { User } from 'firebase/auth';
 import { Building2, CalendarDays, CheckCircle2, FileText, Loader2, LogOut, RefreshCw, Wrench, Bell, CreditCard } from 'lucide-react';
 import type { UnifiedClientDashboard } from '../../types/platform';
 import {
+  createClientPropertySelf,
   createClientRequest,
+  createClientTeamUser,
   fetchClientDashboard,
   getClientDocumentDownloadUrl,
   respondClientApproval,
 } from '../../services/api';
 
-type Tab='overview'|'properties'|'bookings'|'requests'|'documents'|'approvals'|'payments';
+type Tab='overview'|'properties'|'bookings'|'requests'|'documents'|'approvals'|'payments'|'account';
 
 export const ClientPortal: React.FC<{
   user:User;
@@ -25,6 +27,14 @@ export const ClientPortal: React.FC<{
   const [details,setDetails]=useState('');
   const [priority,setPriority]=useState<'routine'|'priority'|'urgent'>('routine');
   const [busy,setBusy]=useState(false);
+  const [showProperty,setShowProperty]=useState(false);
+  const [showTeam,setShowTeam]=useState(false);
+  const [propertyForm,setPropertyForm]=useState({
+    streetAddress:'',unit:'',suburb:'',state:'WA',postcode:'',propertyType:'House',clientReference:''
+  });
+  const [teamForm,setTeamForm]=useState({
+    displayName:'',email:'',phone:'',role:'member' as 'admin'|'member'|'viewer'
+  });
 
   const load=async()=>{
     setLoading(true); setError(null);
@@ -38,6 +48,9 @@ export const ClientPortal: React.FC<{
   useEffect(()=>{void load();},[user.uid]);
 
   const primaryClient=data?.clients[0];
+  const primaryMembership=data?.clientUser.memberships.find(m=>m.clientId===primaryClient?.id);
+  const canManageAccount=primaryMembership ? ['owner','admin'].includes(primaryMembership.role) : false;
+  const canAddProperty=primaryMembership ? primaryMembership.role !== 'viewer' : false;
   const unread=useMemo(()=>data?.notifications.filter(n=>!n.readAt).length||0,[data]);
 
   const submit=async()=>{
@@ -61,7 +74,7 @@ export const ClientPortal: React.FC<{
   if(loading&&!data) return <div className="py-20 flex justify-center items-center gap-2 text-slate-600"><Loader2 className="w-5 h-5 animate-spin"/>Loading client portal…</div>;
   if(!data) return <div className="max-w-xl mx-auto py-10 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">{error||'Client portal unavailable.'}</div>;
 
-  const tabs:Array<[Tab,string]>= [['overview','Overview'],['properties','Properties'],['bookings','Bookings'],['requests','Requests'],['documents','Documents'],['approvals','Approvals'],['payments','Payments']];
+  const tabs:Array<[Tab,string]>= [['overview','Overview'],['properties','Properties'],['bookings','Bookings'],['requests','Requests'],['documents','Documents'],['approvals','Approvals'],['payments','Payments'],['account','Account']];
 
   return <div className="space-y-6">
     <div className="rounded-2xl bg-[#1A2B4A] text-white p-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -104,7 +117,10 @@ export const ClientPortal: React.FC<{
       </div>
     </div>}
 
-    {tab==='properties'&&<div className="grid md:grid-cols-2 gap-4">{data.properties.map(p=><div key={p.id} className="rounded-xl border border-slate-200 bg-white p-5"><Building2 className="w-5 h-5 text-[#007F82]"/><h3 className="mt-3 font-extrabold text-[#1A2B4A]">{p.unit?`${p.unit}, `:''}{p.streetAddress}</h3><p className="text-sm text-slate-500">{p.suburb} {p.state} {p.postcode}</p><p className="mt-3 text-xs text-slate-500">{p.propertyType||'Property'} · {p.status}</p></div>)}</div>}
+    {tab==='properties'&&<div className="space-y-4">
+      <div className="flex justify-between items-center gap-3"><div><h2 className="text-xl font-extrabold text-[#1A2B4A]">Properties</h2><p className="text-sm text-slate-500">Canonical properties linked to your client account.</p></div>{canAddProperty&&<button onClick={()=>setShowProperty(true)} className="px-4 py-2 rounded-lg bg-[#007F82] text-white text-sm font-bold">Add Property</button>}</div>
+      <div className="grid md:grid-cols-2 gap-4">{data.properties.map(p=><div key={p.id} className="rounded-xl border border-slate-200 bg-white p-5"><Building2 className="w-5 h-5 text-[#007F82]"/><h3 className="mt-3 font-extrabold text-[#1A2B4A]">{p.unit?`${p.unit}, `:''}{p.streetAddress}</h3><p className="text-sm text-slate-500">{p.suburb} {p.state} {p.postcode}</p><p className="mt-3 text-xs text-slate-500">{p.propertyType||'Property'} · {p.status}</p></div>)}</div>
+    </div>}
 
     {tab==='bookings'&&<div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">{data.bookings.map(b=><div key={b.id} className="p-4 flex justify-between gap-4"><div><div className="font-bold text-sm text-[#1A2B4A]">{b.serviceName}</div><div className="text-xs text-slate-500 mt-1">{b.property.streetAddress}, {b.property.suburb}</div></div><div className="text-right text-xs text-slate-500">{b.appointment.dateString}<br/>{b.appointment.timeString}</div></div>)}{!data.bookings.length&&<div className="p-8 text-sm text-center text-slate-500">No linked bookings yet.</div>}</div>}
 
@@ -115,6 +131,23 @@ export const ClientPortal: React.FC<{
     {tab==='approvals'&&<div className="space-y-3">{data.approvals.map(a=><div key={a.id} className="rounded-xl border border-slate-200 bg-white p-5"><div className="font-extrabold text-[#1A2B4A]">{a.title}</div><div className="text-xs text-slate-500 mt-1">{a.reference} · {a.status}</div>{a.summary&&<p className="mt-3 text-sm text-slate-700">{a.summary}</p>}{a.amountExGst!==undefined&&<p className="mt-2 text-sm font-bold text-slate-800">${a.amountExGst.toFixed(2)} + GST</p>}{a.status==='pending'&&<div className="mt-4 flex gap-2"><button onClick={async()=>{await respondClientApproval(a.id,{status:'approved'});await load();}} className="px-3 py-2 rounded-lg bg-[#007F82] text-white text-xs font-bold">Approve</button><button onClick={async()=>{await respondClientApproval(a.id,{status:'changes_requested'});await load();}} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold">Request changes</button><button onClick={async()=>{await respondClientApproval(a.id,{status:'declined'});await load();}} className="px-3 py-2 rounded-lg border border-rose-200 text-rose-700 text-xs font-bold">Decline</button></div>}</div>)}{!data.approvals.length&&<div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No approvals.</div>}</div>}
 
     {tab==='payments'&&<div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">{data.payments.map(p=><div key={p.id} className="p-4 flex justify-between items-center gap-4"><div><div className="font-bold text-sm text-slate-800">{p.description}</div><div className="text-xs text-slate-500 mt-1">{p.reference} · {p.status.replaceAll('_',' ')}</div></div><div className="text-right"><div className="font-bold text-[#1A2B4A]">${p.totalAmount.toFixed(2)}</div>{p.checkoutUrl&&p.status==='payment_required'&&<a href={p.checkoutUrl} className="text-xs font-bold text-[#006D70]">Pay now</a>}</div></div>)}{!data.payments.length&&<div className="p-8 text-center text-sm text-slate-500">No payments recorded.</div>}</div>}
+
+    {tab==='account'&&<div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-extrabold text-[#1A2B4A]">Client account</h2><div className="mt-3 text-sm text-slate-700">{primaryClient?.name||'Client'}</div><div className="mt-1 text-xs text-slate-500">Your role: {primaryMembership?.role||'member'}</div></div>
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden"><div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between"><div><h3 className="font-extrabold text-[#1A2B4A]">Portal users</h3><p className="text-xs text-slate-500 mt-1">People with access to this client account.</p></div>{canManageAccount&&<button onClick={()=>setShowTeam(true)} className="px-3 py-2 rounded-lg bg-[#007F82] text-white text-xs font-bold">Add User</button>}</div><div className="divide-y divide-slate-100">{data.teamUsers.map(member=><div key={member.id} className="px-5 py-4 flex justify-between gap-3"><div><div className="font-bold text-sm text-slate-800">{member.displayName}</div><div className="text-xs text-slate-500">{member.email}</div></div><div className="text-xs font-bold text-slate-500">{primaryClient ? (member.clientRoles[primaryClient.id]||'member') : 'member'}</div></div>)}</div></div>
+    </div>}
+
+    {showProperty&&primaryClient&&<div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto"><div className="max-w-xl mx-auto my-8 rounded-2xl bg-white p-6">
+      <h2 className="text-xl font-extrabold text-[#1A2B4A]">Add Property</h2>
+      <div className="mt-5 grid sm:grid-cols-2 gap-3"><input className="sm:col-span-2 h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Street address" value={propertyForm.streetAddress} onChange={e=>setPropertyForm({...propertyForm,streetAddress:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Unit / lot" value={propertyForm.unit} onChange={e=>setPropertyForm({...propertyForm,unit:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Suburb" value={propertyForm.suburb} onChange={e=>setPropertyForm({...propertyForm,suburb:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" value={propertyForm.state} onChange={e=>setPropertyForm({...propertyForm,state:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Postcode" value={propertyForm.postcode} onChange={e=>setPropertyForm({...propertyForm,postcode:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Property type" value={propertyForm.propertyType} onChange={e=>setPropertyForm({...propertyForm,propertyType:e.target.value})}/><input className="h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Client reference" value={propertyForm.clientReference} onChange={e=>setPropertyForm({...propertyForm,clientReference:e.target.value})}/></div>
+      <div className="mt-5 flex justify-end gap-2"><button onClick={()=>setShowProperty(false)} className="px-4 py-2 text-sm font-bold text-slate-600">Cancel</button><button disabled={busy||!propertyForm.streetAddress||!propertyForm.suburb||!propertyForm.postcode} onClick={async()=>{setBusy(true);try{await createClientPropertySelf({clientId:primaryClient.id,...propertyForm});setShowProperty(false);setPropertyForm({streetAddress:'',unit:'',suburb:'',state:'WA',postcode:'',propertyType:'House',clientReference:''});await load();}catch(e){setError(e instanceof Error?e.message:'Unable to add property.');}finally{setBusy(false);}}} className="px-5 py-2 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">Add Property</button></div>
+    </div></div>}
+
+    {showTeam&&primaryClient&&<div className="fixed inset-0 z-50 bg-slate-950/50 p-4"><div className="max-w-md mx-auto mt-20 rounded-2xl bg-white p-6">
+      <h2 className="text-xl font-extrabold text-[#1A2B4A]">Add Portal User</h2>
+      <div className="mt-5 space-y-3"><input className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Name" value={teamForm.displayName} onChange={e=>setTeamForm({...teamForm,displayName:e.target.value})}/><input type="email" className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Email" value={teamForm.email} onChange={e=>setTeamForm({...teamForm,email:e.target.value})}/><input className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" placeholder="Phone" value={teamForm.phone} onChange={e=>setTeamForm({...teamForm,phone:e.target.value})}/><select className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" value={teamForm.role} onChange={e=>setTeamForm({...teamForm,role:e.target.value as 'admin'|'member'|'viewer'})}><option value="admin">Admin</option><option value="member">Member</option><option value="viewer">Viewer</option></select></div>
+      <div className="mt-5 flex justify-end gap-2"><button onClick={()=>setShowTeam(false)} className="px-4 py-2 text-sm font-bold text-slate-600">Cancel</button><button disabled={busy||!teamForm.displayName||!teamForm.email} onClick={async()=>{setBusy(true);try{await createClientTeamUser({clientId:primaryClient.id,...teamForm});setShowTeam(false);setTeamForm({displayName:'',email:'',phone:'',role:'member'});await load();}catch(e){setError(e instanceof Error?e.message:'Unable to add portal user.');}finally{setBusy(false);}}} className="px-5 py-2 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">Add User</button></div>
+    </div></div>}
 
     {composer&&<div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto"><div className="max-w-xl mx-auto my-8 rounded-2xl bg-white p-6">
       <h2 className="text-xl font-extrabold text-[#1A2B4A]">{composer==='maintenance'?'Maintenance Request':'Property Operations Request'}</h2>
