@@ -1704,7 +1704,12 @@ export function isWorkflowFieldVisible(
   }
 
   if (condition.notEquals !== undefined) {
-    return value !== condition.notEquals;
+    return (
+      value !== undefined &&
+      value !== null &&
+      value !== '' &&
+      value !== condition.notEquals
+    );
   }
 
   if (condition.includes !== undefined) {
