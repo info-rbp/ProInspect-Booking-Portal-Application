@@ -78,12 +78,15 @@ steps:
         from pathlib import Path
 
         values = json.loads(Path('/workspace/runtime-environment.json').read_text())
-        lines = [
-            f'{key}: {json.dumps(str(values[key]))}'
-            for key in sorted(values)
-        ]
-        Path('/workspace/runtime-environment.yaml').write_text(
-            '\n'.join(lines) + '\n'
+        delimiter = "|||"
+        pairs = []
+        for key in sorted(values):
+            value = str(values[key])
+            if delimiter in value:
+                raise ValueError(f"Cloud Run environment value for {key} contains reserved delimiter")
+            pairs.append(f"{key}={value}")
+        Path('/workspace/runtime-environment.txt').write_text(
+            f"^{delimiter}^" + delimiter.join(pairs)
         )
         PY
 
@@ -95,7 +98,7 @@ steps:
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --env-vars-file=/workspace/runtime-environment.yaml \
+          --update-env-vars="$(cat /workspace/runtime-environment.txt)" \
           --quiet
 
         ACCESS_SECRET="$$(cat /workspace/access-secret.txt)"
