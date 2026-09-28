@@ -136,6 +136,48 @@ export async function getTenantPortalDashboard(
     getTenantScopedCollection<TenantInspection>('tenantInspections', validTenancyIds),
   ]);
 
+  const publicRequests = requests
+    .map((request) => ({
+      id: request.id,
+      reference: request.reference,
+      requestType: request.requestType,
+      tenantUserId: request.tenantUserId,
+      tenancyId: request.tenancyId,
+      propertyId: request.propertyId,
+      title: request.title,
+      details: request.details,
+      priority: request.priority,
+      status: request.status,
+      accessPermission: request.accessPermission,
+      preferredAccessNotes: request.preferredAccessNotes,
+      payload: request.payload || {},
+      attachments: (request.attachments || []).map((attachment) => ({
+        id: attachment.id,
+        fileName: attachment.fileName,
+        contentType: attachment.contentType,
+        size: attachment.size,
+        uploadedAt: attachment.uploadedAt,
+      })),
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const publicDocuments = documents
+    .map((document) => ({
+      id: document.id,
+      tenancyId: document.tenancyId,
+      propertyId: document.propertyId,
+      title: document.title,
+      category: document.category,
+      fileName: document.fileName,
+      contentType: document.contentType,
+      size: document.size,
+      uploadedAt: document.uploadedAt,
+      uploadedBy: document.uploadedBy,
+    }))
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+
   return {
     tenant: {
       id: tenant.id,
@@ -149,8 +191,8 @@ export async function getTenantPortalDashboard(
         tenancy,
         property: propertyMap.get(tenancy.propertyId)!,
       })),
-    requests: requests.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    documents: documents.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)),
+    requests: publicRequests,
+    documents: publicDocuments,
     inspections: inspections.sort((a, b) => b.scheduledStart.localeCompare(a.scheduledStart)),
   };
 }
@@ -225,6 +267,20 @@ export async function addTenantRequestAttachment(
   await ref.set({ attachments, updatedAt: nowIso() }, { merge: true });
   const updated = await ref.get();
   return docWithId<TenantRequest>(updated);
+}
+
+export async function getTenantRequestAttachmentForUser(
+  tenant: TenantUserRecord,
+  requestId: string,
+  attachmentId: string
+): Promise<(TenantRequestAttachment & { storagePath: string }) | null> {
+  const request = await getTenantRequestForUser(tenant, requestId);
+  if (!request) return null;
+  const attachment = (request.attachments || []).find((item) => item.id === attachmentId) as
+    | (TenantRequestAttachment & { storagePath?: string })
+    | undefined;
+  if (!attachment?.storagePath) return null;
+  return { ...attachment, storagePath: attachment.storagePath };
 }
 
 export async function getTenantDocumentForUser(
@@ -393,4 +449,44 @@ export async function createTenantDocumentRecord(input: {
   await ref.set(document);
   const { storagePath: _storagePath, ...publicDocument } = document;
   return publicDocument;
+}
+
+
+export async function getTenancyById(tenancyId: string): Promise<TenancyRecord | null> {
+  const doc = await adminDb.collection('tenancies').doc(tenancyId).get();
+  return doc.exists ? docWithId<TenancyRecord>(doc) : null;
+}
+
+export async function createTenantInspection(input: {
+  tenancyId: string;
+  propertyId: string;
+  type: TenantInspection['type'];
+  status?: TenantInspection['status'];
+  scheduledStart: string;
+  scheduledEnd?: string;
+  noticeDocumentId?: string;
+  notes?: string;
+}): Promise<TenantInspection> {
+  const tenancy = await getTenancyById(input.tenancyId);
+  if (!tenancy || tenancy.propertyId !== input.propertyId) {
+    throw new Error('TENANCY_PROPERTY_MISMATCH');
+  }
+
+  const ref = adminDb.collection('tenantInspections').doc();
+  const now = nowIso();
+  const inspection: TenantInspection = {
+    id: ref.id,
+    tenancyId: input.tenancyId,
+    propertyId: input.propertyId,
+    type: input.type,
+    status: input.status || 'scheduled',
+    scheduledStart: input.scheduledStart,
+    scheduledEnd: input.scheduledEnd,
+    noticeDocumentId: input.noticeDocumentId,
+    notes: input.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await ref.set(inspection);
+  return inspection;
 }
