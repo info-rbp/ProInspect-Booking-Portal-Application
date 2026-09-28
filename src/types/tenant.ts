@@ -61,6 +61,7 @@ export interface ClientUserRecord {
   phone?: string;
   firebaseUid?: string;
   clientIds: string[];
+  clientRoles?: Record<string, 'owner' | 'admin' | 'member' | 'viewer'>;
   active: boolean;
   createdAt: string;
   updatedAt: string;
