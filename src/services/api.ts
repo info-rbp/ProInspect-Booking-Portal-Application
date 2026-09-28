@@ -1096,6 +1096,31 @@ export async function createClientTeamUser(input: {
 }
 
 
+export async function updateClientTeamMembership(input: {
+  clientUserId: string;
+  clientId: string;
+  role?: 'owner' | 'admin' | 'member' | 'viewer';
+  revoke?: boolean;
+}): Promise<ClientUserRecord> {
+  const res = await clientFetch(
+    `/api/client/team-users/${encodeURIComponent(input.clientUserId)}/membership`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: input.clientId,
+        role: input.role,
+        revoke: input.revoke,
+      }),
+    }
+  );
+  const data = (await res.json()) as { clientUser?: ClientUserRecord; error?: string };
+  if (!res.ok || !data.clientUser) {
+    throw new Error(data.error || 'Unable to update Client Portal access.');
+  }
+  return data.clientUser;
+}
+
 export async function fetchAdminTenantForms(): Promise<TenantFormRequest[]> {
   const res = await adminFetch('/api/admin/tenant-forms');
   const data = (await res.json()) as { requests?: TenantFormRequest[]; error?: string };
