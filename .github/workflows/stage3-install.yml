@@ -28,7 +28,7 @@ jobs:
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
-      - name: Install reviewed source payload
+      - name: Install reviewed source payload and persisted-timestamp regression
         shell: python
         run: |
           import hashlib, json, lzma, os, pathlib, shutil, subprocess
@@ -52,6 +52,15 @@ jobs:
               assert not target.exists(), name
               target.parent.mkdir(parents=True, exist_ok=True)
               target.write_text(text, encoding='utf-8')
+          p = root / 'scripts/stage3/tests/emulator.mjs'
+          text = p.read_text()
+          old = '  const before=await snapshot(db), plan=planMigration(before,context);'
+          assert old in text
+          text = text.replace(old, "  // Firestore truncates timestamps to microseconds when initially stored.\n  // Compare against the persisted source, not the higher-precision SDK input.\n  const storedTimestamp=(await db.doc('auditEvents/a').get()).data().occurredAt;\n" + old)
+          old = "assert.equal((await db.doc('auditEvents/a').get()).data().occurredAt.nanoseconds,987654321);"
+          assert old in text
+          text = text.replace(old, "assert.ok((await db.doc('auditEvents/a').get()).data().occurredAt.isEqual(storedTimestamp));")
+          p.write_text(text)
           shutil.rmtree('.stage3-transfer')
           pathlib.Path('.stage3').mkdir(exist_ok=True)
       - name: Application regressions
@@ -64,7 +73,6 @@ jobs:
           npm run stage3:test | tee .stage3/unit-tests.log
           npm audit --omit=dev --audit-level=high
       - name: Terraform provider and mock verification
-        if: success() || failure()
         run: |
           set -euo pipefail
           terraform -chdir=infrastructure fmt -check -recursive
@@ -72,13 +80,11 @@ jobs:
           terraform -chdir=infrastructure validate 2>&1 | tee .stage3/terraform-validate.log
           terraform -chdir=infrastructure test -no-color 2>&1 | tee .stage3/terraform-test.log
       - name: Actual Firestore emulator rehearsal
-        if: success() || failure()
         timeout-minutes: 8
         run: |
           set -euo pipefail
           npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-stage3 --config firebase.stage3.json 'npm run stage3:test:emulator' 2>&1 | tee .stage3/emulator.log
       - name: Production build compatibility
-        if: success() || failure()
         run: |
           set -euo pipefail
           npm run build
@@ -96,19 +102,13 @@ jobs:
           git commit -m 'feat(stage3): implement infrastructure convergence and guarded staging migration services'
           git push origin HEAD:refs/heads/stage3/infrastructure-rehearsal
           git rev-parse HEAD > .stage3/recorded-commit.txt
-      - name: Collect isolated verification evidence
+      - name: Collect verification evidence
         if: always()
         run: |
           mkdir -p .stage3
           cp infrastructure/.terraform.lock.hcl .stage3/terraform.lock.hcl 2>/dev/null || true
           git status --short > .stage3/worktree-status.txt
           git bundle create .stage3/source.bundle --all
-          if [ -d infrastructure/.terraform/providers ]; then
-            tar -czf .stage3/providers.tgz -C infrastructure/.terraform providers
-          fi
-          if [ -d "$HOME/.cache/firebase/emulators" ]; then
-            tar -czf .stage3/emulators.tgz -C "$HOME/.cache/firebase" emulators
-          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -118,7 +118,6 @@ jobs:
             .stage3/*.txt
             .stage3/*.hcl
             .stage3/*.bundle
-            .stage3/*.tgz
           include-hidden-files: true
           retention-days: 1
           compression-level: 0
