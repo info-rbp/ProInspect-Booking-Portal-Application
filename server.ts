@@ -85,6 +85,8 @@ import {
   getTenancyById,
   listAdminTenantPortal,
   updateTenantRequestAdmin,
+  updateTenantUserAdmin,
+  updateTenancyAdmin,
 } from './src/server/tenantStore.js';
 import {
   deleteTenantFile,
@@ -1853,6 +1855,80 @@ app.post('/api/admin/tenant-users', requireAdmin, async (req, res) => {
     }
     console.error('Admin tenant user creation failed:', error);
     return res.status(500).json({ error: 'Unable to create the tenant user.' });
+  }
+});
+
+app.patch('/api/admin/tenancies/:id', requireAdmin, async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 20);
+    const status = rawStatus
+      ? (rawStatus as 'pending' | 'active' | 'ended')
+      : undefined;
+    if (status && !['pending', 'active', 'ended'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid tenancy status.' });
+    }
+
+    const rawEndDate = req.body?.endDate === undefined
+      ? undefined
+      : normalizeText(req.body.endDate, 20);
+
+    if (rawEndDate && !isValidDateKey(rawEndDate)) {
+      return res.status(400).json({ error: 'End date must be a valid date.' });
+    }
+
+    const tenancy = await updateTenancyAdmin(req.params.id, {
+      status,
+      endDate: rawEndDate || undefined,
+      notes:
+        req.body?.notes === undefined
+          ? undefined
+          : normalizeText(req.body.notes, 2000),
+    });
+
+    if (!tenancy) return res.status(404).json({ error: 'Tenancy not found.' });
+    return res.json({ success: true, tenancy });
+  } catch (error) {
+    console.error('Admin tenancy update failed:', error);
+    return res.status(500).json({ error: 'Unable to update the tenancy.' });
+  }
+});
+
+app.patch('/api/admin/tenant-users/:id', requireAdmin, async (req, res) => {
+  try {
+    const tenancyIds = req.body?.tenancyIds === undefined
+      ? undefined
+      : Array.isArray(req.body.tenancyIds)
+        ? req.body.tenancyIds
+            .filter((id: unknown): id is string => typeof id === 'string')
+            .map((id: string) => id.trim())
+            .filter(Boolean)
+        : null;
+
+    if (tenancyIds === null || (tenancyIds && tenancyIds.length === 0)) {
+      return res.status(400).json({ error: 'Tenant access must retain at least one tenancy.' });
+    }
+
+    const tenant = await updateTenantUserAdmin(req.params.id, {
+      active: typeof req.body?.active === 'boolean' ? req.body.active : undefined,
+      displayName:
+        req.body?.displayName === undefined
+          ? undefined
+          : normalizeText(req.body.displayName, 160),
+      phone:
+        req.body?.phone === undefined
+          ? undefined
+          : normalizeText(req.body.phone, 40),
+      tenancyIds: tenancyIds || undefined,
+    });
+
+    if (!tenant) return res.status(404).json({ error: 'Tenant user not found.' });
+    return res.json({ success: true, tenant });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected tenancies no longer exist.' });
+    }
+    console.error('Admin tenant user update failed:', error);
+    return res.status(500).json({ error: 'Unable to update tenant access.' });
   }
 });
 
