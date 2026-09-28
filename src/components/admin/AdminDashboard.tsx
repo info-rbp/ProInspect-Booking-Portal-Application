@@ -12,6 +12,7 @@ import {
 import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
 import { AdminServiceEditor } from './AdminServiceEditor';
+import { AdminTenantPortal } from './AdminTenantPortal';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar,
@@ -51,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToBooking,
   onServicesChanged,
 }) => {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'settings'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'tenants' | 'settings'>('bookings');
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [services, setServices] = useState<InspectionService[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -283,6 +284,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Layers className="w-4 h-4" />
           <span>Booking Services ({services.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('tenants')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
+            activeTab === 'tenants'
+              ? 'bg-[#007F82] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Building className="w-4 h-4" />
+          <span>Tenant Portal</span>
         </button>
 
         <button
@@ -709,7 +722,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 3: CALENDAR & SETTINGS */}
+      {/* TAB 3: TENANT PORTAL */}
+      {activeTab === 'tenants' && <AdminTenantPortal />}
+
+      {/* TAB 4: CALENDAR & SETTINGS */}
       {activeTab === 'settings' && (
         <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
