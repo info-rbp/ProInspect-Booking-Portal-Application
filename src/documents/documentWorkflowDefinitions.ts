@@ -1837,7 +1837,13 @@ export function isWorkflowFieldVisible(
   }
 
   if (condition.includes !== undefined) {
-    return Array.isArray(value) && value.includes(condition.includes);
+    return (
+      Array.isArray(value) &&
+      value.some(
+        (item) =>
+          typeof item === 'string' && item === condition.includes
+      )
+    );
   }
 
   return true;
