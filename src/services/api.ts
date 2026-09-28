@@ -30,6 +30,7 @@ import type {
   TenantUserRecord,
 } from '../types/tenant';
 import type {
+  AuditEvent,
   ClientApproval,
   ClientRequest,
   Contractor,
@@ -788,6 +789,8 @@ export async function fetchAdminOperations(): Promise<{
   approvals: ClientApproval[];
   clientRequests: ClientRequest[];
   documentRequests: DocumentRequest[];
+  payments: PaymentRecord[];
+  auditEvents: AuditEvent[];
 }> {
   const res = await adminFetch('/api/admin/operations');
   const data = (await res.json()) as any;
