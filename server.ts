@@ -15,6 +15,10 @@ import type {
   ServiceCategory,
 } from './src/types/booking.js';
 import type {
+  ClientPropertyRole,
+  ClientType,
+  ClientUserRecord,
+  PortalAudience,
   TenantDocumentCategory,
   TenantInspection,
   TenantRequestCreateInput,
@@ -70,13 +74,19 @@ import {
 } from './src/server/email.js';
 import {
   addTenantRequestAttachment,
+  createClient,
+  createClientPropertyLink,
+  createClientUser,
   createTenancy,
   createTenantDocumentRecord,
   createTenantInspection,
   createTenantProperty,
   createTenantRequest,
   createTenantUser,
+  findAndLinkClientUser,
   findAndLinkTenantUser,
+  getClientDocumentForUser,
+  getClientPortalDashboard,
   getTenantDocumentForUser,
   getTenantPortalDashboard,
   getTenantRequestAttachmentForUser,
@@ -189,6 +199,12 @@ const tenantWriteRateLimit = rateLimit({
   prefix: 'tenant-write',
 });
 
+const clientRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  prefix: 'client',
+});
+
 const tenantFileBody = express.raw({
   type: () => true,
   limit: '20mb',
@@ -280,6 +296,40 @@ async function requireTenant(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+async function requireClient(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Client authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified client email address is required.' });
+    }
+
+    const clientUser = await findAndLinkClientUser({
+      uid: decoded.uid,
+      email,
+    });
+
+    if (!clientUser) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect client account.',
+      });
+    }
+
+    res.locals.clientUser = clientUser;
+    return next();
+  } catch (error) {
+    console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
   const hours = Math.floor(minutesAfterMidnight / 60);
   const minutes = minutesAfterMidnight % 60;
@@ -362,9 +412,34 @@ const TENANT_REQUEST_STATUSES = new Set<TenantRequestStatus>([
   'closed',
 ]);
 
+const CLIENT_TYPES = new Set<ClientType>([
+  'landlord',
+  'agency',
+  'commercial_landlord',
+  'strata_company',
+  'asset_manager',
+  'other',
+]);
+
+const CLIENT_PROPERTY_ROLES = new Set<ClientPropertyRole>([
+  'owner',
+  'landlord',
+  'managing_agent',
+  'asset_manager',
+  'strata_manager',
+  'other',
+]);
+
+const PORTAL_AUDIENCES = new Set<PortalAudience>([
+  'tenant',
+  'client',
+  'staff',
+]);
+
 const TENANT_DOCUMENT_CATEGORIES = new Set<TenantDocumentCategory>([
   'tenancy_agreement',
   'property_condition_report',
+  'inspection_report',
   'bond',
   'inspection_notice',
   'rent_notice',
@@ -372,6 +447,12 @@ const TENANT_DOCUMENT_CATEGORIES = new Set<TenantDocumentCategory>([
   'variation',
   'pet_modification',
   'termination',
+  'maintenance',
+  'quote',
+  'invoice',
+  'compliance',
+  'property_report',
+  'owner_statement',
   'correspondence',
   'other',
 ]);
@@ -1543,6 +1624,46 @@ app.get('/api/tenant/documents/:id/download', tenantRateLimit, requireTenant, as
   }
 });
 
+app.get('/api/client/session', clientRateLimit, requireClient, (_req, res) => {
+  const clientUser = res.locals.clientUser as ClientUserRecord;
+  return res.json({
+    authorised: true,
+    clientUser: {
+      id: clientUser.id,
+      email: clientUser.email,
+      displayName: clientUser.displayName,
+      phone: clientUser.phone,
+    },
+  });
+});
+
+app.get('/api/client/dashboard', clientRateLimit, requireClient, async (_req, res) => {
+  try {
+    const clientUser = res.locals.clientUser as ClientUserRecord;
+    const dashboard = await getClientPortalDashboard(clientUser);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Client dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the client portal.' });
+  }
+});
+
+app.get('/api/client/documents/:id/download', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const clientUser = res.locals.clientUser as ClientUserRecord;
+    const document = await getClientDocumentForUser(clientUser, req.params.id);
+    if (!document?.storagePath) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    const url = await signedTenantFileUrl(document.storagePath);
+    return res.json({ url });
+  } catch (error) {
+    console.error('Client document download failed:', error);
+    return res.status(500).json({ error: 'Unable to open the document.' });
+  }
+});
+
 app.get('/api/admin/session', requireAdmin, (_req, res) => {
   return res.json({ authorised: true });
 });
@@ -1738,6 +1859,100 @@ app.get('/api/admin/tenant-portal', requireAdmin, async (_req, res) => {
   }
 });
 
+app.post('/api/admin/clients', requireAdmin, async (req, res) => {
+  try {
+    const name = normalizeText(req.body?.name, 180);
+    const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+
+    if (name.length < 2 || !CLIENT_TYPES.has(clientType) || (email && !isValidEmail(email))) {
+      return res.status(400).json({ error: 'Client name, valid client type and optional valid email are required.' });
+    }
+
+    const client = await createClient({
+      name,
+      clientType,
+      email: email || undefined,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      externalReference: normalizeText(req.body?.externalReference, 100) || undefined,
+    });
+    return res.status(201).json({ success: true, client });
+  } catch (error) {
+    console.error('Admin client creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the client.' });
+  }
+});
+
+app.post('/api/admin/client-users', requireAdmin, async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const clientIds = Array.isArray(req.body?.clientIds)
+      ? req.body.clientIds
+          .filter((id: unknown): id is string => typeof id === 'string')
+          .map((id: string) => id.trim())
+          .filter(Boolean)
+      : [];
+
+    if (!isValidEmail(email) || displayName.length < 2 || clientIds.length === 0) {
+      return res.status(400).json({
+        error: 'Client user name, valid email and at least one client are required.',
+      });
+    }
+
+    const clientUser = await createClientUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      clientIds,
+    });
+
+    return res.status(201).json({
+      success: true,
+      clientUser,
+      portalUrl: `${publicBaseUrl(req)}/client`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_USER_EMAIL_EXISTS') {
+      return res.status(409).json({ error: 'A client portal user already exists for that email address.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected clients no longer exist.' });
+    }
+    console.error('Admin client user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the client portal user.' });
+  }
+});
+
+app.post('/api/admin/client-property-links', requireAdmin, async (req, res) => {
+  try {
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const role = normalizeText(req.body?.role, 40) as ClientPropertyRole;
+
+    if (!clientId || !propertyId || !CLIENT_PROPERTY_ROLES.has(role)) {
+      return res.status(400).json({ error: 'Client, property and valid relationship role are required.' });
+    }
+
+    const link = await createClientPropertyLink({
+      clientId,
+      propertyId,
+      role,
+      primary: Boolean(req.body?.primary),
+    });
+    return res.status(201).json({ success: true, link });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+    if (error instanceof Error && error.message === 'PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    console.error('Admin client-property link creation failed:', error);
+    return res.status(500).json({ error: 'Unable to link the client to the property.' });
+  }
+});
+
 app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
   try {
     const streetAddress = normalizeText(req.body?.streetAddress, 160);
@@ -1756,12 +1971,16 @@ app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
       state,
       postcode,
       propertyType: normalizeText(req.body?.propertyType, 80) || undefined,
+      primaryClientId: normalizeText(req.body?.primaryClientId, 128) || undefined,
       clientName: normalizeText(req.body?.clientName, 160) || undefined,
       clientReference: normalizeText(req.body?.clientReference, 100) || undefined,
     });
 
     return res.status(201).json({ success: true, property });
   } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
     console.error('Admin tenant property creation failed:', error);
     return res.status(500).json({ error: 'Unable to create the property.' });
   }
@@ -1971,6 +2190,88 @@ app.patch('/api/admin/tenant-requests/:id', requireAdmin, async (req, res) => {
 });
 
 app.post(
+  '/api/admin/property-documents/:propertyId',
+  requireAdmin,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const propertyDoc = await adminDb.collection('properties').doc(req.params.propertyId).get();
+      if (!propertyDoc.exists) return res.status(404).json({ error: 'Property not found.' });
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const title = normalizeText(req.headers['x-document-title'], 180);
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      const category = normalizeText(req.headers['x-document-category'], 64) as TenantDocumentCategory;
+      const tenancyId = normalizeText(req.headers['x-tenancy-id'], 128) || undefined;
+      const audiences = normalizeText(req.headers['x-document-audiences'], 100)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value): value is PortalAudience => PORTAL_AUDIENCES.has(value as PortalAudience));
+      const clientIds = normalizeText(req.headers['x-client-ids'], 1000)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      if (!title || !fileName || !TENANT_DOCUMENT_CATEGORIES.has(category)) {
+        return res.status(400).json({ error: 'Document title, category and file name are required.' });
+      }
+
+      if (audiences.length === 0) {
+        return res.status(400).json({ error: 'Select at least one document audience.' });
+      }
+
+      const stored = await saveTenantDocumentFile({
+        propertyId: req.params.propertyId,
+        tenancyId,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const document = await createTenantDocumentRecord({
+        propertyId: req.params.propertyId,
+        tenancyId,
+        clientIds,
+        audiences,
+        title,
+        category,
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        storagePath: stored.storagePath,
+        uploadedBy: res.locals.admin.email,
+      });
+
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANCY_PROPERTY_MISMATCH') {
+        return res.status(400).json({ error: 'The selected tenancy does not belong to this property.' });
+      }
+      if (error instanceof Error && error.message === 'CLIENT_PROPERTY_MISMATCH') {
+        return res.status(400).json({ error: 'One or more selected clients are not linked to this property.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Property document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Admin property document upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the property document.' });
+    }
+  }
+);
+
+app.post(
   '/api/admin/tenant-documents/:tenancyId',
   requireAdmin,
   tenantFileBody,
@@ -1993,6 +2294,7 @@ app.post(
       }
 
       const stored = await saveTenantDocumentFile({
+        propertyId: tenancy.propertyId,
         tenancyId: tenancy.id,
         fileName,
         contentType: req.headers['content-type'] || 'application/octet-stream',
@@ -2003,6 +2305,7 @@ app.post(
       const document = await createTenantDocumentRecord({
         tenancyId: tenancy.id,
         propertyId: tenancy.propertyId,
+        audiences: ['tenant'],
         title,
         category,
         fileName: stored.fileName,
