@@ -1,0 +1,72 @@
+const baseUrl = (process.env.PORTAL_TEST_BASE_URL || '').replace(/\/$/, '');
+const tenantToken = process.env.PORTAL_TEST_TENANT_TOKEN || '';
+const clientToken = process.env.PORTAL_TEST_CLIENT_TOKEN || '';
+const adminToken = process.env.PORTAL_TEST_ADMIN_TOKEN || '';
+
+if (!baseUrl) {
+  console.error('Set PORTAL_TEST_BASE_URL to a deployed ProInspect environment.');
+  process.exit(1);
+}
+
+async function request(path, options = {}) {
+  const response = await fetch(`${baseUrl}${path}`, options);
+  const body = await response.text();
+  let parsed = null;
+  try { parsed = body ? JSON.parse(body) : null; } catch {}
+  return { response, body, parsed };
+}
+
+async function expect(name, condition, detail) {
+  if (!condition) throw new Error(`${name} failed: ${detail}`);
+  console.log(`PASS: ${name}`);
+}
+
+async function main() {
+  const unauthClient = await request('/api/client/dashboard');
+  await expect('Client dashboard rejects anonymous access', [401,403].includes(unauthClient.response.status), `status ${unauthClient.response.status}`);
+
+  const unauthTenant = await request('/api/tenant/dashboard');
+  await expect('Tenant dashboard rejects anonymous access', [401,403].includes(unauthTenant.response.status), `status ${unauthTenant.response.status}`);
+
+  const unauthAdmin = await request('/api/admin/operations');
+  await expect('Admin operations rejects anonymous access', [401,403].includes(unauthAdmin.response.status), `status ${unauthAdmin.response.status}`);
+
+  const badReport = await request('/api/integrations/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: Buffer.from('test'),
+  });
+  await expect('Report ingest rejects missing integration token', badReport.response.status === 401, `status ${badReport.response.status}`);
+
+  if (tenantToken) {
+    const tenant = await request('/api/tenant/dashboard', {
+      headers: { Authorization: `Bearer ${tenantToken}` },
+    });
+    await expect('Tenant token opens tenant dashboard', tenant.response.ok, `status ${tenant.response.status}`);
+    const dashboard = tenant.parsed?.dashboard;
+    await expect('Tenant dashboard never returns admin notes', !JSON.stringify(dashboard || {}).includes('adminNotes'), 'adminNotes found');
+    await expect('Tenant dashboard never returns storage paths', !JSON.stringify(dashboard || {}).includes('storagePath'), 'storagePath found');
+  }
+
+  if (clientToken) {
+    const client = await request('/api/client/dashboard', {
+      headers: { Authorization: `Bearer ${clientToken}` },
+    });
+    await expect('Client token opens client dashboard', client.response.ok, `status ${client.response.status}`);
+    await expect('Client dashboard never returns storage paths', !JSON.stringify(client.parsed?.dashboard || {}).includes('storagePath'), 'storagePath found');
+  }
+
+  if (adminToken) {
+    const admin = await request('/api/admin/operations', {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    await expect('Admin token opens operations', admin.response.ok, `status ${admin.response.status}`);
+  }
+
+  console.log('Portal security smoke tests completed.');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
