@@ -241,20 +241,31 @@ export async function getTenantPortalDashboard(
     .map(publicTenantRequest)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const publicDocuments = documents
+  const publicDocuments: TenantDocument[] = documents
     .map((document) => ({
       id: document.id,
       tenancyId: document.tenancyId,
       propertyId: document.propertyId,
-      clientIds: [] as string[],
-      audiences: ['tenant'] as PortalAudience[],
+      clientIds: [],
+      bookingId: document.bookingId,
+      workOrderId: document.workOrderId,
+      requestId: document.requestId,
+      audiences: ['tenant'],
       title: document.title,
       category: document.category,
       fileName: document.fileName,
       contentType: document.contentType,
       size: document.size,
+      version: document.version || 1,
+      status: document.status || 'issued',
       uploadedAt: document.uploadedAt,
       uploadedBy: document.uploadedBy,
+      generatedAt: document.generatedAt,
+      approvedAt: document.approvedAt,
+      approvedBy: document.approvedBy,
+      issuedAt: document.issuedAt,
+      issuedBy: document.issuedBy,
+      updatedAt: document.updatedAt || document.uploadedAt,
     }))
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
