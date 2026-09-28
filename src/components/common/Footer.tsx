@@ -1,6 +1,6 @@
 import React from 'react';
 import { Logo } from './Logo';
-import { ShieldCheck, MapPin, Mail, Phone, ExternalLink } from 'lucide-react';
+import { Mail, Phone } from 'lucide-react';
 
 interface FooterProps {
   onOpenAdmin?: () => void;
@@ -8,85 +8,51 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ onOpenAdmin }) => {
   return (
-    <footer className="bg-[#1A2B4A] text-slate-300 mt-20 border-t border-slate-800">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          {/* Brand Info */}
-          <div className="md:col-span-2 space-y-4">
-            <Logo variant="light" size="md" />
-            <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
-              Property inspection and field support services for real estate agencies, landlords and property operators across Perth and Peel.
-            </p>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <ShieldCheck className="w-4 h-4 text-[#006D70]" />
-              <span>Property attendance, inspection and operational support</span>
-            </div>
-          </div>
+    <footer className="bg-[#1A2B4A] text-slate-300 border-t border-slate-800">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <Logo variant="light" size="sm" />
 
-          {/* Quick Links */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              ProInspect Services
-            </h4>
-            <ul className="space-y-2 text-sm text-slate-400">
-              <li>Routine Inspections</li>
-              <li>Property Condition Reports (PCR)</li>
-              <li>Final / Exit Inspections</li>
-              <li>Commercial Inspections</li>
-              <li>Building Management Visits</li>
-            </ul>
-          </div>
-
-          {/* Contact / Service Area */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              Service Operations
-            </h4>
-            <div className="space-y-2 text-sm text-slate-400">
-              <div className="flex items-start gap-2">
-                <MapPin className="w-4 h-4 text-[#006D70] shrink-0 mt-0.5" />
-                <span>Perth &amp; Peel service areas</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-[#006D70] shrink-0" />
-                <a href="mailto:info@proinspect.systems" className="hover:text-white transition-colors">
-                  info@proinspect.systems
-                </a>
-              </div>
-              <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-[#006D70] shrink-0" />
-                <span>(08) 9306 9668</span>
-              </div>
-            </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-400">
+            <a
+              href="mailto:info@proinspect.systems"
+              className="inline-flex items-center gap-1.5 hover:text-white transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5 text-[#00B5B8]" />
+              info@proinspect.systems
+            </a>
+            <a
+              href="tel:+61893069668"
+              className="inline-flex items-center gap-1.5 hover:text-white transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 text-[#00B5B8]" />
+              (08) 9306 9668
+            </a>
           </div>
         </div>
 
-        {/* Bottom bar */}
-        <div className="mt-12 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div>
-            &copy; {new Date().getFullYear()} ProInspect Systems. All rights reserved. ABN: 48 629 192 481.
-          </div>
-          <div className="flex items-center gap-4">
+        <div className="mt-4 pt-4 border-t border-slate-700/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-slate-500">
+          <span>
+            &copy; {new Date().getFullYear()} ProInspect Systems &bull; ABN 48 629 192 481
+          </span>
+
+          <div className="flex flex-wrap items-center gap-3">
             <a
               href="https://proinspect.systems"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-slate-300 flex items-center gap-1 transition-colors"
+              className="hover:text-slate-300 transition-colors"
             >
-              proinspect.systems
-              <ExternalLink className="w-3 h-3" />
+              Privacy &amp; Terms
             </a>
-            <span>&bull;</span>
-            <a href="https://proinspect.systems" target="_blank" rel="noopener noreferrer" className="hover:text-slate-300">
-              Privacy &amp; terms are maintained on the main ProInspect website
-            </a>
+
             {onOpenAdmin && (
               <>
-                <span>&bull;</span>
+                <span className="text-slate-700">&bull;</span>
                 <button
                   type="button"
                   onClick={onOpenAdmin}
-                  className="hover:text-slate-300 text-slate-500 transition-colors"
+                  className="hover:text-slate-300 transition-colors"
                 >
                   Staff Portal
                 </button>
