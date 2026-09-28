@@ -514,3 +514,43 @@ export async function createAdminTenantInspection(input: {
   if (!res.ok || !data.inspection) throw new Error(data.error || 'Unable to create inspection.');
   return data.inspection;
 }
+
+
+export async function updateAdminTenancy(
+  tenancyId: string,
+  changes: { status?: TenancyRecord['status']; endDate?: string; notes?: string }
+): Promise<TenancyRecord> {
+  const res = await adminFetch(
+    `/api/admin/tenancies/${encodeURIComponent(tenancyId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    }
+  );
+  const data = (await res.json()) as { tenancy?: TenancyRecord; error?: string };
+  if (!res.ok || !data.tenancy) throw new Error(data.error || 'Unable to update tenancy.');
+  return data.tenancy;
+}
+
+export async function updateAdminTenantUser(
+  tenantUserId: string,
+  changes: {
+    active?: boolean;
+    displayName?: string;
+    phone?: string;
+    tenancyIds?: string[];
+  }
+): Promise<TenantUserRecord> {
+  const res = await adminFetch(
+    `/api/admin/tenant-users/${encodeURIComponent(tenantUserId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    }
+  );
+  const data = (await res.json()) as { tenant?: TenantUserRecord; error?: string };
+  if (!res.ok || !data.tenant) throw new Error(data.error || 'Unable to update tenant access.');
+  return data.tenant;
+}
