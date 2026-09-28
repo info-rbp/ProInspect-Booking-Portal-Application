@@ -13,6 +13,7 @@ import type {
   TenantDocumentCategory,
   TenantInspection,
   TenantPortalDashboard,
+  TenantPortalNotification,
   TenantProperty,
   TenantRequest,
   TenantRequestAttachment,
@@ -29,6 +30,24 @@ function nowIso(): string {
 
 export function normalizeTenantEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function tenantPropertyAddressKey(input: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): string {
+  const normalise = (value?: string) =>
+    (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return [
+    normalise(input.unit),
+    normalise(input.streetAddress),
+    normalise(input.suburb),
+    normalise(input.state).toUpperCase(),
+    normalise(input.postcode),
+  ].join('|');
 }
 
 function docWithId<T>(doc: DocumentSnapshot): T {
@@ -173,34 +192,41 @@ export async function getTenantPortalDashboard(
   tenant: TenantUserRecord
 ): Promise<TenantPortalDashboard> {
   const tenancies = await getDocumentsByIds<TenancyRecord>('tenancies', tenant.tenancyIds);
-  const activeTenancies = tenancies.filter((item) => item.status !== 'ended');
   const properties = await getDocumentsByIds<TenantProperty>(
     'properties',
-    Array.from(new Set(activeTenancies.map((item) => item.propertyId)))
+    Array.from(new Set(tenancies.map((item) => item.propertyId)))
   );
   const propertyMap = new Map(properties.map((property) => [property.id, property]));
-  const validTenancyIds = activeTenancies
-    .filter((tenancy) => propertyMap.has(tenancy.propertyId))
-    .map((tenancy) => tenancy.id);
+  const validTenancies = tenancies.filter((tenancy) => propertyMap.has(tenancy.propertyId));
+  const activeTenancies = validTenancies.filter((item) => item.status !== 'ended');
+  const pastTenancies = validTenancies.filter((item) => item.status === 'ended');
+  const validTenancyIds = validTenancies.map((tenancy) => tenancy.id);
+  const activeTenancyIds = new Set(activeTenancies.map((tenancy) => tenancy.id));
+  const activePropertyIds = new Set(activeTenancies.map((tenancy) => tenancy.propertyId));
+  const validPropertyIds = Array.from(new Set(validTenancies.map((tenancy) => tenancy.propertyId)));
 
-  const validPropertyIds = Array.from(
-    new Set(
-      activeTenancies
-        .filter((tenancy) => propertyMap.has(tenancy.propertyId))
-        .map((tenancy) => tenancy.propertyId)
-    )
-  );
-
-  const [requests, allDocuments, inspections] = await Promise.all([
+  const [requests, allDocuments, inspections, notificationSnapshot] = await Promise.all([
     getTenantScopedCollection<TenantRequest>('tenantRequests', validTenancyIds),
     getPropertyScopedCollection<TenantDocument>('propertyDocuments', validPropertyIds),
     getTenantScopedCollection<TenantInspection>('tenantInspections', validTenancyIds),
+    adminDb
+      .collection('portalNotifications')
+      .where('tenantUserId', '==', tenant.id)
+      .limit(100)
+      .get(),
   ]);
 
   const documents = allDocuments.filter((document) => {
     if (!(document.audiences || []).includes('tenant')) return false;
-    if (!document.tenancyId) return true;
-    return validTenancyIds.includes(document.tenancyId);
+
+    if (document.tenancyId) {
+      return validTenancyIds.includes(document.tenancyId);
+    }
+
+    // Property-wide tenant documents remain visible only while the user has an
+    // active tenancy at that property. This prevents former tenants from seeing
+    // documents later published for a new tenancy.
+    return activePropertyIds.has(document.propertyId);
   });
 
   const publicRequests = requests
@@ -224,6 +250,24 @@ export async function getTenantPortalDashboard(
     }))
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
+  const notifications = notificationSnapshot.docs
+    .map((doc) => docWithId<TenantPortalNotification>(doc))
+    .map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      link: notification.link,
+      readAt: notification.readAt,
+      createdAt: notification.createdAt,
+    }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const view = (items: TenancyRecord[]) =>
+    items.map((tenancy) => ({
+      tenancy,
+      property: propertyMap.get(tenancy.propertyId)!,
+    }));
+
   return {
     tenant: {
       id: tenant.id,
@@ -231,15 +275,12 @@ export async function getTenantPortalDashboard(
       displayName: tenant.displayName,
       phone: tenant.phone,
     },
-    tenancies: activeTenancies
-      .filter((tenancy) => propertyMap.has(tenancy.propertyId))
-      .map((tenancy) => ({
-        tenancy,
-        property: propertyMap.get(tenancy.propertyId)!,
-      })),
+    tenancies: view(activeTenancies),
+    pastTenancies: view(pastTenancies),
     requests: publicRequests,
     documents: publicDocuments,
     inspections: inspections.sort((a, b) => b.scheduledStart.localeCompare(a.scheduledStart)),
+    notifications,
   };
 }
 
@@ -286,13 +327,12 @@ export async function createTenantRequest(
   return request;
 }
 
-async function tenantHasActiveTenancy(
+async function tenantHasTenancyAccess(
   tenant: TenantUserRecord,
   tenancyId: string
 ): Promise<boolean> {
   if (!tenant.tenancyIds.includes(tenancyId)) return false;
-  const tenancy = await getTenancyById(tenancyId);
-  return Boolean(tenancy && tenancy.status !== 'ended');
+  return Boolean(await getTenancyById(tenancyId));
 }
 
 export async function getTenantRequestForUser(
@@ -302,7 +342,7 @@ export async function getTenantRequestForUser(
   const doc = await adminDb.collection('tenantRequests').doc(requestId).get();
   if (!doc.exists) return null;
   const request = docWithId<TenantRequest>(doc);
-  return (await tenantHasActiveTenancy(tenant, request.tenancyId)) ? request : null;
+  return (await tenantHasTenancyAccess(tenant, request.tenancyId)) ? request : null;
 }
 
 export async function addTenantRequestAttachment(
@@ -349,12 +389,18 @@ export async function getTenantDocumentForUser(
   if (!(document.audiences || []).includes('tenant')) return null;
 
   const tenancies = await getDocumentsByIds<TenancyRecord>('tenancies', tenant.tenancyIds);
-  const activeTenancies = tenancies.filter(
-    (tenancy) => tenancy.status !== 'ended' && tenancy.propertyId === document.propertyId
+  const propertyTenancies = tenancies.filter(
+    (tenancy) => tenancy.propertyId === document.propertyId
   );
-  if (activeTenancies.length === 0) return null;
 
-  if (document.tenancyId && !activeTenancies.some((tenancy) => tenancy.id === document.tenancyId)) {
+  if (document.tenancyId) {
+    if (!propertyTenancies.some((tenancy) => tenancy.id === document.tenancyId)) {
+      return null;
+    }
+    return document;
+  }
+
+  if (!propertyTenancies.some((tenancy) => tenancy.status !== 'ended')) {
     return null;
   }
 
@@ -408,6 +454,14 @@ export async function createTenantProperty(input: {
   clientName?: string;
   clientReference?: string;
 }): Promise<TenantProperty> {
+  const addressKey = tenantPropertyAddressKey(input);
+  const duplicate = await adminDb
+    .collection('properties')
+    .where('addressKey', '==', addressKey)
+    .limit(1)
+    .get();
+  if (!duplicate.empty) throw new Error('PROPERTY_ADDRESS_EXISTS');
+
   let primaryClient: ClientRecord | null = null;
   if (input.primaryClientId) {
     const clientDoc = await adminDb.collection('clients').doc(input.primaryClientId).get();
@@ -419,6 +473,7 @@ export async function createTenantProperty(input: {
   const now = nowIso();
   const property: TenantProperty = {
     id: ref.id,
+    addressKey,
     streetAddress: input.streetAddress,
     unit: input.unit,
     suburb: input.suburb,
