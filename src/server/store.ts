@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
 import type { DocumentProduct, DocumentRequestRecord } from '../types/documentRequest.js';
+import type { WorkOrder } from '../types/platform.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { DEFAULT_DOCUMENT_PRODUCTS } from '../documents/defaultDocumentProducts.js';
 import { adminDb } from './firebaseAdmin.js';
@@ -403,6 +404,31 @@ export async function saveBooking(
       adminDb.collection('bookingAccessSecrets').doc(booking.id),
       encryptedAccessSecrets
     );
+  }
+
+  if (booking.propertyId) {
+    const workOrderRef = adminDb.collection('workOrders').doc(`booking_${booking.id}`);
+    const workOrder: WorkOrder = {
+      id: workOrderRef.id,
+      reference: `WO-${booking.bookingReference.replace(/^PI-/, '')}`,
+      sourceType: 'booking',
+      sourceId: booking.id,
+      propertyId: booking.propertyId,
+      clientId: booking.clientId,
+      assignedStaffId: booking.assignedStaffId,
+      title: booking.serviceName,
+      description: `Booking ${booking.bookingReference} for ${booking.serviceName}.`,
+      priority: 'routine',
+      status: 'scheduled',
+      scheduledStart: booking.appointment.start,
+      scheduledEnd: booking.appointment.end,
+      accessNotes: booking.access.specialInstructions,
+      completionDocumentIds: [],
+      createdBy: 'system',
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt,
+    };
+    batch.set(workOrderRef, workOrder);
   }
 
   await batch.commit();
