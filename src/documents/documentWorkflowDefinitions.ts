@@ -836,6 +836,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           },
           {
             id: 'noticeDate',
+            sensitive: true,
             label: 'Proposed date of notice',
             type: 'date',
             required: true,
@@ -1141,12 +1142,14 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
         fields: [
           {
             id: 'terminatingTenant',
+            sensitive: true,
             label: 'Tenant giving this notice',
             type: 'tenant-select',
             required: true,
           },
           {
             id: 'lastTenancyDay',
+            sensitive: true,
             label: 'Last day of the tenant’s interest in the tenancy',
             type: 'date',
             required: true,
@@ -1159,6 +1162,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           },
           {
             id: 'evidenceTypes',
+            sensitive: true,
             label: 'Supporting evidence available',
             type: 'multiselect',
             required: true,
@@ -1180,6 +1184,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           },
           {
             id: 'evidenceReady',
+            sensitive: true,
             label: 'I understand qualifying evidence must accompany the Form 2 and can be supplied securely to ProInspect',
             type: 'checkbox',
             required: true,
