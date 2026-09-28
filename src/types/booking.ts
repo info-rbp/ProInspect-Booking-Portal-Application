@@ -149,6 +149,8 @@ export interface BookingRecord {
   serviceId: string;
   serviceName: string;
   serviceCategory?: ServiceCategory; // New bookings retain the customer-selected category; older records may not have it.
+  clientUid?: string;
+  propertyId?: string;
   calendarId?: string;
   calendarEventId?: string;
   calendarHtmlLink?: string;
