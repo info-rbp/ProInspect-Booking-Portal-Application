@@ -1051,7 +1051,10 @@ export async function syncBookingWorkOrderStatus(
     .where('sourceId', '==', booking.id)
     .limit(1)
     .get();
-  if (snapshot.empty) return;
+  if (snapshot.empty) {
+    if (booking.propertyId) await ensureBookingWorkOrder(booking, actorEmail);
+    return;
+  }
 
   const workOrder = docWithId<WorkOrder>(snapshot.docs[0]);
   const mappedStatus =
