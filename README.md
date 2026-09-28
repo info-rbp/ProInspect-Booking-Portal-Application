@@ -233,3 +233,43 @@ features should reference that ID rather than create new property copies.
 The application intentionally keeps payment processing provider-neutral. A checkout
 provider can be connected through `PAYMENT_CHECKOUT_URL_TEMPLATE` and the
 authenticated payment-status webhook without changing Firestore schemas.
+
+
+## WA tenant statutory form workflows
+
+The Tenant Portal includes guided online workflows for current WA tenancy forms and
+bond/PCR processes, while Forms 23 and 22 are intentionally excluded.
+
+Implemented workflows:
+
+- Form 24 — Request to lessor to affix furniture
+- Form 25 — Pet request
+- Form 26 — Minor modification request
+- Form 27 — Request to landlord to make major modification
+- Security Bond Release Application
+- Variation of Security Bond
+- Form 1 — tenant Property Condition Report response
+- Form 2 — family-violence termination workflow (restricted)
+
+The server seeds `formDefinitions` from the version-controlled definitions under
+`src/tenantForms/formDefinitions.ts`. Each definition stores the official Consumer
+Protection source, workflow type, response period where applicable, sensitivity and
+the currently recorded official version.
+
+Normal submissions are stored in `tenantFormRequests`. Form 2 is deliberately
+stored separately in `sensitiveTenantForms` with evidence under the
+`tenant-sensitive/` Storage prefix and a separate `sensitiveAuditEvents`
+collection. It is not returned through normal Client Portal or Operations APIs.
+
+Forms 24–27 create Client Portal approval items when the property has an associated
+client. A Client Portal approval response updates the corresponding statutory form
+record. Response-period expiry is surfaced as a review flag rather than being used
+by the software as a final legal determination.
+
+Bond workflows prepare and track the information required for official BondsOnline /
+Bonds Administration processing; ProInspect does not replace the official bond
+system.
+
+PCR responses require an existing tenant-visible `property_condition_report`
+document and store the tenant's structured agreement/disagreement entries plus
+supporting attachments.
