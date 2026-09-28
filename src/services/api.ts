@@ -40,6 +40,7 @@ type BookingCreateResponse = {
 type AdminBookingsResponse = { bookings: BookingRecord[] };
 type AdminClientRequestsResponse = { requests: ClientRequestSummary[] };
 type AdminClientApprovalsResponse = { approvals: ClientApproval[] };
+type AdminClientDocumentsResponse = { documents: ClientDocumentSummary[] };
 type AdminServicesResponse = { services: InspectionService[] };
 type AdminSettingsResponse = { settings: BusinessSettings };
 type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
@@ -433,6 +434,30 @@ export async function fetchAdminClientApprovals(): Promise<ClientApproval[]> {
   if (!res.ok) throw new Error('Failed to load client approvals.');
   const data = (await res.json()) as AdminClientApprovalsResponse;
   return data.approvals;
+}
+
+export async function fetchAdminClientDocuments(): Promise<ClientDocumentSummary[]> {
+  const res = await adminFetch('/api/admin/client-documents');
+  if (!res.ok) throw new Error('Failed to load client documents.');
+  const data = (await res.json()) as AdminClientDocumentsResponse;
+  return data.documents;
+}
+
+export async function downloadAdminClientDocument(
+  documentId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const res = await adminFetch(
+    `/api/admin/client-documents/${encodeURIComponent(documentId)}/download`
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as ApiErrorResponse;
+    throw new Error(data.error || 'Client document download failed.');
+  }
+
+  const disposition = res.headers.get('content-disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : 'document';
+  return { blob: await res.blob(), fileName };
 }
 
 export async function fetchAdminServices(): Promise<InspectionService[]> {
