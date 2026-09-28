@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - cloud-run-migration
+      - client-portal
   pull_request:
     branches:
       - main
