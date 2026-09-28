@@ -1,17 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { BookingRecord, BookingStatus, InspectionService, BusinessSettings, ServiceAdminInput } from '../../types/booking';
+import type { ClientApproval, ClientDocumentSummary, ClientRequestSummary } from '../../types/clientPortal';
 import {
   createAdminService,
   fetchAdminBookings,
+  downloadAdminClientDocument,
+  fetchAdminClientApprovals,
+  fetchAdminClientDocuments,
+  fetchAdminClientRequests,
   fetchAdminServices,
   fetchAdminSettings,
   reorderAdminServices,
   updateAdminBooking,
+  updateAdminClientRequest,
   updateAdminService,
 } from '../../services/api';
 import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
 import { AdminServiceEditor } from './AdminServiceEditor';
+import { AdminClientRequests } from './AdminClientRequests';
 import { getPerthDateKey } from '../../utils/dateTime';
 import {
   Calendar,
@@ -51,8 +58,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onBackToBooking,
   onServicesChanged,
 }) => {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'settings'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'client-requests' | 'services' | 'settings'>('bookings');
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
+  const [clientRequests, setClientRequests] = useState<ClientRequestSummary[]>([]);
+  const [clientApprovals, setClientApprovals] = useState<ClientApproval[]>([]);
+  const [clientDocuments, setClientDocuments] = useState<ClientDocumentSummary[]>([]);
   const [services, setServices] = useState<InspectionService[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,12 +88,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [bkList, srvList, stData] = await Promise.all([
+      const [bkList, requestList, approvalList, documentList, srvList, stData] = await Promise.all([
         fetchAdminBookings(),
+        fetchAdminClientRequests(),
+        fetchAdminClientApprovals(),
+        fetchAdminClientDocuments(),
         fetchAdminServices(),
         fetchAdminSettings(),
       ]);
       setBookings(bkList);
+      setClientRequests(requestList);
+      setClientApprovals(approvalList);
+      setClientDocuments(documentList);
       setServices(srvList);
       onServicesChanged?.(
         srvList.filter((service) => service.active && service.publiclyBookable)
@@ -102,6 +118,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (selectedBooking && selectedBooking.id === id) {
       setSelectedBooking(updated);
     }
+  };
+
+  const handleUpdateClientRequestStatus = async (
+    id: string,
+    status: ClientRequestSummary['status']
+  ) => {
+    const updated = await updateAdminClientRequest(id, status);
+    setClientRequests((prev) =>
+      prev.map((request) => (request.id === id ? updated : request))
+    );
+  };
+
+  const handleDownloadClientDocument = async (documentId: string) => {
+    const { blob, fileName } = await downloadAdminClientDocument(documentId);
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    window.document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const applyServices = (nextServices: InspectionService[]) => {
@@ -271,6 +309,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Calendar className="w-4 h-4" />
           <span>Work Orders &amp; Bookings ({bookings.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('client-requests')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
+            activeTab === 'client-requests'
+              ? 'bg-[#007F82] text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Building className="w-4 h-4" />
+          <span>Client Requests ({clientRequests.length})</span>
         </button>
 
         <button
@@ -501,6 +551,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* CLIENT PORTAL REQUESTS */}
+      {activeTab === 'client-requests' && (
+        <AdminClientRequests
+          requests={clientRequests}
+          approvals={clientApprovals}
+          documents={clientDocuments}
+          onUpdateStatus={handleUpdateClientRequestStatus}
+          onDownloadDocument={handleDownloadClientDocument}
+        />
       )}
 
       {/* TAB 2: BOOKING SERVICES */}

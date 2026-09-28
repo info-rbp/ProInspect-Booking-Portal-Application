@@ -13,7 +13,8 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import { ClientHub } from './components/hub/ClientHub';
-import { PlaceholderPage } from './components/hub/PlaceholderPage';
+import { ClientSignIn } from './components/client/ClientSignIn';
+import { ClientPortal, ClientPortalSection } from './components/client/ClientPortal';
 import { DocumentRequestFlow } from './components/documents/DocumentRequestFlow';
 import {
   InspectionService,
@@ -24,12 +25,26 @@ import {
   PublicBookingSummary,
 } from './types/booking';
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
-import { initAuthListener, logoutAdmin } from './services/firebase';
+import { initAuthListener, logoutAdmin, logoutUser } from './services/firebase';
 import { User } from 'firebase/auth';
 import { Search } from 'lucide-react';
 
-type PublicRoute = 'hub' | 'book' | 'request-document' | 'signin';
-type PublicPath = '/' | '/book' | '/request-document' | '/signin';
+type PublicRoute =
+  | 'hub'
+  | 'book'
+  | 'request-document'
+  | 'signin'
+  | 'portal-dashboard'
+  | 'portal-properties'
+  | 'portal-property'
+  | 'portal-bookings'
+  | 'portal-requests'
+  | 'portal-documents'
+  | 'portal-approvals'
+  | 'portal-account'
+  | 'portal-onboarding'
+  | 'portal-maintenance-request'
+  | 'portal-document-request';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
@@ -43,7 +58,23 @@ function publicRouteFromPath(): PublicRoute {
   if (pathname === '/book') return 'book';
   if (pathname === '/request-document') return 'request-document';
   if (pathname === '/signin') return 'signin';
+  if (/^\/portal\/properties\/[^/]+$/.test(pathname)) return 'portal-property';
+  if (pathname === '/portal/properties') return 'portal-properties';
+  if (pathname === '/portal/bookings') return 'portal-bookings';
+  if (pathname === '/portal/requests/maintenance') return 'portal-maintenance-request';
+  if (pathname === '/portal/requests/document') return 'portal-document-request';
+  if (pathname === '/portal/requests') return 'portal-requests';
+  if (pathname === '/portal/documents') return 'portal-documents';
+  if (pathname === '/portal/approvals') return 'portal-approvals';
+  if (pathname === '/portal/account') return 'portal-account';
+  if (pathname === '/portal/onboarding') return 'portal-onboarding';
+  if (pathname === '/portal') return 'portal-dashboard';
   return 'hub';
+}
+
+function clientPropertyIdFromPath(): string | undefined {
+  const match = window.location.pathname.match(/^\/portal\/properties\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 export default function App() {
@@ -90,8 +121,9 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [conflictError, setConflictError] = useState<string | null>(null);
 
-  // Admin & Auth State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Authentication State
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [adminUser, setAdminUser] = useState<User | null>(null);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [directManageToken, setDirectManageToken] = useState<string | null>(
     () => manageTokenFromPath()
@@ -100,7 +132,7 @@ export default function App() {
     () => Boolean(manageTokenFromPath())
   );
 
-  const navigatePublic = (path: PublicPath, replace = false) => {
+  const navigatePublic = (path: string, replace = false) => {
     if (replace) {
       window.history.replaceState({}, '', path);
     } else if (window.location.pathname !== path) {
@@ -152,23 +184,35 @@ export default function App() {
     load();
   }, []);
 
-  // Listen to Firebase Auth state for Admin
+  // Keep the shared Firebase identity available to both the Client Portal and Staff Portal.
+  // Administrator authorisation is checked separately and never determines whether a client
+  // is allowed to remain signed in.
   useEffect(() => {
     const unsubscribe = initAuthListener(
       (user) => {
+        setAuthUser(user);
         verifyAdminSession()
-          .then(() => setCurrentUser(user))
-          .catch(async () => {
-            setCurrentUser(null);
-            await logoutAdmin();
-          });
+          .then(() => setAdminUser(user))
+          .catch(() => setAdminUser(null));
       },
       () => {
-        setCurrentUser(null);
+        setAuthUser(null);
+        setAdminUser(null);
       }
     );
     return () => unsubscribe();
   }, []);
+
+  // Signed-in clients should not have to re-enter their own contact identity on a new booking.
+  useEffect(() => {
+    if (!authUser?.email) return;
+
+    setPropertyData((current) => ({
+      ...current,
+      customerName: current.customerName || authUser.displayName || '',
+      customerEmail: current.customerEmail || authUser.email || '',
+    }));
+  }, [authUser]);
 
   // Step transition helpers
   const markStepCompleted = (step: WizardStepId) => {
@@ -315,8 +359,17 @@ export default function App() {
 
   const handleAdminLogout = async () => {
     await logoutAdmin();
-    setCurrentUser(null);
+    setAuthUser(null);
+    setAdminUser(null);
     setActiveView('booking');
+    navigatePublic('/');
+  };
+
+  const handleClientLogout = async () => {
+    await logoutUser();
+    setAuthUser(null);
+    setAdminUser(null);
+    navigatePublic('/');
   };
 
   const handleAdminServicesChanged = (publicServices: InspectionService[]) => {
@@ -342,12 +395,61 @@ export default function App() {
   const selectedService =
     services.find((s) => s.id === selectedServiceId) || undefined;
 
+  const clientPortalSection: ClientPortalSection =
+    publicRoute === 'portal-properties'
+      ? 'properties'
+      : publicRoute === 'portal-property'
+        ? 'property'
+        : publicRoute === 'portal-bookings'
+          ? 'bookings'
+          : publicRoute === 'portal-requests'
+            ? 'requests'
+            : publicRoute === 'portal-maintenance-request'
+              ? 'maintenance-request'
+              : publicRoute === 'portal-document-request'
+                ? 'document-request'
+                : publicRoute === 'portal-documents'
+                  ? 'documents'
+                : publicRoute === 'portal-approvals'
+                  ? 'approvals'
+                  : publicRoute === 'portal-account'
+                    ? 'account'
+                    : publicRoute === 'portal-onboarding'
+                      ? 'onboarding'
+                      : 'dashboard';
+
+  const isClientPortalRoute = publicRoute.startsWith('portal-');
+
+  const handleBookClientProperty = (property: import('./types/clientPortal').ClientProperty) => {
+    const singleCategory = property.categories.length === 1 ? property.categories[0] : null;
+    setPropertyData((current) => ({
+      ...current,
+      streetAddress: property.streetAddress,
+      unit: property.unit || '',
+      suburb: property.suburb,
+      state: property.state,
+      postcode: property.postcode,
+      propertyType: property.propertyType,
+      clientName: property.clientName || '',
+      clientReference: property.clientReference || '',
+      customerName: current.customerName || authUser?.displayName || '',
+      customerEmail: current.customerEmail || authUser?.email || '',
+    }));
+    setSelectedCategory(singleCategory);
+    setSelectedServiceId(null);
+    setSelectedSlot(null);
+    setCompletedSteps(singleCategory ? ['service-type'] : []);
+    setCurrentStep(singleCategory ? 'service' : 'service-type');
+    navigatePublic('/book');
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
       {/* Top Application Header */}
       <Header
         activeView={activeView}
         setActiveView={setActiveView}
+        signedIn={Boolean(authUser)}
         onNavigate={navigatePublic}
       />
 
@@ -356,7 +458,7 @@ export default function App() {
         {activeView === 'admin' ? (
           // Internal Admin Operations Portal
           <AdminDashboard
-            currentUser={currentUser}
+            currentUser={adminUser}
             onLogout={handleAdminLogout}
             onBackToBooking={() => navigatePublic('/book')}
             onServicesChanged={handleAdminServicesChanged}
@@ -366,7 +468,42 @@ export default function App() {
         ) : publicRoute === 'request-document' ? (
           <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
         ) : publicRoute === 'signin' ? (
-          <PlaceholderPage type="signin" onBack={() => navigatePublic('/')} />
+          authUser ? (
+            <ClientPortal
+              user={authUser}
+              section="dashboard"
+              onNavigate={navigatePublic}
+              onSignOut={handleClientLogout}
+              onBookProperty={handleBookClientProperty}
+            />
+          ) : (
+            <ClientSignIn
+              onSignedIn={(user) => {
+                setAuthUser(user);
+                navigatePublic('/portal');
+              }}
+              onBack={() => navigatePublic('/')}
+            />
+          )
+        ) : isClientPortalRoute ? (
+          authUser ? (
+            <ClientPortal
+              user={authUser}
+              section={clientPortalSection}
+              propertyId={clientPropertyIdFromPath()}
+              onNavigate={navigatePublic}
+              onSignOut={handleClientLogout}
+              onBookProperty={handleBookClientProperty}
+            />
+          ) : (
+            <ClientSignIn
+              onSignedIn={(user) => {
+                setAuthUser(user);
+                navigatePublic('/portal');
+              }}
+              onBack={() => navigatePublic('/')}
+            />
+          )
         ) : confirmedBooking ? (
           // Dedicated Booking Confirmation Screen
           <StepConfirmation
@@ -473,7 +610,8 @@ export default function App() {
         isOpen={isAdminLoginOpen}
         onClose={() => setIsAdminLoginOpen(false)}
         onLoginSuccess={(user) => {
-          setCurrentUser(user);
+          setAuthUser(user);
+          setAdminUser(user);
           setActiveView('admin');
         }}
       />
@@ -488,7 +626,7 @@ export default function App() {
       {/* Website Consistent Footer */}
       <Footer
         onOpenAdmin={() => {
-          if (currentUser) {
+          if (adminUser) {
             setActiveView('admin');
           } else {
             setIsAdminLoginOpen(true);

@@ -107,6 +107,18 @@
             "strata-building"
           ]
         },
+        "clientUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "clientOrganisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
         "calendarEventId": {
           "type": "string",
           "maxLength": 256
@@ -169,6 +181,529 @@
         "readinessStatus",
         "status",
         "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientUser": {
+      "title": "ClientUser",
+      "description": "Authenticated ProInspect client profile keyed by Firebase UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "organisationName": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "onboardingStatus": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "in_progress",
+            "complete"
+          ]
+        },
+        "activeOrganisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "active",
+        "onboardingStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientOrganisation": {
+      "title": "ClientOrganisation",
+      "description": "Client ownership or business entity shared by one or more portal users.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "entityType": {
+          "type": "string",
+          "enum": [
+            "individual",
+            "company",
+            "trust",
+            "partnership",
+            "strata",
+            "agency",
+            "other"
+          ]
+        },
+        "abn": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "acn": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "billingEmail": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "createdByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "entityType",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientMembership": {
+      "title": "ClientMembership",
+      "description": "Role-based link between a verified portal user and a client organisation.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "organisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "uid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "member",
+            "viewer"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "invited",
+            "revoked"
+          ]
+        },
+        "invitedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "organisationId",
+        "email",
+        "role",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientProperty": {
+      "title": "ClientProperty",
+      "description": "Persistent client property record created from linked bookings and reused by the Client Portal.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "organisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "streetAddress": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "suburb": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "state": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "postcode": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "propertyType": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "nickname": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "clientReference": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "inactive"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "lastBookingAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "organisationId",
+        "createdByUid",
+        "streetAddress",
+        "suburb",
+        "state",
+        "postcode",
+        "propertyType",
+        "categories",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientRequest": {
+      "title": "ClientRequest",
+      "description": "Future-facing request record for document, maintenance and operational workflows.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "organisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "clientUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requestId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "document",
+            "maintenance",
+            "general"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "in_progress",
+            "waiting_client",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "routine",
+            "priority",
+            "urgent"
+          ]
+        },
+        "details": {
+          "type": "object"
+        },
+        "attachmentDocumentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "generatedDocumentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "organisationId",
+        "clientUid",
+        "type",
+        "title",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientDocument": {
+      "title": "ClientDocument",
+      "description": "Client-visible metadata for reports, leases, notices and other property documents.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "clientUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "documentType": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "draft",
+            "archived"
+          ]
+        },
+        "storagePath": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "contentType": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "sizeBytes": {
+          "type": "number"
+        },
+        "generated": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "organisationId",
+        "clientUid",
+        "name",
+        "documentType",
+        "status",
+        "storagePath",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ClientApproval": {
+      "title": "ClientApproval",
+      "description": "Recorded client decision for draft documents, instructions or later approval workflows.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "organisationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requestId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "documentId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "document",
+            "quote",
+            "instruction",
+            "other"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "changes_requested",
+            "declined"
+          ]
+        },
+        "responseComment": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "requestedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "requestedAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "respondedByUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "respondedAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "id",
+        "organisationId",
+        "type",
+        "title",
+        "status",
+        "requestedAt",
         "updatedAt"
       ]
     },
@@ -441,6 +976,34 @@
     "/bookings/{bookingId}": {
       "schema": "Booking",
       "description": "Persistent customer bookings and internal work orders."
+    },
+    "/clientUsers/{firebaseUid}": {
+      "schema": "ClientUser",
+      "description": "Verified client identity and profile record."
+    },
+    "/clientOrganisations/{organisationId}": {
+      "schema": "ClientOrganisation",
+      "description": "Client entity used to group properties, users, requests and documents."
+    },
+    "/clientMemberships/{membershipId}": {
+      "schema": "ClientMembership",
+      "description": "Role-based client user membership and invitation record."
+    },
+    "/clientProperties/{propertyId}": {
+      "schema": "ClientProperty",
+      "description": "Properties linked to authenticated client accounts."
+    },
+    "/clientRequests/{requestId}": {
+      "schema": "ClientRequest",
+      "description": "Client request records used by future document and property-operation workflows."
+    },
+    "/clientDocuments/{documentId}": {
+      "schema": "ClientDocument",
+      "description": "Client-visible metadata for uploaded and generated files stored in Firebase Storage."
+    },
+    "/clientApprovals/{approvalId}": {
+      "schema": "ClientApproval",
+      "description": "Recorded client approvals and requested changes."
     },
     "/settings/business": {
       "schema": "Settings",

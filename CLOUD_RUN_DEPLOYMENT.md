@@ -36,11 +36,39 @@ Configure these on the Cloud Run service:
 ```text
 FIREBASE_PROJECT_ID=business-plan-applicatio-17047
 FIRESTORE_DATABASE_ID=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a
+FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047-proinspect-client-documents-production
 ADMIN_EMAILS=info@proinspect.systems,info@remotebusinesspartner.com.au
 GOOGLE_CALENDAR_ID=c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com
 ```
 
 Cloud Run provides `PORT`; the Docker image defaults to 8080 and the server reads the runtime `PORT` value.
+
+### Infrastructure as Code and Client Portal storage
+
+The `client-portal` branch now contains a Terraform infrastructure layer under `infrastructure/`.
+
+Terraform creates a dedicated private Cloud Storage bucket for Client Portal uploads and generated documents:
+
+`business-plan-applicatio-17047-proinspect-client-documents-production`
+
+The bucket uses uniform bucket-level access, enforced public-access prevention and object versioning. Terraform grants the Cloud Run runtime service account `roles/storage.objectAdmin` on that bucket.
+
+The infrastructure pipeline also enables required Google APIs, creates Secret Manager containers and grants the runtime identity its Firestore, Firebase Authentication, Service Usage and secret-access permissions.
+
+Run the one-time bootstrap and apply process documented in `infrastructure/README.md`. Do not manually create a second client-document bucket once Terraform is managing this resource.
+
+The application keeps browser Firestore access closed and proxies authenticated file upload/download through the Express server. Client files are limited to 10 MB each and constrained to the file types enforced in `src/server/clientFiles.ts`.
+
+## Infrastructure deployment
+
+Application deployment and infrastructure deployment are intentionally separate.
+
+- the existing Cloud Run / Cloud Build integration continues to build and release the Docker application;
+- `cloudbuild.infrastructure.yaml` runs Terraform for supporting infrastructure;
+- Terraform remote state is stored in a versioned Google Cloud Storage bucket created by `infrastructure/bootstrap.sh`;
+- after Terraform applies, the infrastructure build updates the existing Cloud Run service with Terraform-managed non-secret environment variables and enabled Secret Manager versions.
+
+See `infrastructure/README.md` for bootstrap, plan/apply and production-trigger instructions.
 
 ## Continuous deployment
 
@@ -78,6 +106,10 @@ After Cloud Run creates the service, test the generated `run.app` URL before con
 7. Create one controlled test booking.
 8. Confirm the corresponding Google Calendar event is created.
 9. Cancel the test booking and confirm the Calendar event is removed.
+10. Sign in through `/signin` with a controlled client account.
+11. Complete client onboarding and add a controlled property.
+12. Upload a small PDF/image through a client request and confirm it can be downloaded again.
+13. Submit a document request, generate a draft and confirm the approval appears in the Client Portal and Staff Portal.
 
 Do not change production DNS until these tests pass.
 
@@ -159,15 +191,10 @@ Configure:
 ```text
 BOOKING_EMAIL_FROM=ProInspect <bookings@proinspect.systems>
 BOOKING_EMAIL_REPLY_TO=info@proinspect.systems
-```
-
-Document requests use the same Resend configuration. Internal request
-notifications default to `info@proinspect.systems`; optionally override that
-recipient with:
-
-```text
 DOCUMENT_REQUEST_NOTIFY_TO=info@proinspect.systems
 ```
+
+The public document catalogue uses the same Resend credentials for the customer confirmation and the internal ProInspect notification.
 
 Set `APP_URL` to the active public booking origin. Until the custom domain is
 live, use the current Cloud Run service URL. After

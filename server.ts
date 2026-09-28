@@ -12,8 +12,16 @@ import type {
   BookingRecord,
   BusinessSettings,
   InspectionService,
+  PropertyType,
   ServiceCategory,
 } from './src/types/booking.js';
+import type {
+  ClientDocumentRequestInput,
+  ClientMaintenanceRequestInput,
+  ClientOnboardingInput,
+  ClientOrganisationRole,
+  ClientPropertyInput,
+} from './src/types/clientPortal.js';
 import type {
   DocumentRequestDetails,
   DocumentRequestRecord,
@@ -34,6 +42,28 @@ import {
   listDocumentProducts,
   getDocumentProduct,
   listServices,
+  activateClientOrganisation,
+  completeClientOnboarding,
+  createClientApproval,
+  createClientDocument,
+  createClientProperty,
+  createClientRequest,
+  ensureClientContext,
+  getClientDocument,
+  getClientDocumentForAdmin,
+  getClientPortalDashboard,
+  getClientProperty,
+  getClientRequest,
+  inviteClientOrganisationMember,
+  linkBookingToClient,
+  listClientApprovalsForAdmin,
+  listClientDocumentsForAdmin,
+  listClientRequestsForAdmin,
+  respondToClientApproval,
+  updateClientOrganisationMember,
+  updateClientProperty,
+  updateClientRequest,
+  updateClientRequestForAdmin,
   newBookingId,
   newDocumentRequestId,
   documentRequestReferenceExists,
@@ -68,8 +98,16 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendClientPortalInvitationEmail,
   sendDocumentRequestEmails,
 } from './src/server/email.js';
+import {
+  openClientFileStream,
+  saveClientFile,
+  saveGeneratedClientFile,
+  validateClientUpload,
+} from './src/server/clientFiles.js';
+import { generateDocumentDraft } from './src/server/documentGenerator.js';
 import {
   isValidAustralianPhone,
   isValidAustralianPostcode,
@@ -170,26 +208,80 @@ function parseAdminEmails(): Set<string> {
   ]);
 }
 
+async function verifiedFirebaseIdentity(req: Request): Promise<{
+  uid: string;
+  email: string;
+  displayName?: string;
+} | null> {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+
+  const idToken = authHeader.slice(7).trim();
+  const decoded = await adminAuth.verifyIdToken(idToken, true);
+  const email = (decoded.email || '').trim().toLowerCase();
+
+  if (!email || decoded.email_verified !== true) {
+    return null;
+  }
+
+  return {
+    uid: decoded.uid,
+    email,
+    displayName:
+      typeof decoded.name === 'string' && decoded.name.trim()
+        ? decoded.name.trim()
+        : undefined,
+  };
+}
+
+async function requireClient(req: Request, res: Response, next: NextFunction) {
+  try {
+    const identity = await verifiedFirebaseIdentity(req);
+    if (!identity) {
+      return res.status(401).json({ error: 'A verified client account is required.' });
+    }
+
+    const context = await ensureClientContext(identity);
+    res.locals.client = {
+      ...identity,
+      context,
+    };
+    return next();
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_ACCOUNT_DISABLED') {
+      return res.status(403).json({ error: 'This client portal account has been disabled.' });
+    }
+
+    console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
+async function optionalClientIdentity(req: Request): Promise<{
+  uid: string;
+  email: string;
+  displayName?: string;
+} | null> {
+  try {
+    return await verifiedFirebaseIdentity(req);
+  } catch {
+    return null;
+  }
+}
+
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
+    const identity = await verifiedFirebaseIdentity(req);
+    if (!identity) {
       return res.status(401).json({ error: 'Administrator authentication is required.' });
     }
 
-    const idToken = authHeader.slice(7).trim();
-    const decoded = await adminAuth.verifyIdToken(idToken, true);
-    const email = (decoded.email || '').trim().toLowerCase();
-
-    if (!email || decoded.email_verified !== true) {
-      return res.status(403).json({ error: 'A verified administrator account is required.' });
-    }
-
+    const { uid, email } = identity;
     const configuredAdmins = parseAdminEmails();
     let authorised = configuredAdmins.has(email);
 
     if (!authorised) {
-      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
+      const adminUser = await adminDb.collection('adminUsers').doc(uid).get();
       const data = adminUser.exists ? adminUser.data() : null;
       authorised =
         Boolean(data) &&
@@ -201,7 +293,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
     }
 
-    res.locals.admin = { uid: decoded.uid, email };
+    res.locals.admin = { uid, email };
     return next();
   } catch (error) {
     console.error('Admin authentication failed:', error);
@@ -245,6 +337,229 @@ function isValidEmail(value: unknown): boolean {
 
 function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function clientContext(res: Response): Awaited<ReturnType<typeof ensureClientContext>> {
+  return res.locals.client.context as Awaited<ReturnType<typeof ensureClientContext>>;
+}
+
+const CLIENT_PROPERTY_TYPES = new Set<PropertyType>([
+  'House',
+  'Apartment / Unit',
+  'Townhouse',
+  'Commercial',
+  'Retail',
+  'Office',
+  'Industrial',
+  'Strata / Common Property',
+  'Other',
+]);
+
+const CLIENT_ENTITY_TYPES = new Set<ClientOnboardingInput['entityType']>([
+  'individual',
+  'company',
+  'trust',
+  'partnership',
+  'strata',
+  'agency',
+  'other',
+]);
+
+const CLIENT_DOCUMENT_TYPES = new Set<ClientDocumentRequestInput['documentType']>([
+  'Commercial Lease',
+  'Lease Variation',
+  'Lease Renewal / Extension',
+  'Notice / Letter',
+  'Authority / Agreement',
+  'Other',
+]);
+
+const CLIENT_MAINTENANCE_TYPES = new Set<ClientMaintenanceRequestInput['issueType']>([
+  'Plumbing',
+  'Electrical',
+  'Air Conditioning',
+  'Appliance',
+  'Door / Window',
+  'Security',
+  'Water Ingress',
+  'General Repair',
+  'Other',
+]);
+
+function sanitizeClientPropertyInput(
+  input: unknown
+): { value?: ClientPropertyInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Property details are required.' };
+  }
+
+  const raw = input as Record<string, unknown>;
+  const streetAddress = normalizeText(raw.streetAddress, 150);
+  const unit = normalizeText(raw.unit, 50);
+  const suburb = normalizeText(raw.suburb, 100);
+  const state = normalizeText(raw.state, 10).toUpperCase() || 'WA';
+  const postcode = normalizeText(raw.postcode, 10);
+  const propertyType = CLIENT_PROPERTY_TYPES.has(raw.propertyType as PropertyType)
+    ? (raw.propertyType as PropertyType)
+    : null;
+  const categories = Array.isArray(raw.categories)
+    ? Array.from(
+        new Set(
+          raw.categories.filter((item): item is ServiceCategory =>
+            isServiceCategory(item)
+          )
+        )
+      )
+    : [];
+
+  if (!streetAddress || !suburb || !/^\d{4}$/.test(postcode)) {
+    return { error: 'Enter a complete Australian property address.' };
+  }
+  if (!['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(state)) {
+    return { error: 'Select a valid Australian state or territory.' };
+  }
+  if (!propertyType) {
+    return { error: 'Select a valid property type.' };
+  }
+  if (categories.length === 0) {
+    return { error: 'Select at least one property service category.' };
+  }
+
+  return {
+    value: {
+      streetAddress,
+      unit: unit || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType,
+      nickname: normalizeText(raw.nickname, 100) || undefined,
+      clientReference: normalizeText(raw.clientReference, 100) || undefined,
+      categories,
+      notes: normalizeText(raw.notes, 2000) || undefined,
+    },
+  };
+}
+
+function sanitizeClientOnboarding(
+  input: unknown,
+  accountEmail: string
+): { value?: ClientOnboardingInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Onboarding information is required.' };
+  }
+
+  const raw = input as Record<string, unknown>;
+  const displayName = normalizeText(raw.displayName, 150);
+  const organisationName = normalizeText(raw.organisationName, 150);
+  const entityType = CLIENT_ENTITY_TYPES.has(raw.entityType as ClientOnboardingInput['entityType'])
+    ? (raw.entityType as ClientOnboardingInput['entityType'])
+    : null;
+  const billingEmail = normalizeText(raw.billingEmail, 120).toLowerCase() || accountEmail;
+  const abn = normalizeText(raw.abn, 20).replace(/\s+/g, '');
+  const acn = normalizeText(raw.acn, 20).replace(/\s+/g, '');
+
+  if (!displayName || !organisationName || !entityType) {
+    return { error: 'Your name, organisation name and entity type are required.' };
+  }
+  if (!isValidEmail(billingEmail)) {
+    return { error: 'Enter a valid billing email address.' };
+  }
+  if (abn && !/^\d{11}$/.test(abn)) {
+    return { error: 'ABN must contain 11 digits.' };
+  }
+  if (acn && !/^\d{9}$/.test(acn)) {
+    return { error: 'ACN must contain 9 digits.' };
+  }
+
+  let firstProperty: ClientPropertyInput | undefined;
+  if (raw.firstProperty) {
+    const property = sanitizeClientPropertyInput(raw.firstProperty);
+    if (!property.value) return { error: property.error };
+    firstProperty = property.value;
+  }
+
+  return {
+    value: {
+      displayName,
+      phone: normalizeText(raw.phone, 50) || undefined,
+      organisationName,
+      entityType,
+      abn: abn || undefined,
+      acn: acn || undefined,
+      billingEmail,
+      firstProperty,
+    },
+  };
+}
+
+function sanitizeClientDocumentRequest(
+  input: unknown
+): { value?: ClientDocumentRequestInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Document request details are required.' };
+  }
+  const raw = input as Record<string, unknown>;
+  const documentType = CLIENT_DOCUMENT_TYPES.has(raw.documentType as ClientDocumentRequestInput['documentType'])
+    ? (raw.documentType as ClientDocumentRequestInput['documentType'])
+    : null;
+  const instructions = normalizeText(raw.instructions, 5000);
+  if (!documentType || !instructions) {
+    return { error: 'Select a document type and provide drafting instructions.' };
+  }
+
+  return {
+    value: {
+      propertyId: normalizeText(raw.propertyId, 128) || undefined,
+      documentType,
+      title: normalizeText(raw.title, 200) || undefined,
+      counterpartyName: normalizeText(raw.counterpartyName, 200) || undefined,
+      commencementDate: normalizeText(raw.commencementDate, 50) || undefined,
+      term: normalizeText(raw.term, 100) || undefined,
+      rent: normalizeText(raw.rent, 100) || undefined,
+      permittedUse: normalizeText(raw.permittedUse, 250) || undefined,
+      specialConditions: normalizeText(raw.specialConditions, 3000) || undefined,
+      instructions,
+      dueDate: normalizeText(raw.dueDate, 50) || undefined,
+    },
+  };
+}
+
+function sanitizeClientMaintenanceRequest(
+  input: unknown
+): { value?: ClientMaintenanceRequestInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Maintenance request details are required.' };
+  }
+  const raw = input as Record<string, unknown>;
+  const issueType = CLIENT_MAINTENANCE_TYPES.has(raw.issueType as ClientMaintenanceRequestInput['issueType'])
+    ? (raw.issueType as ClientMaintenanceRequestInput['issueType'])
+    : null;
+  const priority = ['routine', 'priority', 'urgent'].includes(String(raw.priority))
+    ? (String(raw.priority) as ClientMaintenanceRequestInput['priority'])
+    : null;
+  const propertyId = normalizeText(raw.propertyId, 128);
+  const title = normalizeText(raw.title, 200);
+  const description = normalizeText(raw.description, 5000);
+
+  if (!propertyId || !issueType || !priority || !title || !description) {
+    return { error: 'Property, issue type, priority, title and description are required.' };
+  }
+
+  return {
+    value: {
+      propertyId,
+      issueType,
+      title,
+      description,
+      location: normalizeText(raw.location, 250) || undefined,
+      priority,
+      activeWater: raw.activeWater === true,
+      powerAffected: raw.powerAffected === true,
+      propertySecure: raw.propertySecure !== false,
+      accessNotes: normalizeText(raw.accessNotes, 2000) || undefined,
+    },
+  };
 }
 
 const SERVICE_CATEGORIES = new Set<ServiceCategory>([
@@ -937,6 +1252,43 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     await saveDocumentRequest(request);
 
+    // If the public catalogue is used while signed in, mirror the request into
+    // the organisation request workspace without changing anonymous behaviour.
+    const authenticatedClient = await optionalClientIdentity(req);
+    if (
+      authenticatedClient &&
+      authenticatedClient.email === request.details.customerEmail
+    ) {
+      try {
+        const context = await ensureClientContext(authenticatedClient);
+        await createClientRequest({
+          context,
+          type: 'document',
+          title: request.documentName,
+          priority: 'routine',
+          details: {
+            sourceDocumentRequestId: request.id,
+            requestReference: request.requestReference,
+            documentId: request.documentId,
+            documentName: request.documentName,
+            documentCategory: request.documentCategory,
+            priceExGst: request.priceExGst,
+            streetAddress: request.details.streetAddress,
+            suburb: request.details.suburb,
+            state: request.details.state,
+            postcode: request.details.postcode,
+            ...(request.details.unit ? { unit: request.details.unit } : {}),
+            ...(request.details.notes ? { instructions: request.details.notes } : {}),
+          },
+        });
+      } catch (portalLinkError) {
+        console.error(
+          'Document request was saved but could not be linked to the Client Portal:',
+          portalLinkError
+        );
+      }
+    }
+
     const emailResult = await sendDocumentRequestEmails(request);
     if (emailResult.customer.status === 'failed') {
       console.error(
@@ -964,6 +1316,536 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
     return res.status(500).json({
       error: 'The document request could not be submitted. Please try again.',
     });
+  }
+});
+
+app.get('/api/client/session', requireClient, (_req, res) => {
+  const context = clientContext(res);
+  return res.json({
+    authorised: true,
+    profile: context.profile,
+    organisation: context.organisation,
+    membership: context.membership,
+  });
+});
+
+app.get('/api/client/dashboard', requireClient, async (_req, res) => {
+  try {
+    const client = res.locals.client as {
+      uid: string;
+      email: string;
+      displayName?: string;
+    };
+    const dashboard = await getClientPortalDashboard(client);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Client portal dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the client portal.' });
+  }
+});
+
+app.post('/api/client/onboarding', requireClient, async (req, res) => {
+  try {
+    const context = clientContext(res);
+    const parsed = sanitizeClientOnboarding(req.body, context.profile.email);
+    if (!parsed.value) {
+      return res.status(400).json({ error: parsed.error || 'Invalid onboarding information.' });
+    }
+
+    const updatedContext = await completeClientOnboarding({
+      context,
+      input: parsed.value,
+    });
+    return res.json({ success: true, context: updatedContext });
+  } catch (error) {
+    console.error('Client onboarding failed:', error);
+    return res.status(500).json({ error: 'Unable to complete client onboarding.' });
+  }
+});
+
+app.post('/api/client/properties', requireClient, async (req, res) => {
+  try {
+    const parsed = sanitizeClientPropertyInput(req.body);
+    if (!parsed.value) {
+      return res.status(400).json({ error: parsed.error || 'Invalid property information.' });
+    }
+
+    const property = await createClientProperty({
+      context: clientContext(res),
+      input: parsed.value,
+    });
+    return res.status(201).json({ success: true, property });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+    console.error('Client property creation failed:', error);
+    return res.status(500).json({ error: 'Unable to add this property.' });
+  }
+});
+
+app.patch('/api/client/properties/:id', requireClient, async (req, res) => {
+  try {
+    const changes: Record<string, unknown> = {};
+    if (req.body?.nickname !== undefined) {
+      changes.nickname = normalizeText(req.body.nickname, 100) || undefined;
+    }
+    if (req.body?.clientReference !== undefined) {
+      changes.clientReference = normalizeText(req.body.clientReference, 100) || undefined;
+    }
+    if (req.body?.notes !== undefined) {
+      changes.notes = normalizeText(req.body.notes, 2000) || undefined;
+    }
+    if (req.body?.status !== undefined) {
+      if (!['active', 'inactive'].includes(String(req.body.status))) {
+        return res.status(400).json({ error: 'Invalid property status.' });
+      }
+      changes.status = req.body.status;
+    }
+    if (req.body?.categories !== undefined) {
+      if (!Array.isArray(req.body.categories)) {
+        return res.status(400).json({ error: 'Property categories must be a list.' });
+      }
+      const categories = Array.from(
+        new Set(
+          req.body.categories.filter((item: unknown): item is ServiceCategory =>
+            isServiceCategory(item)
+          )
+        )
+      );
+      if (categories.length === 0) {
+        return res.status(400).json({ error: 'Select at least one property category.' });
+      }
+      changes.categories = categories;
+    }
+
+    const property = await updateClientProperty({
+      context: clientContext(res),
+      propertyId: req.params.id,
+      changes,
+    });
+    return res.json({ success: true, property });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+    console.error('Client property update failed:', error);
+    return res.status(500).json({ error: 'Unable to update this property.' });
+  }
+});
+
+app.post('/api/client/organisations/:id/activate', requireClient, async (req, res) => {
+  try {
+    const client = res.locals.client as { uid: string; email: string; displayName?: string };
+    const context = await activateClientOrganisation({
+      uid: client.uid,
+      email: client.email,
+      organisationId: req.params.id,
+    });
+    return res.json({ success: true, context });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_FORBIDDEN') {
+      return res.status(403).json({ error: 'You do not have access to this organisation.' });
+    }
+    console.error('Client organisation switch failed:', error);
+    return res.status(500).json({ error: 'Unable to switch organisation.' });
+  }
+});
+
+app.post('/api/client/organisation/members', requireClient, async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 120).toLowerCase();
+    const role = normalizeText(req.body?.role, 30) as Exclude<ClientOrganisationRole, 'owner'>;
+    if (!isValidEmail(email) || !['admin', 'member', 'viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Enter a valid email and member role.' });
+    }
+
+    const context = clientContext(res);
+    const membership = await inviteClientOrganisationMember({
+      context,
+      email,
+      role,
+    });
+
+    const invitationEmail = await sendClientPortalInvitationEmail({
+      email,
+      organisationName: context.organisation.name,
+      invitedByName: context.profile.displayName,
+      role,
+      signInUrl: `${publicBaseUrl(req)}/signin`,
+    });
+
+    if (invitationEmail.status === 'failed') {
+      console.error(
+        `Client Portal invitation email failed for ${email}:`,
+        invitationEmail.error
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      membership,
+      invitationEmailStatus: invitationEmail.status,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_ADMIN_REQUIRED') {
+      return res.status(403).json({ error: 'Owner or admin access is required to invite members.' });
+    }
+    console.error('Client member invitation failed:', error);
+    return res.status(500).json({ error: 'Unable to invite this organisation member.' });
+  }
+});
+
+app.patch('/api/client/organisation/members/:id', requireClient, async (req, res) => {
+  try {
+    const role = req.body?.role === undefined
+      ? undefined
+      : (normalizeText(req.body.role, 30) as Exclude<ClientOrganisationRole, 'owner'>);
+    const status = req.body?.status === undefined
+      ? undefined
+      : normalizeText(req.body.status, 30) as 'active' | 'revoked';
+
+    if (role && !['admin', 'member', 'viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid member role.' });
+    }
+    if (status && !['active', 'revoked'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid membership status.' });
+    }
+
+    const membership = await updateClientOrganisationMember({
+      context: clientContext(res),
+      membershipId: req.params.id,
+      role,
+      status,
+    });
+    return res.json({ success: true, membership });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_OWNER_REQUIRED') {
+      return res.status(403).json({ error: 'Organisation owner access is required.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_MEMBERSHIP_NOT_FOUND') {
+      return res.status(404).json({ error: 'Organisation member not found.' });
+    }
+    console.error('Client member update failed:', error);
+    return res.status(500).json({ error: 'Unable to update this organisation member.' });
+  }
+});
+
+app.post('/api/client/requests/document', requireClient, async (req, res) => {
+  try {
+    const parsed = sanitizeClientDocumentRequest(req.body);
+    if (!parsed.value) {
+      return res.status(400).json({ error: parsed.error || 'Invalid document request.' });
+    }
+
+    const input = parsed.value;
+    const request = await createClientRequest({
+      context: clientContext(res),
+      type: 'document',
+      title: input.title || input.documentType,
+      propertyId: input.propertyId,
+      priority: 'routine',
+      details: {
+        documentType: input.documentType,
+        ...(input.counterpartyName ? { counterpartyName: input.counterpartyName } : {}),
+        ...(input.commencementDate ? { commencementDate: input.commencementDate } : {}),
+        ...(input.term ? { term: input.term } : {}),
+        ...(input.rent ? { rent: input.rent } : {}),
+        ...(input.permittedUse ? { permittedUse: input.permittedUse } : {}),
+        ...(input.specialConditions ? { specialConditions: input.specialConditions } : {}),
+        instructions: input.instructions,
+        ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+      },
+    });
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_PROPERTY_NOT_FOUND') {
+      return res.status(400).json({ error: 'Select a property linked to your organisation.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+    console.error('Document request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the document request.' });
+  }
+});
+
+app.post('/api/client/requests/maintenance', requireClient, async (req, res) => {
+  try {
+    const parsed = sanitizeClientMaintenanceRequest(req.body);
+    if (!parsed.value) {
+      return res.status(400).json({ error: parsed.error || 'Invalid maintenance request.' });
+    }
+
+    const input = parsed.value;
+    const request = await createClientRequest({
+      context: clientContext(res),
+      type: 'maintenance',
+      title: input.title,
+      propertyId: input.propertyId,
+      priority: input.priority,
+      details: {
+        issueType: input.issueType,
+        description: input.description,
+        ...(input.location ? { location: input.location } : {}),
+        activeWater: Boolean(input.activeWater),
+        powerAffected: Boolean(input.powerAffected),
+        propertySecure: input.propertySecure !== false,
+        ...(input.accessNotes ? { accessNotes: input.accessNotes } : {}),
+      },
+    });
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_PROPERTY_NOT_FOUND') {
+      return res.status(400).json({ error: 'Select a property linked to your organisation.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+    console.error('Maintenance request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the maintenance request.' });
+  }
+});
+
+app.post(
+  '/api/client/files/upload',
+  requireClient,
+  express.raw({ type: () => true, limit: '10mb' }),
+  async (req, res) => {
+    try {
+      const context = clientContext(res);
+      if (context.membership.role === 'viewer') {
+        return res.status(403).json({ error: 'Your client role is read-only.' });
+      }
+
+      const fileName = normalizeText(
+        decodeURIComponent(String(req.header('x-file-name') || '')),
+        200
+      );
+      const contentType = normalizeText(req.header('content-type'), 150);
+      const propertyId = normalizeText(req.header('x-property-id'), 128) || undefined;
+      const requestId = normalizeText(req.header('x-request-id'), 128) || undefined;
+      const documentType =
+        normalizeText(req.header('x-document-type'), 100) || 'Supporting Document';
+      const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+
+      const validationError = validateClientUpload({
+        fileName,
+        contentType,
+        sizeBytes: bytes.length,
+      });
+      if (validationError) {
+        return res.status(400).json({ error: validationError });
+      }
+
+      if (propertyId) {
+        const property = await getClientProperty({
+          organisationId: context.organisation.id,
+          propertyId,
+        });
+        if (!property) {
+          return res.status(400).json({ error: 'The selected property is not available to this organisation.' });
+        }
+      }
+
+      if (requestId) {
+        const request = await getClientRequest({
+          organisationId: context.organisation.id,
+          requestId,
+        });
+        if (!request) {
+          return res.status(400).json({ error: 'The selected request is not available to this organisation.' });
+        }
+      }
+
+      const stored = await saveClientFile({
+        organisationId: context.organisation.id,
+        uploadedByUid: context.profile.uid,
+        fileName,
+        contentType,
+        bytes,
+      });
+
+      const document = await createClientDocument({
+        context,
+        propertyId,
+        requestId,
+        name: stored.fileName,
+        documentType,
+        status: 'available',
+        storagePath: stored.storagePath,
+        contentType,
+        sizeBytes: stored.sizeBytes,
+      });
+
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      console.error('Client file upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload this file.' });
+    }
+  }
+);
+
+app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, res) => {
+  try {
+    const context = clientContext(res);
+    if (context.membership.role === 'viewer') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+
+    const request = await getClientRequest({
+      organisationId: context.organisation.id,
+      requestId: req.params.id,
+    });
+    if (!request || request.type !== 'document') {
+      return res.status(404).json({ error: 'Document request not found.' });
+    }
+
+    const details = request.details || {};
+    const documentType = String(details.documentType || 'Other') as ClientDocumentRequestInput['documentType'];
+    if (!CLIENT_DOCUMENT_TYPES.has(documentType)) {
+      return res.status(400).json({ error: 'This request does not contain a supported document type.' });
+    }
+
+    const input: ClientDocumentRequestInput = {
+      propertyId: request.propertyId,
+      documentType,
+      title: request.title,
+      counterpartyName: typeof details.counterpartyName === 'string' ? details.counterpartyName : undefined,
+      commencementDate: typeof details.commencementDate === 'string' ? details.commencementDate : undefined,
+      term: typeof details.term === 'string' ? details.term : undefined,
+      rent: typeof details.rent === 'string' ? details.rent : undefined,
+      permittedUse: typeof details.permittedUse === 'string' ? details.permittedUse : undefined,
+      specialConditions: typeof details.specialConditions === 'string' ? details.specialConditions : undefined,
+      instructions: typeof details.instructions === 'string' ? details.instructions : '',
+      dueDate: typeof details.dueDate === 'string' ? details.dueDate : undefined,
+    };
+
+    const property = request.propertyId
+      ? await getClientProperty({
+          organisationId: context.organisation.id,
+          propertyId: request.propertyId,
+        })
+      : undefined;
+
+    const generated = generateDocumentDraft({
+      request,
+      input,
+      organisation: context.organisation,
+      property: property || undefined,
+    });
+
+    const stored = await saveGeneratedClientFile({
+      organisationId: context.organisation.id,
+      generatedByUid: context.profile.uid,
+      fileName: generated.fileName,
+      contentType: generated.contentType,
+      bytes: generated.bytes,
+    });
+
+    const document = await createClientDocument({
+      context,
+      propertyId: request.propertyId,
+      requestId: request.id,
+      name: stored.fileName,
+      documentType: input.documentType,
+      status: 'draft',
+      storagePath: stored.storagePath,
+      contentType: generated.contentType,
+      sizeBytes: stored.sizeBytes,
+      generated: true,
+    });
+
+    const approval = await createClientApproval({
+      context,
+      propertyId: request.propertyId,
+      requestId: request.id,
+      documentId: document.id,
+      type: 'document',
+      title: `Review ${input.documentType} draft`,
+      summary: 'Review the generated working draft and either approve it or request changes.',
+    });
+
+    await updateClientRequest({
+      context,
+      requestId: request.id,
+      changes: {
+        status: 'waiting_client',
+        generatedDocumentId: document.id,
+      },
+    });
+
+    return res.status(201).json({ success: true, document, approval });
+  } catch (error) {
+    console.error('Client document draft generation failed:', error);
+    return res.status(500).json({ error: 'Unable to generate this document draft.' });
+  }
+});
+
+app.get('/api/client/documents/:id/download', requireClient, async (req, res) => {
+  try {
+    const context = clientContext(res);
+    const document = await getClientDocument({
+      organisationId: context.organisation.id,
+      documentId: req.params.id,
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    res.setHeader('Content-Type', document.contentType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    const stream = openClientFileStream(document.storagePath);
+    stream.on('error', (error) => {
+      console.error('Client document stream failed:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Unable to download this document.' });
+      } else {
+        res.destroy(error as Error);
+      }
+    });
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Client document download failed:', error);
+    return res.status(500).json({ error: 'Unable to download this document.' });
+  }
+});
+
+app.post('/api/client/approvals/:id/respond', requireClient, async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status, 40) as
+      | 'approved'
+      | 'changes_requested'
+      | 'declined';
+    if (!['approved', 'changes_requested', 'declined'].includes(status)) {
+      return res.status(400).json({ error: 'Select a valid approval response.' });
+    }
+
+    const approval = await respondToClientApproval({
+      context: clientContext(res),
+      approvalId: req.params.id,
+      status,
+      comment: normalizeText(req.body?.comment, 3000) || undefined,
+    });
+    return res.json({ success: true, approval });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_APPROVAL_NOT_FOUND') {
+      return res.status(404).json({ error: 'Approval not found.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
+      return res.status(403).json({ error: 'Your client role is read-only.' });
+    }
+    console.error('Client approval response failed:', error);
+    return res.status(500).json({ error: 'Unable to save this approval response.' });
   }
 });
 
@@ -1202,6 +2084,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
+    const authenticatedClient = await optionalClientIdentity(req);
 
     const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
@@ -1230,6 +2113,26 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       createdAt: now,
       updatedAt: now,
     };
+
+    if (
+      authenticatedClient &&
+      authenticatedClient.email === validatedProperty.customerEmail
+    ) {
+      try {
+        const context = await ensureClientContext(authenticatedClient);
+        const clientLink = await linkBookingToClient({
+          context,
+          booking,
+        });
+        booking.clientUid = clientLink.clientUid;
+        booking.clientOrganisationId = clientLink.clientOrganisationId;
+        booking.propertyId = clientLink.propertyId;
+      } catch (clientLinkError) {
+        // Booking confirmation must not fail because the optional portal linkage
+        // could not be written. The next portal load can reconcile by verified email.
+        console.error('Client portal booking linkage failed:', clientLinkError);
+      }
+    }
 
     let encryptedAccessSecrets;
     if (accessValidation.secrets) {
@@ -1411,6 +2314,87 @@ app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Admin bookings load failed:', error);
     return res.status(500).json({ error: 'Unable to load bookings.' });
+  }
+});
+
+app.get('/api/admin/client-requests', requireAdmin, async (_req, res) => {
+  try {
+    const requests = await listClientRequestsForAdmin();
+    return res.json({ requests });
+  } catch (error) {
+    console.error('Admin client requests load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client requests.' });
+  }
+});
+
+app.patch('/api/admin/client-requests/:id', requireAdmin, async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status, 40);
+    if (!['submitted', 'in_progress', 'waiting_client', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid client request status.' });
+    }
+
+    const request = await updateClientRequestForAdmin({
+      requestId: req.params.id,
+      status: status as 'submitted' | 'in_progress' | 'waiting_client' | 'completed' | 'cancelled',
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Client request not found.' });
+    }
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin client request update failed:', error);
+    return res.status(500).json({ error: 'Unable to update client request.' });
+  }
+});
+
+app.get('/api/admin/client-approvals', requireAdmin, async (_req, res) => {
+  try {
+    const approvals = await listClientApprovalsForAdmin();
+    return res.json({ approvals });
+  } catch (error) {
+    console.error('Admin client approvals load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client approvals.' });
+  }
+});
+
+app.get('/api/admin/client-documents', requireAdmin, async (_req, res) => {
+  try {
+    const documents = await listClientDocumentsForAdmin();
+    return res.json({ documents });
+  } catch (error) {
+    console.error('Admin client documents load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client documents.' });
+  }
+});
+
+app.get('/api/admin/client-documents/:id/download', requireAdmin, async (req, res) => {
+  try {
+    const document = await getClientDocumentForAdmin(req.params.id);
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    res.setHeader('Content-Type', document.contentType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    const stream = openClientFileStream(document.storagePath);
+    stream.on('error', (error) => {
+      console.error('Admin client document stream failed:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Unable to download this document.' });
+      } else {
+        res.destroy(error as Error);
+      }
+    });
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Admin client document download failed:', error);
+    return res.status(500).json({ error: 'Unable to download this document.' });
   }
 });
 

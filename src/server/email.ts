@@ -349,3 +349,65 @@ export async function sendDocumentRequestEmails(
 
   return { customer, internal };
 }
+
+
+export async function sendClientPortalInvitationEmail(params: {
+  email: string;
+  organisationName: string;
+  invitedByName: string;
+  role: string;
+  signInUrl: string;
+}): Promise<ConfirmationEmailResult> {
+  const roleLabel =
+    params.role.charAt(0).toUpperCase() + params.role.slice(1).toLowerCase();
+
+  const text = [
+    'You have been invited to the ProInspect Client Portal.',
+    '',
+    `Organisation: ${params.organisationName}`,
+    `Portal role: ${roleLabel}`,
+    `Invited by: ${params.invitedByName}`,
+    '',
+    `Sign in: ${params.signInUrl}`,
+    '',
+    'Use this same email address when signing in so the invitation can be linked to your account.',
+    '',
+    'For assistance, contact info@proinspect.systems.',
+  ].join('\n');
+
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.5;max-width:640px;margin:0 auto;">
+      <div style="border-bottom:4px solid #00B5B8;padding:20px 0 16px;">
+        <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#007F82;">ProInspect</div>
+        <h1 style="font-size:24px;margin:6px 0 0;color:#1A2B4A;">Client Portal invitation</h1>
+      </div>
+
+      <p>You have been invited to access the ProInspect Client Portal for <strong>${escapeHtml(params.organisationName)}</strong>.</p>
+
+      <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
+        <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Organisation</td><td style="padding:10px 14px;">${escapeHtml(params.organisationName)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;">Portal role</td><td style="padding:10px 14px;">${escapeHtml(roleLabel)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;">Invited by</td><td style="padding:10px 14px;">${escapeHtml(params.invitedByName)}</td></tr>
+      </table>
+
+      <p style="margin:24px 0;">
+        <a href="${escapeHtml(params.signInUrl)}" style="display:inline-block;background:#007F82;color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:8px;">Open Client Portal</a>
+      </p>
+
+      <p style="font-size:13px;color:#64748b;">
+        Sign in using <strong>${escapeHtml(params.email)}</strong>. The invitation is linked to this email address and will be activated when the verified account signs in.
+      </p>
+
+      <p style="font-size:13px;color:#64748b;">
+        Need help? Contact <a href="mailto:info@proinspect.systems">info@proinspect.systems</a>.
+      </p>
+    </div>
+  `;
+
+  return sendResendEmail({
+    to: [params.email],
+    subject: `ProInspect Client Portal invitation – ${params.organisationName}`,
+    html,
+    text,
+  });
+}

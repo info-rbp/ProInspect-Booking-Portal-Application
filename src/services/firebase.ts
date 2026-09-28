@@ -33,12 +33,20 @@ export async function signInWithGoogle(): Promise<{ user: User }> {
   return { user: result.user };
 }
 
-export async function getAdminIdToken(forceRefresh = false): Promise<string | null> {
+export async function getAuthIdToken(forceRefresh = false): Promise<string | null> {
   const user = auth.currentUser;
   if (!user) return null;
   return user.getIdToken(forceRefresh);
 }
 
-export async function logoutAdmin() {
+export async function getAdminIdToken(forceRefresh = false): Promise<string | null> {
+  return getAuthIdToken(forceRefresh);
+}
+
+export async function logoutUser() {
   await signOut(auth);
+}
+
+export async function logoutAdmin() {
+  await logoutUser();
 }

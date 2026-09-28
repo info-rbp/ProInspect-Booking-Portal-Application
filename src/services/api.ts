@@ -11,11 +11,23 @@ import type {
   ServiceCategory,
 } from '../types/booking';
 import type {
+  ClientApproval,
+  ClientDocumentRequestInput,
+  ClientDocumentSummary,
+  ClientMaintenanceRequestInput,
+  ClientMembership,
+  ClientOnboardingInput,
+  ClientPortalDashboard,
+  ClientProperty,
+  ClientPropertyInput,
+  ClientRequestSummary,
+} from '../types/clientPortal';
+import type {
   DocumentProduct,
   DocumentRequestDetails,
   PublicDocumentRequestSummary,
 } from '../types/documentRequest';
-import { getAdminIdToken } from './firebase';
+import { getAdminIdToken, getAuthIdToken } from './firebase';
 
 type ApiErrorResponse = {
   error?: string;
@@ -31,6 +43,9 @@ type BookingCreateResponse = {
   message?: string;
 } & ApiErrorResponse;
 type AdminBookingsResponse = { bookings: BookingRecord[] };
+type AdminClientRequestsResponse = { requests: ClientRequestSummary[] };
+type AdminClientApprovalsResponse = { approvals: ClientApproval[] };
+type AdminClientDocumentsResponse = { documents: ClientDocumentSummary[] };
 type AdminServicesResponse = { services: InspectionService[] };
 type AdminSettingsResponse = { settings: BusinessSettings };
 type AdminBookingUpdateResponse = { booking: BookingRecord } & ApiErrorResponse;
@@ -39,6 +54,8 @@ type AdminServiceReorderResponse = { services: InspectionService[] } & ApiErrorR
 type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
 type AddressAutocompleteResponse = { suggestions: AddressSuggestion[] } & ApiErrorResponse;
 type AddressValidationResponse = { result: AddressValidationResult } & ApiErrorResponse;
+type ClientSessionResponse = { authorised: boolean };
+type ClientDashboardResponse = { dashboard: ClientPortalDashboard } & ApiErrorResponse;
 type DocumentProductsResponse = { documents: DocumentProduct[] } & ApiErrorResponse;
 type DocumentRequestCreateResponse = {
   success: boolean;
@@ -114,9 +131,13 @@ export async function submitBooking(payload: {
   access: unknown;
   appointment: { start: string };
 }): Promise<{ success: boolean; booking: PublicBookingSummary; message?: string }> {
+  const idToken = await getAuthIdToken();
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (idToken) headers.set('Authorization', `Bearer ${idToken}`);
+
   const res = await fetch('/api/bookings/create', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -151,9 +172,13 @@ export async function submitDocumentRequest(payload: {
   request: PublicDocumentRequestSummary;
   message?: string;
 }> {
+  const idToken = await getAuthIdToken();
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (idToken) headers.set('Authorization', `Bearer ${idToken}`);
+
   const res = await fetch('/api/document-requests', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -164,6 +189,235 @@ export async function submitDocumentRequest(payload: {
   }
 
   return data;
+}
+
+async function clientFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const idToken = await getAuthIdToken();
+
+  if (!idToken) {
+    throw new Error('Client authentication is required.');
+  }
+
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${idToken}`);
+
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
+export async function verifyClientSession(): Promise<void> {
+  const res = await clientFetch('/api/client/session');
+  const data = (await res.json().catch(() => ({}))) as Partial<ClientSessionResponse> & ApiErrorResponse;
+
+  if (!res.ok || data.authorised !== true) {
+    throw new Error(data.error || 'This account could not be verified for the ProInspect Client Portal.');
+  }
+}
+
+export async function fetchClientDashboard(): Promise<ClientPortalDashboard> {
+  const res = await clientFetch('/api/client/dashboard');
+  const data = (await res.json()) as ClientDashboardResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to load the client portal.');
+  }
+
+  return data.dashboard;
+}
+
+async function clientJson<T>(
+  url: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const headers = new Headers(init.headers || {});
+  if (init.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const res = await clientFetch(url, { ...init, headers });
+  const data = (await res.json().catch(() => ({}))) as T & ApiErrorResponse;
+  if (!res.ok) {
+    throw new Error(data.error || 'The client portal request failed.');
+  }
+  return data;
+}
+
+export async function completeClientOnboarding(
+  input: ClientOnboardingInput
+): Promise<void> {
+  await clientJson('/api/client/onboarding', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createClientProperty(
+  input: ClientPropertyInput
+): Promise<ClientProperty> {
+  const data = await clientJson<{ property: ClientProperty }>(
+    '/api/client/properties',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.property;
+}
+
+export async function updateClientProperty(
+  propertyId: string,
+  changes: Partial<Pick<ClientProperty, 'nickname' | 'clientReference' | 'categories' | 'notes' | 'status'>>
+): Promise<ClientProperty> {
+  const data = await clientJson<{ property: ClientProperty }>(
+    `/api/client/properties/${encodeURIComponent(propertyId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }
+  );
+  return data.property;
+}
+
+export async function activateClientOrganisation(
+  organisationId: string
+): Promise<void> {
+  await clientJson(
+    `/api/client/organisations/${encodeURIComponent(organisationId)}/activate`,
+    { method: 'POST' }
+  );
+}
+
+export async function inviteClientMember(input: {
+  email: string;
+  role: 'admin' | 'member' | 'viewer';
+}): Promise<ClientMembership> {
+  const data = await clientJson<{ membership: ClientMembership }>(
+    '/api/client/organisation/members',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.membership;
+}
+
+export async function updateClientMember(
+  membershipId: string,
+  changes: {
+    role?: 'admin' | 'member' | 'viewer';
+    status?: 'active' | 'revoked';
+  }
+): Promise<ClientMembership> {
+  const data = await clientJson<{ membership: ClientMembership }>(
+    `/api/client/organisation/members/${encodeURIComponent(membershipId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }
+  );
+  return data.membership;
+}
+
+export async function createClientDocumentRequest(
+  input: ClientDocumentRequestInput
+): Promise<ClientRequestSummary> {
+  const data = await clientJson<{ request: ClientRequestSummary }>(
+    '/api/client/requests/document',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.request;
+}
+
+export async function createClientMaintenanceRequest(
+  input: ClientMaintenanceRequestInput
+): Promise<ClientRequestSummary> {
+  const data = await clientJson<{ request: ClientRequestSummary }>(
+    '/api/client/requests/maintenance',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.request;
+}
+
+export async function uploadClientFile(params: {
+  file: File;
+  propertyId?: string;
+  requestId?: string;
+  documentType?: string;
+}): Promise<ClientDocumentSummary> {
+  const headers = new Headers({
+    'Content-Type': params.file.type || 'application/octet-stream',
+    'x-file-name': encodeURIComponent(params.file.name),
+  });
+  if (params.propertyId) headers.set('x-property-id', params.propertyId);
+  if (params.requestId) headers.set('x-request-id', params.requestId);
+  if (params.documentType) headers.set('x-document-type', params.documentType);
+
+  const res = await clientFetch('/api/client/files/upload', {
+    method: 'POST',
+    headers,
+    body: params.file,
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    document?: ClientDocumentSummary;
+    error?: string;
+  };
+  if (!res.ok || !data.document) {
+    throw new Error(data.error || 'File upload failed.');
+  }
+  return data.document;
+}
+
+export async function generateClientDocumentDraft(
+  requestId: string
+): Promise<{ document: ClientDocumentSummary; approval: ClientApproval }> {
+  return clientJson(
+    `/api/client/requests/${encodeURIComponent(requestId)}/generate-draft`,
+    { method: 'POST' }
+  );
+}
+
+export async function downloadClientDocument(
+  documentId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const res = await clientFetch(
+    `/api/client/documents/${encodeURIComponent(documentId)}/download`
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as ApiErrorResponse;
+    throw new Error(data.error || 'Document download failed.');
+  }
+
+  const disposition = res.headers.get('content-disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : 'document';
+  return { blob: await res.blob(), fileName };
+}
+
+export async function respondClientApproval(
+  approvalId: string,
+  input: {
+    status: 'approved' | 'changes_requested' | 'declined';
+    comment?: string;
+  }
+): Promise<ClientApproval> {
+  const data = await clientJson<{ approval: ClientApproval }>(
+    `/api/client/approvals/${encodeURIComponent(approvalId)}/respond`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }
+  );
+  return data.approval;
 }
 
 async function adminFetch(
@@ -197,6 +451,63 @@ export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   if (!res.ok) throw new Error('Failed to load bookings.');
   const data = (await res.json()) as AdminBookingsResponse;
   return data.bookings;
+}
+
+export async function fetchAdminClientRequests(): Promise<ClientRequestSummary[]> {
+  const res = await adminFetch('/api/admin/client-requests');
+  if (!res.ok) throw new Error('Failed to load client requests.');
+  const data = (await res.json()) as AdminClientRequestsResponse;
+  return data.requests;
+}
+
+export async function updateAdminClientRequest(
+  requestId: string,
+  status: ClientRequestSummary['status']
+): Promise<ClientRequestSummary> {
+  const res = await adminFetch(
+    `/api/admin/client-requests/${encodeURIComponent(requestId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }
+  );
+  const data = (await res.json()) as { request?: ClientRequestSummary; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Failed to update client request.');
+  }
+  return data.request;
+}
+
+export async function fetchAdminClientApprovals(): Promise<ClientApproval[]> {
+  const res = await adminFetch('/api/admin/client-approvals');
+  if (!res.ok) throw new Error('Failed to load client approvals.');
+  const data = (await res.json()) as AdminClientApprovalsResponse;
+  return data.approvals;
+}
+
+export async function fetchAdminClientDocuments(): Promise<ClientDocumentSummary[]> {
+  const res = await adminFetch('/api/admin/client-documents');
+  if (!res.ok) throw new Error('Failed to load client documents.');
+  const data = (await res.json()) as AdminClientDocumentsResponse;
+  return data.documents;
+}
+
+export async function downloadAdminClientDocument(
+  documentId: string
+): Promise<{ blob: Blob; fileName: string }> {
+  const res = await adminFetch(
+    `/api/admin/client-documents/${encodeURIComponent(documentId)}/download`
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as ApiErrorResponse;
+    throw new Error(data.error || 'Client document download failed.');
+  }
+
+  const disposition = res.headers.get('content-disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : 'document';
+  return { blob: await res.blob(), fileName };
 }
 
 export async function fetchAdminServices(): Promise<InspectionService[]> {
