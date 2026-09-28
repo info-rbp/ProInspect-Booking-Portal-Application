@@ -1,6 +1,10 @@
 import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService, PropertyDetails, ServiceCategory } from '../types/booking.js';
-import type { DocumentProduct, DocumentRequestRecord } from '../types/documentRequest.js';
+import type {
+  DocumentProduct,
+  DocumentRequestRecord,
+  DocumentRequestStatus,
+} from '../types/documentRequest.js';
 import type {
   ClientApproval,
   ClientBookingSummary,
@@ -348,6 +352,61 @@ export async function listDocumentRequests(): Promise<DocumentRequestRecord[]> {
     ...(doc.data() as DocumentRequestRecord),
     id: doc.id,
   }));
+}
+
+export async function updateDocumentRequestStatusForAdmin(params: {
+  requestId: string;
+  status: DocumentRequestStatus;
+}): Promise<DocumentRequestRecord | null> {
+  const requestRef = adminDb.collection('documentRequests').doc(params.requestId);
+  const requestDoc = await requestRef.get();
+  if (!requestDoc.exists) return null;
+
+  const now = new Date().toISOString();
+  const batch = adminDb.batch();
+  batch.set(
+    requestRef,
+    {
+      status: params.status,
+      updatedAt: now,
+    },
+    { merge: true }
+  );
+
+  const mirrorSnapshot = await adminDb
+    .collection('clientRequests')
+    .where('details.sourceDocumentRequestId', '==', params.requestId)
+    .limit(20)
+    .get();
+
+  const mirrorStatus: ClientRequestSummary['status'] =
+    params.status === 'in_review'
+      ? 'in_progress'
+      : params.status === 'completed'
+        ? 'completed'
+        : params.status === 'cancelled'
+          ? 'cancelled'
+          : 'submitted';
+
+  mirrorSnapshot.docs.forEach((doc) => {
+    batch.set(
+      doc.ref,
+      {
+        status: mirrorStatus,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  });
+
+  await batch.commit();
+
+  return {
+    ...(requestDoc.data() as DocumentRequestRecord),
+    id: requestDoc.id,
+    status: params.status,
+    updatedAt: now,
+  };
 }
 
 export async function listDocumentRequestsWithSecrets(): Promise<DocumentRequestRecord[]> {
