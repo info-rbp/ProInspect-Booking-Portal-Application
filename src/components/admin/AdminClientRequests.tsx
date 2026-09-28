@@ -13,6 +13,7 @@ export function AdminClientRequests({
   documents,
   publicDocumentRequests,
   onUpdateStatus,
+  onUpdatePublicDocumentStatus,
   onDownloadDocument,
 }: {
   requests: ClientRequestSummary[];
@@ -23,17 +24,33 @@ export function AdminClientRequests({
     requestId: string,
     status: ClientRequestSummary['status']
   ) => Promise<void>;
+  onUpdatePublicDocumentStatus: (
+    requestId: string,
+    status: DocumentRequestRecord['status']
+  ) => Promise<void>;
   onDownloadDocument: (documentId: string) => Promise<void>;
 }) {
   const [typeFilter, setTypeFilter] = useState<'all' | ClientRequestSummary['type']>('all');
   const [busy, setBusy] = useState<string | null>(null);
 
+  const visibleClientRequests = useMemo(
+    () =>
+      requests.filter(
+        (request) =>
+          !(
+            request.type === 'document' &&
+            typeof request.details?.sourceDocumentRequestId === 'string'
+          )
+      ),
+    [requests]
+  );
+
   const filtered = useMemo(
     () =>
-      requests.filter((request) =>
+      visibleClientRequests.filter((request) =>
         typeFilter === 'all' ? true : request.type === typeFilter
       ),
-    [requests, typeFilter]
+    [visibleClientRequests, typeFilter]
   );
 
   const pendingApprovals = approvals.filter((approval) => approval.status === 'pending');
@@ -42,9 +59,9 @@ export function AdminClientRequests({
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          ['Open requests', requests.filter((item) => !['completed','cancelled'].includes(item.status)).length],
-          ['Document requests', requests.filter((item) => item.type === 'document').length + publicDocumentRequests.length],
-          ['Maintenance', requests.filter((item) => item.type === 'maintenance').length],
+          ['Open requests', visibleClientRequests.filter((item) => !['completed','cancelled'].includes(item.status)).length + publicDocumentRequests.filter((item) => !['completed','cancelled'].includes(item.status)).length],
+          ['Document requests', visibleClientRequests.filter((item) => item.type === 'document').length + publicDocumentRequests.length],
+          ['Maintenance', visibleClientRequests.filter((item) => item.type === 'maintenance').length],
           ['Pending approvals', pendingApprovals.length],
         ].map(([label, value]) => (
           <div key={String(label)} className="bg-white border border-slate-200 rounded-xl p-4">
@@ -200,8 +217,31 @@ export function AdminClientRequests({
                       {request.details.customerName} · {request.details.customerEmail} · {request.details.customerPhone}
                     </div>
                   </div>
-                  <div className="text-xs font-bold text-slate-600">
-                    $ {request.priceExGst.toFixed(2)} + GST
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs font-bold text-slate-600">
+                      $ {request.priceExGst.toFixed(2)} + GST
+                    </div>
+                    <select
+                      value={request.status}
+                      disabled={busy === request.id}
+                      onChange={async (e) => {
+                        setBusy(request.id);
+                        try {
+                          await onUpdatePublicDocumentStatus(
+                            request.id,
+                            e.target.value as DocumentRequestRecord['status']
+                          );
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                      className="h-9 px-2 text-xs font-bold border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="submitted">Submitted</option>
+                      <option value="in_review">In review</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
                   </div>
                 </div>
 
