@@ -729,6 +729,100 @@ async function generateBookingReference(start: Date): Promise<string> {
   return `PI-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
+async function generateDocumentRequestReference(): Promise<string> {
+  const datePart = getPerthDateKey(new Date()).replace(/-/g, '');
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const suffix = String(Math.floor(1000 + Math.random() * 9000));
+    const reference = `DR-${datePart}-${suffix}`;
+    if (!(await documentRequestReferenceExists(reference))) return reference;
+  }
+
+  return `DR-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+function sanitizeDocumentRequestDetails(
+  input: unknown
+): { details?: DocumentRequestDetails; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Document request details are required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const streetAddress = normalizeText(value.streetAddress, 160);
+  const unit = normalizeText(value.unit, 50);
+  const suburb = normalizeText(value.suburb, 100);
+  const state = normalizeText(value.state, 3).toUpperCase();
+  const postcode = normalizeText(value.postcode, 4);
+  const customerName = normalizeText(value.customerName, 120);
+  const customerEmail = normalizeText(value.customerEmail, 160).toLowerCase();
+  const customerPhone = normalizeText(value.customerPhone, 40);
+  const clientName = normalizeText(value.clientName, 160);
+  const clientReference = normalizeText(value.clientReference, 100);
+  const notes = normalizeText(value.notes, 3000);
+
+  if (!streetAddress || !suburb) {
+    return { error: 'A property street address and suburb are required.' };
+  }
+
+  if (!['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(state)) {
+    return { error: 'Select a valid Australian state or territory.' };
+  }
+
+  if (!isValidAustralianPostcode(postcode)) {
+    return { error: 'Enter a valid Australian postcode.' };
+  }
+
+  if (!customerName) {
+    return { error: 'A request contact name is required.' };
+  }
+
+  if (!isValidEmail(customerEmail)) {
+    return { error: 'Enter a valid request contact email address.' };
+  }
+
+  if (!isValidAustralianPhone(customerPhone)) {
+    return { error: 'Enter a valid Australian contact phone number.' };
+  }
+
+  return {
+    details: {
+      streetAddress,
+      ...(unit ? { unit } : {}),
+      suburb,
+      state,
+      postcode,
+      customerName,
+      customerEmail,
+      customerPhone,
+      ...(clientName ? { clientName } : {}),
+      ...(clientReference ? { clientReference } : {}),
+      ...(notes ? { notes } : {}),
+    },
+  };
+}
+
+function publicDocumentRequestView(
+  request: DocumentRequestRecord
+): PublicDocumentRequestSummary {
+  return {
+    requestReference: request.requestReference,
+    documentName: request.documentName,
+    documentCategory: request.documentCategory,
+    priceExGst: request.priceExGst,
+    status: request.status,
+    details: {
+      streetAddress: request.details.streetAddress,
+      ...(request.details.unit ? { unit: request.details.unit } : {}),
+      suburb: request.details.suburb,
+      state: request.details.state,
+      postcode: request.details.postcode,
+      customerName: request.details.customerName,
+      customerEmail: request.details.customerEmail,
+    },
+  };
+}
+
 function serviceCalendarId(service: InspectionService): string {
   return getCalendarId(service.calendarId);
 }
