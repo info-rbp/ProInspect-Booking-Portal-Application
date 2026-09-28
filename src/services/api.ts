@@ -936,6 +936,27 @@ export async function createClientRequest(input: {
   return data.request;
 }
 
+export async function createClientDocumentRequest(input: {
+  clientId: string;
+  propertyId: string;
+  documentProductId: string;
+  instructions: string;
+  counterpartyName?: string;
+  effectiveDate?: string;
+  dueDate?: string;
+}): Promise<DocumentRequest> {
+  const res = await clientFetch('/api/client/document-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: DocumentRequest; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Unable to submit the document request.');
+  }
+  return data.request;
+}
+
 export async function respondClientApproval(
   approvalId: string,
   input: { status: 'approved' | 'approved_with_conditions' | 'changes_requested' | 'declined'; comment?: string }
