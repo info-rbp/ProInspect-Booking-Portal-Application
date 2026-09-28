@@ -2258,12 +2258,19 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
     }
 
     const existingDetails = existingRequest.details || {};
-    const documentType = String(
-      existingDetails.documentType || 'Other'
-    ) as ClientDocumentRequestInput['documentType'];
-    if (!CLIENT_DOCUMENT_TYPES.has(documentType)) {
+    const rawDocumentType =
+      typeof existingDetails.documentType === 'string'
+        ? existingDetails.documentType
+        : '';
+    const documentType = rawDocumentType as ClientDocumentRequestInput['documentType'];
+    if (
+      typeof existingDetails.sourceDocumentRequestId === 'string' ||
+      !rawDocumentType ||
+      !CLIENT_DOCUMENT_TYPES.has(documentType)
+    ) {
       return res.status(400).json({
-        error: 'This request does not contain a supported document type.',
+        error:
+          'Preparation summaries are available only for custom Client Portal document requests.',
       });
     }
 
