@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - cloud-run-migration
+      - tenant-portal
   pull_request:
     branches:
       - main
