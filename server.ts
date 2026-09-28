@@ -23,8 +23,14 @@ import type {
   ClientPropertyInput,
 } from './src/types/clientPortal.js';
 import type {
+  DocumentParty,
+  DocumentRequesterRole,
   DocumentRequestDetails,
   DocumentRequestRecord,
+  DocumentWorkflowAnswer,
+  DocumentWorkflowData,
+  DocumentWorkflowDefinition,
+  DocumentWorkflowField,
   PublicDocumentRequestSummary,
 } from './src/types/documentRequest.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
@@ -40,6 +46,7 @@ import {
   getSettings,
   listBookingsWithAccessSecrets,
   listDocumentProducts,
+  listDocumentRequestsWithSecrets,
   getDocumentProduct,
   listServices,
   activateClientOrganisation,
@@ -110,8 +117,19 @@ import {
 import { generateDocumentDraft } from './src/server/documentGenerator.js';
 import {
   isValidAustralianPhone,
-  isValidAustralianPostcode,
+  isWAPostcode,
 } from './src/utils/australianValidation.js';
+import {
+  getDocumentWorkflowDefinition,
+  isWorkflowAnswerPresent,
+  isWorkflowFieldVisible,
+  sensitiveWorkflowFieldIds,
+  validateDocumentWorkflowRules,
+} from './src/documents/documentWorkflowDefinitions.js';
+import {
+  documentRequestEncryptionIsConfigured,
+  encryptDocumentRequestSecrets,
+} from './src/server/documentRequestSecrets.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
