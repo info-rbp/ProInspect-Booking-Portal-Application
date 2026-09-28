@@ -12,7 +12,6 @@ const ALLOWED_CONTENT_TYPES = new Set([
   'image/webp',
   'text/plain',
   'text/csv',
-  'text/html',
 ]);
 
 function safeFileName(value: string): string {
