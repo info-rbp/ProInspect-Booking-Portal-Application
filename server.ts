@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import {
   formatAustralianDate,
   formatAustralianTime,
@@ -591,6 +591,41 @@ function safeSecretEquals(expected: string | undefined, supplied: unknown): bool
   const suppliedBuffer = Buffer.from(suppliedValue);
   if (expectedBuffer.length !== suppliedBuffer.length) return false;
   return timingSafeEqual(expectedBuffer, suppliedBuffer);
+}
+
+const REPORT_TOOL_TYPES = new Set([
+  'Entry',
+  'Routine',
+  'Exit',
+  'PropertyOnboarding',
+  'VacantProperty',
+  'MaintenanceAssessment',
+  'MaintenanceCompletion',
+  'CleaningRectification',
+  'CommercialIngoing',
+  'CommercialPeriodic',
+  'CommercialExit',
+  'CommonProperty',
+  'BuildingManagement',
+  'BuildingManagementDaily',
+  'BuildingManagementMonthly',
+  'Incident',
+  'ContractorWorks',
+  'PropertyHandover',
+  'PreventativeMaintenance',
+  'CleaningQuality',
+  'AnnualPropertySummary',
+  'KeySafeInstallation',
+  'KeyReceipt',
+  'Custom',
+]);
+
+function createReportHandoffToken(payload: Record<string, unknown>): string {
+  const key = process.env.REPORT_HANDOFF_SIGNING_KEY?.trim();
+  if (!key) throw new Error('REPORT_HANDOFF_NOT_CONFIGURED');
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = createHmac('sha256', key).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
 }
 
 const SERVICE_CATEGORIES = new Set<ServiceCategory>([
@@ -3604,6 +3639,145 @@ app.get('/api/admin/reports/summary', requireAdmin, requireAdminPermission('repo
     return res.status(500).json({ error: 'Unable to load report summary.' });
   }
 });
+
+app.post(
+  '/api/admin/reports/handoff',
+  requireAdmin,
+  requireAdminWritePermission('reports.manage'),
+  async (req, res) => {
+    try {
+      const propertyId = normalizeText(req.body?.propertyId, 128);
+      const requestedClientId = normalizeText(req.body?.clientId, 128) || undefined;
+      const tenancyId = normalizeText(req.body?.tenancyId, 128) || undefined;
+      const bookingId = normalizeText(req.body?.bookingId, 128) || undefined;
+      const workOrderId = normalizeText(req.body?.workOrderId, 128) || undefined;
+      const reportType = normalizeText(req.body?.reportType, 80);
+
+      if (!propertyId || !REPORT_TOOL_TYPES.has(reportType)) {
+        return res.status(400).json({
+          error: 'Property and a supported report type are required.',
+        });
+      }
+
+      const reportToolUrl = process.env.REPORT_TOOL_URL?.trim();
+      if (!reportToolUrl || !process.env.REPORT_HANDOFF_SIGNING_KEY?.trim()) {
+        return res.status(503).json({
+          error: 'Property Report Tool handoff is not configured.',
+        });
+      }
+
+      const propertyDoc = await adminDb.collection('properties').doc(propertyId).get();
+      if (!propertyDoc.exists) {
+        return res.status(404).json({ error: 'Property not found.' });
+      }
+      const property = propertyDoc.data() as {
+        streetAddress?: string;
+        unit?: string;
+        suburb?: string;
+        state?: string;
+        postcode?: string;
+        primaryClientId?: string;
+        clientReference?: string;
+      };
+
+      const clientId = requestedClientId || property.primaryClientId || undefined;
+      if (clientId) {
+        const links = await adminDb
+          .collection('clientPropertyLinks')
+          .where('clientId', '==', clientId)
+          .get();
+        const valid = links.docs.some((doc) => {
+          const link = doc.data() as { propertyId?: string; active?: boolean };
+          return link.propertyId === propertyId && link.active !== false;
+        });
+        if (!valid) {
+          return res.status(400).json({
+            error: 'The selected client is not linked to this property.',
+          });
+        }
+      }
+
+      if (tenancyId) {
+        const tenancy = await adminDb.collection('tenancies').doc(tenancyId).get();
+        if (!tenancy.exists || tenancy.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected tenancy is not linked to this property.',
+          });
+        }
+      }
+
+      if (bookingId) {
+        const booking = await adminDb.collection('bookings').doc(bookingId).get();
+        if (!booking.exists || booking.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected booking is not linked to this property.',
+          });
+        }
+      }
+
+      if (workOrderId) {
+        const workOrder = await adminDb.collection('workOrders').doc(workOrderId).get();
+        if (!workOrder.exists || workOrder.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected work order is not linked to this property.',
+          });
+        }
+      }
+
+      const session = adminSession(res);
+      const address = [
+        property.unit,
+        property.streetAddress,
+        property.suburb,
+        property.state,
+        property.postcode,
+      ]
+        .filter(Boolean)
+        .join(', ');
+
+      const token = createReportHandoffToken({
+        v: 1,
+        iss: 'proinspect-platform',
+        exp: Math.floor(Date.now() / 1000) + 5 * 60,
+        propertyId,
+        propertyAddress: address,
+        propertyReference: property.clientReference || undefined,
+        clientId,
+        tenancyId,
+        bookingId,
+        workOrderId,
+        reportType,
+        audiences: tenancyId ? ['client', 'tenant', 'staff'] : ['client', 'staff'],
+        issuedByUid: session.uid,
+        issuedByEmail: session.email,
+      });
+
+      const url = new URL(reportToolUrl);
+      url.searchParams.set('proinspect_handoff', token);
+
+      await recordAuditEvent({
+        session,
+        action: 'report.handoff_created',
+        resourceType: 'propertyDocuments',
+        resourceId: propertyId,
+        summary: `Property Report Tool handoff created for ${address || propertyId}.`,
+        propertyId,
+        clientId,
+      });
+
+      return res.json({
+        url: url.toString(),
+        expiresInSeconds: 300,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'REPORT_HANDOFF_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Property Report Tool handoff is not configured.' });
+      }
+      console.error('Report Tool handoff creation failed:', error);
+      return res.status(500).json({ error: 'Unable to open the Property Report Tool.' });
+    }
+  }
+);
 
 app.get('/api/admin/integrations', requireAdmin, requireAdminPermission('integrations.read'), (_req, res) => {
   return res.json({ integrations: getAdminIntegrationStatuses() });
