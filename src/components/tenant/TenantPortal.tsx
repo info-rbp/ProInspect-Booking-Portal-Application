@@ -4,6 +4,7 @@ import { TenantStatutoryForms } from './TenantStatutoryForms';
 import {
   AlertTriangle,
   ArrowLeft,
+  Bell,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -30,6 +31,7 @@ import type {
 import {
   fetchTenantDashboard,
   getTenantAttachmentDownloadUrl,
+  markTenantNotificationRead,
   getTenantDocumentDownloadUrl,
   submitTenantRequest,
   uploadTenantRequestAttachment,
@@ -77,8 +79,8 @@ const REQUEST_OPTIONS: Array<{
   },
   {
     type: 'vacate',
-    label: 'Moving Out',
-    description: 'Start a vacating, break lease or key return request.',
+    label: 'Moving Out / Key Return',
+    description: 'Request non-statutory moving assistance or key-return arrangements. This does not serve a termination notice.',
     icon: Home,
   },
   {
@@ -103,7 +105,7 @@ const REQUEST_LABELS: Record<TenantRequestType, string> = {
   occupant: 'Occupant / tenant change',
   inspection_access: 'Inspection & access',
   lease: 'Lease request',
-  vacate: 'Moving out',
+  vacate: 'Moving out / key return',
   complaint: 'Problem / complaint',
   keys_access: 'Keys / access',
   other: 'Other request',
@@ -445,7 +447,8 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
     );
   }
 
-  const primary = dashboard.tenancies[0];
+  const primary = dashboard.tenancies[0] || dashboard.pastTenancies[0];
+  const allTenancyViews = [...dashboard.tenancies, ...dashboard.pastTenancies];
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -502,6 +505,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
 
       {activeTab === 'overview' && (
         <div className="space-y-6">
+          {dashboard.tenancies.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {REQUEST_OPTIONS.slice(0, 8).map((option) => {
               const Icon = option.icon;
@@ -521,6 +525,11 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
               );
             })}
           </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+              Your active tenancy has ended. Historical documents and eligible post-tenancy bond workflows remain available, but new general tenancy requests are disabled.
+            </div>
+          )}
 
           <button
             type="button"
@@ -539,6 +548,39 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
               </div>
             </div>
           </button>
+
+          {dashboard.notifications.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-extrabold text-[#1A2B4A] flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-[#007F82]" />
+                  Notifications
+                </h2>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {dashboard.notifications.slice(0, 5).map((notification) => (
+                  <div key={notification.id} className="px-5 py-4 flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-bold text-sm text-slate-900">{notification.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">{notification.message}</div>
+                    </div>
+                    {!notification.readAt && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await markTenantNotificationRead(notification.id);
+                          await loadDashboard();
+                        }}
+                        className="shrink-0 text-[10px] uppercase font-black text-[#006D70]"
+                      >
+                        Mark read
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -577,6 +619,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
       {activeTab === 'forms' && (
         <TenantStatutoryForms
           tenancies={dashboard.tenancies}
+          pastTenancies={dashboard.pastTenancies}
           documents={dashboard.documents}
         />
       )}
@@ -714,7 +757,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
             <h2 className="text-xl font-extrabold text-[#1A2B4A]">My Tenancy</h2>
             <p className="text-sm text-slate-500">Properties and tenancy details linked to your account.</p>
           </div>
-          {dashboard.tenancies.map(({ tenancy, property }) => (
+          {allTenancyViews.map(({ tenancy, property }) => (
             <div key={tenancy.id} className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
               <div className="flex items-start gap-3">
                 <Building2 className="w-5 h-5 text-[#007F82] mt-0.5" />
