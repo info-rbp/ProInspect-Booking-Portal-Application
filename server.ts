@@ -12,8 +12,16 @@ import type {
   BookingRecord,
   BusinessSettings,
   InspectionService,
+  PropertyType,
   ServiceCategory,
 } from './src/types/booking.js';
+import type {
+  ClientDocumentRequestInput,
+  ClientMaintenanceRequestInput,
+  ClientOnboardingInput,
+  ClientOrganisationRole,
+  ClientPropertyInput,
+} from './src/types/clientPortal.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -27,9 +35,25 @@ import {
   getSettings,
   listBookingsWithAccessSecrets,
   listServices,
+  activateClientOrganisation,
+  completeClientOnboarding,
+  createClientApproval,
+  createClientDocument,
+  createClientProperty,
+  createClientRequest,
+  ensureClientContext,
+  getClientDocument,
   getClientPortalDashboard,
-  ensureClientProfile,
+  getClientProperty,
+  getClientRequest,
+  inviteClientOrganisationMember,
   linkBookingToClient,
+  listClientApprovalsForAdmin,
+  listClientRequestsForAdmin,
+  respondToClientApproval,
+  updateClientOrganisationMember,
+  updateClientProperty,
+  updateClientRequest,
   newBookingId,
   releaseScheduleLocks,
   reorderServices,
@@ -62,6 +86,13 @@ import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
 } from './src/server/email.js';
+import {
+  openClientFileStream,
+  saveClientFile,
+  saveGeneratedClientFile,
+  validateClientUpload,
+} from './src/server/clientFiles.js';
+import { generateDocumentDraft } from './src/server/documentGenerator.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
