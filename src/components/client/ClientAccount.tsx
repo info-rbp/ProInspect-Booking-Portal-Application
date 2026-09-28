@@ -90,13 +90,21 @@ export function ClientAccount({
     setBusy('invite');
     setMessage(null);
     try {
-      await inviteClientMember({
+      const result = await inviteClientMember({
         email: inviteEmail,
         role: inviteRole,
       });
       setInviteEmail('');
       await onRefresh();
-      setMessage('Organisation member invitation created.');
+      setMessage(
+        result.invitationEmailStatus === 'sent'
+          ? 'Organisation member invitation sent.'
+          : result.invitationEmailStatus === 'not_configured'
+            ? 'Invitation created. Email delivery is not configured, so share the Client Portal sign-in link with this user.'
+            : result.invitationEmailStatus === 'failed'
+              ? 'Invitation created, but the invitation email could not be delivered. The user can still sign in with the invited email.'
+              : 'Organisation member invitation created.'
+      );
     } catch (err: any) {
       setMessage(err?.message || 'Unable to invite member.');
     } finally {
