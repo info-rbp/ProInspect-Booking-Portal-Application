@@ -13,6 +13,9 @@ export const ClientOnboarding: React.FC<{
   const [clientName, setClientName] = useState('');
   const [clientType, setClientType] = useState<ClientType>('landlord');
   const [phone, setPhone] = useState(user.phoneNumber || '');
+  const [billingEmail, setBillingEmail] = useState(user.email || '');
+  const [abn, setAbn] = useState('');
+  const [acn, setAcn] = useState('');
   const [externalReference, setExternalReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +30,9 @@ export const ClientOnboarding: React.FC<{
         clientName,
         clientType,
         phone: phone || undefined,
+        billingEmail: billingEmail || undefined,
+        abn: abn || undefined,
+        acn: acn || undefined,
         externalReference: externalReference || undefined,
       });
       onComplete();
@@ -79,6 +85,23 @@ export const ClientOnboarding: React.FC<{
             <input value={phone} onChange={(e) => setPhone(e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5" />
           </label>
+          <label className="block">
+            <span className="text-sm font-bold text-slate-700">Billing email</span>
+            <input type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5" />
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">ABN (optional)</span>
+              <input value={abn} onChange={(e) => setAbn(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-bold text-slate-700">ACN (optional)</span>
+              <input value={acn} onChange={(e) => setAcn(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5" />
+            </label>
+          </div>
           <label className="block">
             <span className="text-sm font-bold text-slate-700">External / portfolio reference (optional)</span>
             <input value={externalReference} onChange={(e) => setExternalReference(e.target.value)}
