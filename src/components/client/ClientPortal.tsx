@@ -74,7 +74,7 @@ const NAV_ITEMS: Array<{
 function routeFor(section: ClientPortalSection): string {
   if (section === 'dashboard') return '/portal';
   if (section === 'maintenance-request') return '/portal/requests/maintenance';
-  if (section === 'document-request') return '/request-document';
+  if (section === 'document-request') return '/portal/requests/document';
   return `/portal/${section}`;
 }
 
