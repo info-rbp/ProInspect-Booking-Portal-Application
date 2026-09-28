@@ -280,16 +280,26 @@ TENANT_EMAIL_REPLY_TO=info@proinspect.systems
 When omitted, the tenant portal falls back to `BOOKING_EMAIL_FROM` and
 `BOOKING_EMAIL_REPLY_TO`.
 
-### Tenant portal Firestore collections
+### Shared portal Firestore collections
 
-The tenant module uses:
+The tenant and future client modules use:
 
+- `clients`
+- `clientUsers`
+- `clientPropertyLinks`
 - `properties`
 - `tenancies`
 - `tenantUsers`
 - `tenantRequests`
-- `tenantDocuments`
+- `propertyDocuments`
 - `tenantInspections`
+
+`properties` and `propertyDocuments` are deliberately shared canonical records.
+Do not create separate client-property or client-document copies when the Client
+Portal UI is added. Client access must be resolved through `clientUsers.clientIds`
+and active `clientPropertyLinks`, while tenant access continues to resolve through
+active tenancies. Document visibility is controlled by the `audiences` array and
+the document's linked `clientIds`.
 
 Direct browser access to Firestore remains denied by `firestore.rules`; all
 tenant and staff data access is mediated by the Express API and Firebase ID-token
@@ -309,3 +319,16 @@ Before exposing the tenant portal publicly:
 8. Confirm the tenant sees the updated status and receives the notification email.
 9. Upload a tenant document from the Staff Portal and confirm the tenant can open it.
 10. Create an inspection entry and confirm it appears under Inspections & Access.
+
+
+### Client Portal compatibility
+
+The branch includes the Firestore relationships and protected API read surface
+required for a later Client Portal implementation. Client portal users are
+provisioned in `clientUsers`, clients are linked to canonical properties through
+`clientPropertyLinks`, and client-visible files are stored once in
+`propertyDocuments`.
+
+When a Client Portal frontend is added, use the existing Firebase ID-token model and
+the protected `/api/client/*` routes. Do not permit browser-direct Firestore or
+Storage access and do not duplicate documents into a separate client collection.
