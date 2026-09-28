@@ -736,6 +736,7 @@ export async function createAdminClientUser(input: {
   displayName: string;
   phone?: string;
   clientIds: string[];
+  role: 'owner' | 'admin' | 'member' | 'viewer';
 }): Promise<{ clientUser: ClientUserRecord; portalUrl: string }> {
   const res = await adminFetch('/api/admin/client-users', {
     method: 'POST',
