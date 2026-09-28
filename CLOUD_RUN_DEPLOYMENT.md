@@ -255,9 +255,14 @@ Storage bucket. Configure:
 FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047.firebasestorage.app
 ```
 
-The Cloud Run runtime service account needs permission to create, read, sign and
-delete objects in that bucket. Grant only the bucket-level permissions required by
-the runtime identity.
+The Cloud Run runtime service account needs permission to create, read and delete
+objects in that bucket. Grant an appropriate bucket-level Storage role such as
+`roles/storage.objectAdmin` to the runtime identity.
+
+Because tenant downloads use short-lived V4 signed URLs, the runtime identity must
+also be able to sign blobs. Grant `roles/iam.serviceAccountTokenCreator` on the
+runtime service account to the runtime service account itself (or an equivalent
+narrow permission that includes `iam.serviceAccounts.signBlob`).
 
 The browser never reads or writes Storage directly. Uploads and download-link
 generation pass through the authenticated Express API. Deploy `storage.rules`
