@@ -867,16 +867,70 @@ export async function createClientUser(input: {
   clientRoles?: Record<string, 'owner' | 'admin' | 'member' | 'viewer'>;
 }): Promise<ClientUserRecord> {
   const emailLower = normalizeTenantEmail(input.email);
+  const clientIds = Array.from(new Set(input.clientIds));
+  const clients = await getDocumentsByIds<ClientRecord>('clients', clientIds);
+  if (clients.length !== clientIds.length) throw new Error('CLIENT_NOT_FOUND');
+
   const existing = await adminDb
     .collection('clientUsers')
     .where('emailLower', '==', emailLower)
     .limit(1)
     .get();
-  if (!existing.empty) throw new Error('CLIENT_USER_EMAIL_EXISTS');
 
-  const clientIds = Array.from(new Set(input.clientIds));
-  const clients = await getDocumentsByIds<ClientRecord>('clients', clientIds);
-  if (clients.length !== clientIds.length) throw new Error('CLIENT_NOT_FOUND');
+  if (!existing.empty) {
+    const ref = existing.docs[0].ref;
+    let updated: ClientUserRecord | null = null;
+
+    await adminDb.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) return;
+      const current = docWithId<ClientUserRecord>(snapshot);
+      const currentClientIds = Array.isArray(current.clientIds) ? current.clientIds : [];
+      const nextClientIds = Array.from(new Set([...currentClientIds, ...clientIds]));
+      const currentRoles = current.clientRoles || {};
+      const nextRoles: NonNullable<ClientUserRecord['clientRoles']> = { ...currentRoles };
+
+      clientIds.forEach((clientId) => {
+        if (!currentClientIds.includes(clientId)) {
+          nextRoles[clientId] = input.clientRoles?.[clientId] || 'owner';
+        }
+      });
+
+      const hasNewMembership = nextClientIds.length !== currentClientIds.length;
+      if (!hasNewMembership) {
+        throw new Error('CLIENT_USER_ALREADY_LINKED');
+      }
+
+      const updatedAt = nowIso();
+      transaction.set(
+        ref,
+        {
+          clientIds: nextClientIds,
+          clientRoles: nextRoles,
+          active: true,
+          updatedAt,
+          ...(!current.displayName && input.displayName.trim()
+            ? { displayName: input.displayName.trim() }
+            : {}),
+          ...(!current.phone && input.phone?.trim()
+            ? { phone: input.phone.trim() }
+            : {}),
+        },
+        { merge: true }
+      );
+
+      updated = {
+        ...current,
+        clientIds: nextClientIds,
+        clientRoles: nextRoles,
+        active: true,
+        updatedAt,
+      };
+    });
+
+    if (!updated) throw new Error('CLIENT_USER_UPDATE_FAILED');
+    return updated;
+  }
 
   const ref = adminDb.collection('clientUsers').doc();
   const now = nowIso();
