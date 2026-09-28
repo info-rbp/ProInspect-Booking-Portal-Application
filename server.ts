@@ -2981,9 +2981,15 @@ app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('c
           .filter(Boolean)
       : [];
 
-    if (!isValidEmail(email) || displayName.length < 2 || clientIds.length === 0) {
+    const role = normalizeText(req.body?.role, 20) as 'owner' | 'admin' | 'member' | 'viewer';
+    if (
+      !isValidEmail(email) ||
+      displayName.length < 2 ||
+      clientIds.length === 0 ||
+      !['owner', 'admin', 'member', 'viewer'].includes(role)
+    ) {
       return res.status(400).json({
-        error: 'Client user name, valid email and at least one client are required.',
+        error: 'Client user name, valid email, role and at least one client are required.',
       });
     }
 
@@ -2992,6 +2998,7 @@ app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('c
       displayName,
       phone: normalizeText(req.body?.phone, 40) || undefined,
       clientIds,
+      clientRoles: Object.fromEntries(clientIds.map((clientId) => [clientId, role])),
     });
 
     return res.status(201).json({
