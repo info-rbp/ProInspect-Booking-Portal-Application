@@ -1,12 +1,14 @@
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { readFileSync } from 'fs';
 import path from 'path';
 
 type AppletFirebaseConfig = {
   projectId: string;
   firestoreDatabaseId?: string;
+  storageBucket?: string;
 };
 
 function loadAppletFirebaseConfig(): AppletFirebaseConfig {
@@ -44,11 +46,20 @@ export const adminDb = getFirestore(adminApp, firestoreDatabaseId);
 adminDb.settings({ ignoreUndefinedProperties: true });
 
 export const adminAuth = getAuth(adminApp);
+export const adminStorageBucket = getStorage(adminApp).bucket(
+  process.env.FIREBASE_STORAGE_BUCKET ||
+    appletConfig.storageBucket ||
+    undefined
+);
 
 export function getFirebaseRuntimeInfo() {
   return {
     projectId: process.env.FIREBASE_PROJECT_ID || appletConfig.projectId,
     firestoreDatabaseId,
+    storageBucket:
+      process.env.FIREBASE_STORAGE_BUCKET ||
+      appletConfig.storageBucket ||
+      adminStorageBucket.name,
     credentialMode: serviceAccount ? 'service-account-secret' : 'application-default-credentials',
   };
 }
