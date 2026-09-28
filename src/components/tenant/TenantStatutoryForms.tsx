@@ -27,6 +27,7 @@ import type {
 import {
   createSensitiveTenantFormDraft,
   fetchTenantFormsDashboard,
+  getTenantDocumentDownloadUrl,
   submitSensitiveTenantFormWorkflow,
   submitTenantFormRequest,
   uploadSensitiveTenantEvidence,
@@ -569,8 +570,15 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
                     <Field label="Bond reference"><input value={String(payload.bondReference || '')} onChange={(e) => set('bondReference', e.target.value)} className="field-input" /></Field>
-                    <Field label="Tenancy end date" required><input type="date" value={String(payload.tenancyEndDate || '')} onChange={(e) => set('tenancyEndDate', e.target.value)} className="field-input" /></Field>
+                    <Field label="Total bond amount" required><input type="number" min="0.01" step="0.01" value={String(payload.totalBondAmount || '')} onChange={(e) => set('totalBondAmount', e.target.value ? Number(e.target.value) : null)} className="field-input" placeholder="$" /></Field>
                   </div>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-sm text-slate-700">
+                    <input type="checkbox" checked={Boolean(payload.partialRelease)} onChange={(e) => set('partialRelease', e.target.checked)} />
+                    This is a partial bond release
+                  </label>
+                  {!payload.partialRelease && (
+                    <Field label="Tenancy end date" required><input type="date" value={String(payload.tenancyEndDate || '')} onChange={(e) => set('tenancyEndDate', e.target.value)} className="field-input" /></Field>
+                  )}
                   <Field label="Proposed distribution" required>
                     <div className="space-y-2">
                       {distributions.map((row, index) => (
@@ -629,10 +637,24 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
               {selected.workflowType === 'pcr_response' && (
                 <>
                   <Field label="Entry Property Condition Report" required>
-                    <select value={String(payload.sourceDocumentId || '')} onChange={(e) => set('sourceDocumentId', e.target.value)} className="field-input">
-                      <option value="">Select report</option>
-                      {pcrDocuments.map((document) => <option key={document.id} value={document.id}>{document.title} · {formatDate(document.uploadedAt)}</option>)}
-                    </select>
+                    <div className="flex gap-2">
+                      <select value={String(payload.sourceDocumentId || '')} onChange={(e) => set('sourceDocumentId', e.target.value)} className="field-input">
+                        <option value="">Select report</option>
+                        {pcrDocuments.map((document) => <option key={document.id} value={document.id}>{document.title} · {formatDate(document.uploadedAt)}</option>)}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={!payload.sourceDocumentId}
+                        onClick={async () => {
+                          if (!payload.sourceDocumentId) return;
+                          const url = await getTenantDocumentDownloadUrl(String(payload.sourceDocumentId));
+                          window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="shrink-0 px-3 rounded-lg border border-slate-300 text-xs font-bold text-[#006D70] disabled:opacity-40"
+                      >
+                        Open
+                      </button>
+                    </div>
                   </Field>
                   <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600">
                     Add each room/item you have reviewed. Record whether you agree or disagree with the issued report and add comments where needed.
@@ -662,6 +684,16 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, documents }) 
                       <option value="prosecution_or_conviction">Prosecution notice, indictment or court conviction record</option>
                       <option value="family_violence_evidence_form">Consumer Protection family violence evidence report</option>
                     </select>
+                  </Field>
+                  <Field label="Proposed termination date" required>
+                    <input
+                      type="date"
+                      min={new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString().slice(0, 10)}
+                      value={String(payload.proposedTerminationDate || '')}
+                      onChange={(e) => set('proposedTerminationDate', e.target.value)}
+                      className="field-input"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">The proposed date must allow at least the minimum statutory notice period. Restricted staff will verify timing before service.</p>
                   </Field>
                   <Field label="Safe contact preference">
                     <select value={String(payload.safeContactPreference || '')} onChange={(e) => set('safeContactPreference', e.target.value)} className="field-input">
