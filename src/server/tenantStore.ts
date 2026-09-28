@@ -250,7 +250,7 @@ export async function getTenantPortalDashboard(
       bookingId: document.bookingId,
       workOrderId: document.workOrderId,
       requestId: document.requestId,
-      audiences: ['tenant'],
+      audiences: ['tenant'] as PortalAudience[],
       title: document.title,
       category: document.category,
       fileName: document.fileName,
