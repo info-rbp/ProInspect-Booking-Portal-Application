@@ -148,6 +148,22 @@ const SLOT_INTERVAL_MINUTES = 15;
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=()'
+  );
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader(
+      'Strict-Transport-Security',
+      'max-age=31536000; includeSubDomains'
+    );
+  }
+  next();
+});
 app.use(express.json({ limit: '256kb' }));
 
 type RateBucket = { count: number; resetAt: number };
@@ -175,6 +191,12 @@ function rateLimit(options: { windowMs: number; max: number; prefix: string }) {
     const clientKey = rateLimitClientKey(req);
     const key = `${options.prefix}:${clientKey}`;
     const current = rateBuckets.get(key);
+
+    if (rateBuckets.size > 5000) {
+      for (const [bucketKey, bucket] of rateBuckets) {
+        if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+      }
+    }
 
     if (!current || current.resetAt <= now) {
       rateBuckets.set(key, { count: 1, resetAt: now + options.windowMs });
@@ -216,6 +238,18 @@ const documentRequestRateLimit = rateLimit({
   windowMs: 15 * 60_000,
   max: 10,
   prefix: 'document-request',
+});
+
+const clientMutationRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 120,
+  prefix: 'client-mutation',
+});
+
+const clientUploadRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 30,
+  prefix: 'client-upload',
 });
 
 function parseAdminEmails(): Set<string> {
@@ -1789,7 +1823,7 @@ app.get('/api/client/dashboard', requireClient, async (_req, res) => {
   }
 });
 
-app.post('/api/client/onboarding', requireClient, async (req, res) => {
+app.post('/api/client/onboarding', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const context = clientContext(res);
     const parsed = sanitizeClientOnboarding(req.body, context.profile.email);
@@ -1808,7 +1842,7 @@ app.post('/api/client/onboarding', requireClient, async (req, res) => {
   }
 });
 
-app.post('/api/client/properties', requireClient, async (req, res) => {
+app.post('/api/client/properties', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const parsed = sanitizeClientPropertyInput(req.body);
     if (!parsed.value) {
@@ -1829,7 +1863,7 @@ app.post('/api/client/properties', requireClient, async (req, res) => {
   }
 });
 
-app.patch('/api/client/properties/:id', requireClient, async (req, res) => {
+app.patch('/api/client/properties/:id', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const changes: Record<string, unknown> = {};
     if (req.body?.nickname !== undefined) {
@@ -1882,7 +1916,7 @@ app.patch('/api/client/properties/:id', requireClient, async (req, res) => {
   }
 });
 
-app.post('/api/client/organisations/:id/activate', requireClient, async (req, res) => {
+app.post('/api/client/organisations/:id/activate', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const client = res.locals.client as { uid: string; email: string; displayName?: string };
     const context = await activateClientOrganisation({
@@ -1900,7 +1934,7 @@ app.post('/api/client/organisations/:id/activate', requireClient, async (req, re
   }
 });
 
-app.post('/api/client/organisation/members', requireClient, async (req, res) => {
+app.post('/api/client/organisation/members', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const email = normalizeText(req.body?.email, 120).toLowerCase();
     const role = normalizeText(req.body?.role, 30) as Exclude<ClientOrganisationRole, 'owner'>;
@@ -1950,7 +1984,7 @@ app.post('/api/client/organisation/members', requireClient, async (req, res) => 
   }
 });
 
-app.patch('/api/client/organisation/members/:id', requireClient, async (req, res) => {
+app.patch('/api/client/organisation/members/:id', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const role = req.body?.role === undefined
       ? undefined
@@ -1985,7 +2019,7 @@ app.patch('/api/client/organisation/members/:id', requireClient, async (req, res
   }
 });
 
-app.post('/api/client/requests/document', requireClient, async (req, res) => {
+app.post('/api/client/requests/document', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const parsed = sanitizeClientDocumentRequest(req.body);
     if (!parsed.value) {
@@ -2057,7 +2091,7 @@ app.post('/api/client/requests/document', requireClient, async (req, res) => {
   }
 });
 
-app.post('/api/client/requests/maintenance', requireClient, async (req, res) => {
+app.post('/api/client/requests/maintenance', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const parsed = sanitizeClientMaintenanceRequest(req.body);
     if (!parsed.value) {
@@ -2128,6 +2162,7 @@ app.post('/api/client/requests/maintenance', requireClient, async (req, res) => 
 app.post(
   '/api/client/files/upload',
   requireClient,
+  clientUploadRateLimit,
   express.raw({ type: () => true, limit: '10mb' }),
   async (req, res) => {
     try {
@@ -2205,7 +2240,7 @@ app.post(
   }
 );
 
-app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, res) => {
+app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutationRateLimit, async (req, res) => {
   const context = clientContext(res);
   let generationClaimed = false;
 
@@ -2382,7 +2417,7 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
   }
 });
 
-app.post('/api/client/approvals/:id/respond', requireClient, async (req, res) => {
+app.post('/api/client/approvals/:id/respond', requireClient, clientMutationRateLimit, async (req, res) => {
   try {
     const status = normalizeText(req.body?.status, 40) as
       | 'approved'
