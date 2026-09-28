@@ -28,6 +28,7 @@ import {
   isWorkflowAnswerPresent,
   isWorkflowFieldVisible,
   sensitiveWorkflowFieldIds,
+  validateDocumentWorkflowRules,
 } from '../../documents/documentWorkflowDefinitions';
 import {
   fetchDocumentProducts,
@@ -556,6 +557,23 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
         if (incomplete) {
           nextErrors[field.id] =
             'Enter a payment amount for every named party. For each party receiving bond money, complete the Australian bank account details.';
+        }
+      }
+    }
+
+    if (documentId) {
+      const currentFieldIds = new Set(
+        currentSection.fields.map((field) => field.id)
+      );
+      for (const ruleError of validateDocumentWorkflowRules(
+        documentId,
+        answers
+      )) {
+        if (
+          currentFieldIds.has(ruleError.fieldId) &&
+          !nextErrors[ruleError.fieldId]
+        ) {
+          nextErrors[ruleError.fieldId] = ruleError.message;
         }
       }
     }
