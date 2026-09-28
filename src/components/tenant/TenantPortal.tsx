@@ -631,14 +631,16 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
               <h2 className="text-xl font-extrabold text-[#1A2B4A]">Requests</h2>
               <p className="text-sm text-slate-500">Track maintenance and tenancy requests.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => beginRequest('other')}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#007F82] text-white text-sm font-bold"
-            >
-              <Plus className="w-4 h-4" />
-              New Request
-            </button>
+            {dashboard.tenancies.length > 0 && (
+              <button
+                type="button"
+                onClick={() => beginRequest('other')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#007F82] text-white text-sm font-bold"
+              >
+                <Plus className="w-4 h-4" />
+                New Request
+              </button>
+            )}
           </div>
 
           {dashboard.requests.map((request) => (
