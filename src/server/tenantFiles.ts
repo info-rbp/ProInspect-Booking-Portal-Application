@@ -89,7 +89,8 @@ export async function saveTenantRequestAttachment(params: {
 }
 
 export async function saveTenantDocumentFile(params: {
-  tenancyId: string;
+  propertyId: string;
+  tenancyId?: string;
   fileName: string;
   contentType: string;
   bytes: Buffer;
@@ -100,7 +101,7 @@ export async function saveTenantDocumentFile(params: {
     size: params.bytes.length,
   });
   const objectName = uniqueObjectName(params.fileName);
-  const storagePath = `tenant-portal/documents/${params.tenancyId}/${objectName}`;
+  const storagePath = `property-documents/${params.propertyId}/${objectName}`;
   const file = bucket.file(storagePath);
 
   await file.save(params.bytes, {
@@ -109,7 +110,8 @@ export async function saveTenantDocumentFile(params: {
     metadata: {
       cacheControl: 'private, max-age=0, no-store',
       metadata: {
-        tenancyId: params.tenancyId,
+        propertyId: params.propertyId,
+        ...(params.tenancyId ? { tenancyId: params.tenancyId } : {}),
         originalFileName: params.fileName,
       },
     },
