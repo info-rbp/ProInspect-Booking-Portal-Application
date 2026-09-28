@@ -732,6 +732,9 @@ export async function createAdminClient(input: {
   clientType: ClientType;
   email?: string;
   phone?: string;
+  billingEmail?: string;
+  abn?: string;
+  acn?: string;
   externalReference?: string;
 }): Promise<ClientRecord> {
   const res = await adminFetch('/api/admin/clients', {
