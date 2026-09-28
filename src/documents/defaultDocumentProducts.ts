@@ -2,6 +2,10 @@ import type { DocumentProduct } from '../types/platform';
 
 const standardResidentialDescription =
   'Preparation of the prescribed residential tenancy form for client review before distribution, with digital sending, signing and storage.';
+const standardCommercial =
+  'Preparation of a commercial property document from supplied instructions, subject to ProInspect review before issue.';
+const standardStrata =
+  'Preparation or collation of a strata / building document from supplied property and scheme information, subject to review before issue.';
 
 export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
   {
