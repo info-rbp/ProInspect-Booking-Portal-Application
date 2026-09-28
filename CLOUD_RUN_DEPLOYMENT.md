@@ -61,6 +61,7 @@ GitHub Actions verifies:
 ```bash
 npm ci
 npm run lint
+npm run test:architecture
 npm run build
 docker build -t proinspect-booking-portal:verify .
 ```
@@ -233,3 +234,24 @@ The smoke test verifies, in sequence:
 9. Persisted Firestore cancelled status.
 
 Because this is a live-write test, run it only after the production encryption, email and address-validation configuration is complete. If the script exits after a booking was created but before cancellation, it prints the secure management URL needed for manual cleanup.
+
+
+## Canonical platform migration before Admin Portal deployment
+
+The Admin Portal architecture uses the canonical collections documented in `CANONICAL_PLATFORM_ARCHITECTURE.md`.
+
+Before deploying this branch against an environment that contains legacy Admin Portal records, run the migration utility using credentials that target the intended Firestore database:
+
+```bash
+npm run migrate:platform
+```
+
+The default is a dry run. Review every count, especially skipped references and legacy tenant records. Only then apply:
+
+```bash
+npm run migrate:platform:apply
+```
+
+Do not automate `migrate:platform:apply` into Cloud Run startup or the deployment pipeline.
+
+Composite index definitions required by the canonical data model are recorded in `firestore.indexes.json`. Ensure those index definitions are provisioned for the configured Firestore database as part of infrastructure deployment before relying on high-volume portal queries.
