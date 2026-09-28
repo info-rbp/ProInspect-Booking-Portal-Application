@@ -30,6 +30,12 @@ import type {
   TenantUserRecord,
 } from '../types/tenant';
 import type {
+  DocumentProduct as PublicDocumentProduct,
+  DocumentRequestDetails,
+  DocumentWorkflowData,
+  PublicDocumentRequestSummary,
+} from '../types/documentRequest';
+import type {
   AuditEvent,
   ClientApproval,
   ClientRequest,
@@ -867,39 +873,42 @@ export async function getClientDocumentDownloadUrl(documentId: string): Promise<
 }
 
 
-export async function fetchDocumentProducts(): Promise<DocumentProduct[]> {
+export async function fetchDocumentProducts(): Promise<PublicDocumentProduct[]> {
   const res = await fetch('/api/document-products');
-  const data = (await res.json()) as { documents?: DocumentProduct[]; error?: string };
-  if (!res.ok) throw new Error(data.error || 'Unable to load document products.');
+  const data = (await res.json()) as { documents?: PublicDocumentProduct[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Failed to load document products.');
   return data.documents || [];
 }
 
-export async function submitDocumentRequest(input: {
+export async function submitDocumentRequest(payload: {
   documentId: string;
   documentCategory: ServiceCategory;
-  details: {
-    streetAddress: string;
-    unit?: string;
-    suburb: string;
-    state: string;
-    postcode: string;
-    customerName: string;
-    customerEmail: string;
-    customerPhone: string;
-    propertyId?: string;
-    clientId?: string;
-    clientUserId?: string;
-    notes?: string;
-  };
-}): Promise<DocumentRequest> {
+  details: DocumentRequestDetails;
+  workflow: DocumentWorkflowData;
+}): Promise<{
+  success: boolean;
+  request: PublicDocumentRequestSummary;
+  message?: string;
+}> {
   const res = await fetch('/api/document-requests', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify(payload),
   });
-  const data = (await res.json()) as { request?: DocumentRequest; error?: string };
-  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to submit document request.');
-  return data.request;
+  const data = (await res.json()) as {
+    success?: boolean;
+    request?: PublicDocumentRequestSummary;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Failed to submit document request.');
+  }
+  return {
+    success: data.success !== false,
+    request: data.request,
+    message: data.message,
+  };
 }
 
 export async function createClientRequest(input: {
