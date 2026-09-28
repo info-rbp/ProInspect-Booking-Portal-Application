@@ -142,7 +142,7 @@ export interface ClientDocumentSummary {
   name: string;
   documentType: string;
   status: 'available' | 'draft' | 'archived';
-  storagePath: string;
+  storagePath?: string;
   contentType?: string;
   sizeBytes?: number;
   generated?: boolean;
