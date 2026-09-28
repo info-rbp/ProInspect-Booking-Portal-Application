@@ -64,6 +64,8 @@ export interface TenantFormAttachment {
   contentType: string;
   size: number;
   uploadedAt: string;
+  /** Server-side only. Public serializers strip this field before responding. */
+  storagePath?: string;
 }
 
 export interface TenantFormRequest {
