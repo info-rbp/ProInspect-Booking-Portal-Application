@@ -2,20 +2,25 @@ import React, { useMemo, useState } from 'react';
 import { FileCheck2, FileText, Wrench } from 'lucide-react';
 import type {
   ClientApproval,
+  ClientDocumentSummary,
   ClientRequestSummary,
 } from '../../types/clientPortal';
 
 export function AdminClientRequests({
   requests,
   approvals,
+  documents,
   onUpdateStatus,
+  onDownloadDocument,
 }: {
   requests: ClientRequestSummary[];
   approvals: ClientApproval[];
+  documents: ClientDocumentSummary[];
   onUpdateStatus: (
     requestId: string,
     status: ClientRequestSummary['status']
   ) => Promise<void>;
+  onDownloadDocument: (documentId: string) => Promise<void>;
 }) {
   const [typeFilter, setTypeFilter] = useState<'all' | ClientRequestSummary['type']>('all');
   const [busy, setBusy] = useState<string | null>(null);
@@ -87,6 +92,24 @@ export function AdminClientRequests({
                       ))}
                     </div>
                   )}
+                  {(request.attachmentDocumentIds || []).length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(request.attachmentDocumentIds || []).map((documentId) => {
+                        const document = documents.find((item) => item.id === documentId);
+                        return (
+                          <button
+                            key={documentId}
+                            type="button"
+                            onClick={() => onDownloadDocument(documentId)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-[#006D70] hover:bg-[#F0FBFB]"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            {document?.name || 'Request attachment'}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -133,6 +156,15 @@ export function AdminClientRequests({
               <div key={approval.id} className="py-3">
                 <div className="font-semibold text-sm text-[#1A2B4A]">{approval.title}</div>
                 <div className="text-xs text-slate-500 mt-1">{approval.summary || approval.type}</div>
+                {approval.documentId && (
+                  <button
+                    type="button"
+                    onClick={() => onDownloadDocument(approval.documentId!)}
+                    className="mt-2 text-xs font-bold text-[#006D70]"
+                  >
+                    Download draft
+                  </button>
+                )}
               </div>
             ))}
           </div>
