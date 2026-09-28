@@ -608,6 +608,19 @@ export async function updateAdminTenantForm(
   return updated;
 }
 
+export async function getSensitiveEvidenceForAdmin(
+  requestId: string,
+  attachmentId: string
+) {
+  const doc = await adminDb.collection('sensitiveTenantForms').doc(requestId).get();
+  if (!doc.exists) return null;
+  const request = docWithId<SensitiveTenantFormRequest & {
+    evidence: Array<TenantFormAttachment & { storagePath?: string }>;
+  }>(doc);
+  const evidence = (request.evidence || []).find((item) => item.id === attachmentId);
+  return evidence?.storagePath ? evidence : null;
+}
+
 export async function listSensitiveTenantFormsForAdmin() {
   const snapshot = await adminDb
     .collection('sensitiveTenantForms')
