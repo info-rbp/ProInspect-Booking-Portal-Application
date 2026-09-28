@@ -1529,6 +1529,18 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     try {
       await saveBooking(booking, encryptedAccessSecrets);
+      await writeAuditEvent({
+        entityType: 'booking',
+        entityId: booking.id,
+        action: 'created',
+        summary: `Booking ${booking.bookingReference} confirmed for ${booking.serviceName}.`,
+        actor: {
+          type: 'system',
+          email: booking.property.customerEmail,
+          displayName: booking.property.customerName,
+        },
+        metadata: { status: booking.status },
+      });
     } catch (firestoreError) {
       await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
         console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
@@ -1660,6 +1672,14 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
     if (!updated) {
       throw new Error('Booking disappeared while cancellation was being processed.');
     }
+    await writeAuditEvent({
+      entityType: 'booking',
+      entityId: booking.id,
+      action: 'cancelled',
+      summary: `Booking ${booking.bookingReference} cancelled through the secure management link.`,
+      actor: { type: 'system', email: booking.property.customerEmail },
+      metadata: { previousStatus: booking.status, status: 'cancelled' },
+    });
 
     const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
     return res.json({
@@ -1708,6 +1728,15 @@ app.post('/api/tenant/requests', tenantWriteRateLimit, requireTenant, async (req
     }
 
     const request = await createTenantRequest(tenant, parsed.request);
+    await writeAuditEvent({
+      entityType: 'tenant_request',
+      entityId: request.id,
+      action: 'submitted',
+      summary: `${request.reference} submitted by tenant.`,
+      actor: { type: 'tenant', id: tenant.id, email: tenant.email, displayName: tenant.displayName },
+      propertyId: request.propertyId,
+      tenancyId: request.tenancyId,
+    });
 
     sendTenantRequestReceiptEmail({
       tenant,
@@ -1761,13 +1790,24 @@ app.post(
       });
       savedPath = stored.storagePath;
 
+      const attachmentId = randomBytes(12).toString('hex');
       const updated = await addTenantRequestAttachment(request.id, {
-        id: randomBytes(12).toString('hex'),
+        id: attachmentId,
         fileName: stored.fileName,
         contentType: stored.contentType,
         size: stored.size,
         uploadedAt: new Date().toISOString(),
         storagePath: stored.storagePath,
+      });
+      await writeAuditEvent({
+        entityType: 'tenant_request',
+        entityId: request.id,
+        action: 'attachment_added',
+        summary: `Attachment ${stored.fileName} added to ${request.reference}.`,
+        actor: { type: 'tenant', id: tenant.id, email: tenant.email },
+        propertyId: request.propertyId,
+        tenancyId: request.tenancyId,
+        metadata: { attachmentId },
       });
 
       return res.status(201).json({ success: true, request: updated });
