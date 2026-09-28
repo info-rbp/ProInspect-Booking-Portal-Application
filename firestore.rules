@@ -11,6 +11,8 @@ service cloud.firestore {
     // - lockbox / key / alarm access details
     // - administrator notes
     // - client and tenant portal clients, properties, tenancies, requests and documents
+    // - statutory form definitions and tenant form workflows
+    // - restricted family-violence tenancy workflows and evidence metadata
     // - service and scheduling configuration writes
     match /{document=**} {
       allow read, write: if false;
