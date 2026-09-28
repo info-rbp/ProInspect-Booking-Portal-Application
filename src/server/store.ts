@@ -1,12 +1,6 @@
 import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
-import type { DocumentProduct, DocumentRequestRecord } from '../types/documentRequest.js';
-import {
-  decryptDocumentRequestSecrets,
-  type EncryptedDocumentRequestSecrets,
-} from './documentRequestSecrets.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
-import { DEFAULT_DOCUMENT_PRODUCTS } from '../documents/defaultDocumentProducts.js';
 import { adminDb } from './firebaseAdmin.js';
 import {
   decryptAccessSecrets,
@@ -18,7 +12,6 @@ const SETTINGS_ID = 'business';
 const SERVICE_CATALOGUE_META_ID = 'serviceCatalogue';
 const SERVICE_CATALOGUE_VERSION = 4;
 let seeded: Promise<void> | null = null;
-let documentCatalogueSeeded: Promise<void> | null = null;
 
 export async function ensureSeedData() {
   if (!seeded) {
@@ -208,169 +201,6 @@ export async function reorderServices(serviceIds: string[]): Promise<InspectionS
   await batch.commit();
 
   return listServices(false);
-}
-
-async function ensureDocumentCatalogue(): Promise<void> {
-  if (!documentCatalogueSeeded) {
-    documentCatalogueSeeded = (async () => {
-      const refs = DEFAULT_DOCUMENT_PRODUCTS.map((product) =>
-        adminDb.collection('documentProducts').doc(product.id)
-      );
-      const snapshots = await Promise.all(refs.map((ref) => ref.get()));
-      const batch = adminDb.batch();
-      let hasWrites = false;
-
-      snapshots.forEach((snapshot, index) => {
-        if (!snapshot.exists) {
-          batch.set(refs[index], DEFAULT_DOCUMENT_PRODUCTS[index]);
-          hasWrites = true;
-        }
-      });
-
-      if (hasWrites) await batch.commit();
-    })().catch((error) => {
-      documentCatalogueSeeded = null;
-      throw error;
-    });
-  }
-
-  await documentCatalogueSeeded;
-}
-
-function documentProductFromDocument(
-  data: Partial<DocumentProduct>,
-  id: string
-): DocumentProduct {
-  const product = data as DocumentProduct;
-  return {
-    ...product,
-    id,
-    categories: Array.isArray(product.categories) ? product.categories : [],
-  };
-}
-
-export async function listDocumentProducts(
-  publicOnly = false
-): Promise<DocumentProduct[]> {
-  await ensureDocumentCatalogue();
-  const snapshot = await adminDb
-    .collection('documentProducts')
-    .orderBy('order', 'asc')
-    .get();
-  const products = snapshot.docs.map((doc) =>
-    documentProductFromDocument(
-      doc.data() as Partial<DocumentProduct>,
-      doc.id
-    )
-  );
-
-  return publicOnly
-    ? products.filter(
-        (product) => product.active && product.publiclyRequestable
-      )
-    : products;
-}
-
-export async function getDocumentProduct(
-  documentId: string
-): Promise<DocumentProduct | null> {
-  await ensureDocumentCatalogue();
-  const snapshot = await adminDb
-    .collection('documentProducts')
-    .doc(documentId)
-    .get();
-
-  return snapshot.exists
-    ? documentProductFromDocument(
-        (snapshot.data() || {}) as Partial<DocumentProduct>,
-        snapshot.id
-      )
-    : null;
-}
-
-export function newDocumentRequestId(): string {
-  return adminDb.collection('documentRequests').doc().id;
-}
-
-export async function documentRequestReferenceExists(
-  reference: string
-): Promise<boolean> {
-  const snapshot = await adminDb
-    .collection('documentRequests')
-    .where('requestReference', '==', reference)
-    .limit(1)
-    .get();
-  return !snapshot.empty;
-}
-
-export async function saveDocumentRequest(
-  request: DocumentRequestRecord,
-  encryptedSecrets?: EncryptedDocumentRequestSecrets
-): Promise<DocumentRequestRecord> {
-  const requestRef = adminDb.collection('documentRequests').doc(request.id);
-  const batch = adminDb.batch();
-  batch.set(requestRef, request);
-
-  if (encryptedSecrets) {
-    batch.set(
-      adminDb.collection('documentRequestSecrets').doc(request.id),
-      encryptedSecrets
-    );
-  }
-
-  await batch.commit();
-  return request;
-}
-
-export async function listDocumentRequests(): Promise<DocumentRequestRecord[]> {
-  const snapshot = await adminDb
-    .collection('documentRequests')
-    .orderBy('createdAt', 'desc')
-    .limit(500)
-    .get();
-
-  return snapshot.docs.map((doc) => ({
-    ...(doc.data() as DocumentRequestRecord),
-    id: doc.id,
-  }));
-}
-
-export async function listDocumentRequestsWithSecrets(): Promise<DocumentRequestRecord[]> {
-  const requests = await listDocumentRequests();
-  if (requests.length === 0) return requests;
-
-  const secretRefs = requests.map((request) =>
-    adminDb.collection('documentRequestSecrets').doc(request.id)
-  );
-  const secretDocs = await adminDb.getAll(...secretRefs);
-
-  return requests.map((request, index) => {
-    const secretDoc = secretDocs[index];
-    if (!secretDoc?.exists) return request;
-
-    try {
-      const secrets = decryptDocumentRequestSecrets(
-        request.id,
-        secretDoc.data() as EncryptedDocumentRequestSecrets
-      );
-      return {
-        ...request,
-        workflow: {
-          ...request.workflow,
-          answers: {
-            ...request.workflow.answers,
-            ...secrets,
-          },
-        },
-      };
-    } catch (error) {
-      console.error(
-        `Failed to decrypt sensitive document-request details for ${request.id}:`,
-        error
-      );
-      return request;
-    }
-  });
 }
 
 export async function getSettings(): Promise<BusinessSettings> {

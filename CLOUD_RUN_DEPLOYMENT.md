@@ -141,14 +141,7 @@ New lockbox codes and security-alarm details are removed from the normal
 `bookingAccessSecrets/{bookingId}`. Authenticated staff responses decrypt and
 restore those details only inside the operations portal.
 
-The same encryption key also protects sensitive document-request answers such
-as bank account details and family-violence workflow evidence metadata. These
-answers are removed from the normal `documentRequests` record and stored in
-`documentRequestSecrets/{requestId}` using separate authenticated encryption
-context.
-
-Do not enable document workflows that collect sensitive financial or protected
-information, or lockbox/alarm booking paths, until
+Do not enable or use lockbox/alarm booking paths in production until
 `ACCESS_DATA_ENCRYPTION_KEY` is configured.
 
 ### Booking confirmation email
@@ -166,14 +159,6 @@ Configure:
 ```text
 BOOKING_EMAIL_FROM=ProInspect <bookings@proinspect.systems>
 BOOKING_EMAIL_REPLY_TO=info@proinspect.systems
-```
-
-Document requests use the same Resend configuration. Internal request
-notifications default to `info@proinspect.systems`; optionally override that
-recipient with:
-
-```text
-DOCUMENT_REQUEST_NOTIFY_TO=info@proinspect.systems
 ```
 
 Set `APP_URL` to the active public booking origin. Until the custom domain is
@@ -194,7 +179,6 @@ shown on the confirmation screen.
   "calendarConfigured": true,
   "bookingEmailConfigured": true,
   "sensitiveAccessEncryptionConfigured": true,
-  "documentRequestEncryptionConfigured": true,
   "addressValidationMode": "required",
   "timezone": "Australia/Perth"
 }
@@ -241,3 +225,276 @@ The smoke test verifies, in sequence:
 9. Persisted Firestore cancelled status.
 
 Because this is a live-write test, run it only after the production encryption, email and address-validation configuration is complete. If the script exits after a booking was created but before cancellation, it prints the secure management URL needed for manual cleanup.
+
+
+## Tenant portal branch deployment requirements
+
+The `tenant-portal` branch adds tenant authentication, tenancy/property records,
+tenant requests, document storage and staff-side tenant operations. Keep this branch
+out of production until it has been reviewed and intentionally merged.
+
+### Firebase Authentication
+
+Enable **Email/Password** in Firebase Authentication and enable **Email link
+(passwordless sign-in)** for tenant access. Keep Google sign-in enabled for staff.
+
+Add every tenant-portal hostname to Firebase Authentication authorised domains,
+including the active Cloud Run hostname during testing and the final custom domain.
+
+Tenant access is invitation/provisioning based: staff must first create a property,
+tenancy and tenant user in **Staff Portal > Tenant Portal**. A Firebase-authenticated
+email receives no tenancy data unless its verified email matches an active
+`tenantUsers` record.
+
+### Firebase Storage
+
+The tenant portal stores request attachments and tenancy documents in the Firebase
+Storage bucket. Configure:
+
+```text
+FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047.firebasestorage.app
+```
+
+The Cloud Run runtime service account needs permission to create, read and delete
+objects in that bucket. Grant an appropriate bucket-level Storage role such as
+`roles/storage.objectAdmin` to the runtime identity.
+
+Because tenant downloads use short-lived V4 signed URLs, the runtime identity must
+also be able to sign blobs. Grant `roles/iam.serviceAccountTokenCreator` on the
+runtime service account to the runtime service account itself (or an equivalent
+narrow permission that includes `iam.serviceAccounts.signBlob`).
+
+The browser never reads or writes Storage directly. Uploads and download-link
+generation pass through the authenticated Express API. Deploy `storage.rules`
+with direct client access denied.
+
+### Tenant email notifications
+
+Tenant request receipts and status updates reuse Resend. You may optionally set:
+
+```text
+TENANT_EMAIL_FROM=ProInspect <tenants@proinspect.systems>
+TENANT_EMAIL_REPLY_TO=info@proinspect.systems
+```
+
+When omitted, the tenant portal falls back to `BOOKING_EMAIL_FROM` and
+`BOOKING_EMAIL_REPLY_TO`.
+
+### Shared portal Firestore collections
+
+The tenant and future client modules use:
+
+- `clients`
+- `clientUsers`
+- `clientPropertyLinks`
+- `properties`
+- `tenancies`
+- `tenantUsers`
+- `tenantRequests`
+- `propertyDocuments`
+- `tenantInspections`
+
+`properties` and `propertyDocuments` are deliberately shared canonical records.
+Do not create separate client-property or client-document copies when the Client
+Portal UI is added. Client access must be resolved through `clientUsers.clientIds`
+and active `clientPropertyLinks`, while tenant access continues to resolve through
+active tenancies. Document visibility is controlled by the `audiences` array and
+the document's linked `clientIds`.
+
+Direct browser access to Firestore remains denied by `firestore.rules`; all
+tenant and staff data access is mediated by the Express API and Firebase ID-token
+verification.
+
+### Tenant portal production verification
+
+Before exposing the tenant portal publicly:
+
+1. Confirm `/api/health` reports `tenantStorageConfigured: true`.
+2. Confirm `tenantPortalEmailConfigured: true` when email notifications are required.
+3. Create a controlled property, tenancy and tenant user in the Staff Portal.
+4. Send a passwordless tenant sign-in link and sign in using the provisioned email.
+5. Confirm the tenant only sees the tenancy linked to that account.
+6. Submit a maintenance request with an attachment.
+7. Confirm staff can view the request and change its status.
+8. Confirm the tenant sees the updated status and receives the notification email.
+9. Upload a tenant document from the Staff Portal and confirm the tenant can open it.
+10. Create an inspection entry and confirm it appears under Inspections & Access.
+
+
+### Client Portal compatibility
+
+The branch includes the Firestore relationships and protected API read surface
+required for a later Client Portal implementation. Client portal users are
+provisioned in `clientUsers`, clients are linked to canonical properties through
+`clientPropertyLinks`, and client-visible files are stored once in
+`propertyDocuments`.
+
+When a Client Portal frontend is added, use the existing Firebase ID-token model and
+the protected `/api/client/*` routes. Do not permit browser-direct Firestore or
+Storage access and do not duplicate documents into a separate client collection.
+
+
+## Unified platform activation
+
+The consolidated portal branch adds operational collections and APIs on top of the
+shared client/property model.
+
+### New operational Firestore collections
+
+- `clientRequests`
+- `documentProducts`
+- `documentRequests`
+- `workOrders`
+- `contractors`
+- `clientApprovals`
+- `payments`
+- `auditEvents`
+- `portalNotifications`
+
+These collections remain server-only. Do not enable browser-direct Firestore
+access.
+
+### Property Report Tool integration
+
+Set `REPORT_INGEST_TOKEN` in Cloud Run and configure the same token in the report
+generator. Final reports are posted to:
+
+```text
+POST /api/integrations/reports
+X-Report-Ingest-Token: <secret>
+X-Property-Id: <canonical propertyId>
+X-Document-Title: <report title>
+X-File-Name: <filename.pdf>
+X-Document-Category: property_condition_report | inspection_report | property_report
+X-Document-Audiences: client,tenant
+X-Tenancy-Id: <optional>
+X-Booking-Id: <optional>
+Content-Type: application/pdf
+```
+
+The report is stored in the canonical `propertyDocuments` collection and inherits
+the selected portal audiences.
+
+### Payment adapter
+
+Fixed-fee document requests create a `payments` record automatically. If
+`PAYMENT_CHECKOUT_URL_TEMPLATE` is configured, the server expands
+`{paymentId}`, `{reference}` and `{totalAmount}` and exposes that checkout URL
+in the Client Portal.
+
+External payment providers can confirm payment state through:
+
+```text
+POST /api/integrations/payments/:paymentId/status
+X-Payment-Webhook-Token: <PAYMENT_WEBHOOK_TOKEN>
+Content-Type: application/json
+
+{"status":"paid"}
+```
+
+No payment provider credentials are stored in Firestore.
+
+### Portal migration
+
+Always run the migration in dry-run mode first:
+
+```bash
+npm run migrate:portal:dry
+```
+
+Review the counts, take a Firestore backup, then apply intentionally:
+
+```bash
+npm run migrate:portal
+```
+
+The migration is designed to be repeatable and uses stable IDs for booking-derived
+clients, properties and relationships.
+
+### Security smoke test
+
+Against a deployed non-production environment:
+
+```bash
+PORTAL_TEST_BASE_URL=https://... \
+PORTAL_TEST_TENANT_TOKEN=... \
+PORTAL_TEST_CLIENT_TOKEN=... \
+PORTAL_TEST_ADMIN_TOKEN=... \
+npm run test:e2e:portal-security
+```
+
+The test verifies anonymous isolation and, where tokens are supplied, confirms
+tenant/client payloads do not leak Storage paths or staff-only notes.
+
+### Firestore indexes
+
+Deploy `firestore.indexes.json` before relying on filtered audit-history queries.
+Use your standard Firebase/Google Cloud deployment process; committing the index
+file alone does not change production infrastructure.
+
+
+## WA tenant form workflow deployment
+
+The consolidated portal uses these additional Firestore collections:
+
+- `formDefinitions`
+- `tenantFormRequests`
+- `sensitiveTenantForms`
+- `sensitiveAuditEvents`
+
+and these Storage prefixes:
+
+- `tenant-portal/forms/` for normal supporting material
+- `tenant-sensitive/forms/` for restricted Form 2 evidence
+
+Direct browser Firestore and Storage access must remain denied. Files are only
+served via authenticated short-lived signed URLs.
+
+### Sensitive-tenancy access
+
+The `sensitive_tenancy` permission is intentionally not assigned to standard
+operations roles. `super_admin` receives it via the wildcard permission. If a
+dedicated restricted role is introduced later, grant this permission explicitly
+only to personnel authorised to handle family-violence information.
+
+Do not add `sensitiveTenantForms`, its payloads or its evidence to the general
+Operations queue, client notifications, client approvals, analytics exports or
+ordinary audit feeds.
+
+### Official form maintenance
+
+Before production releases that affect statutory forms, verify the current WA
+Consumer Protection source links and prescribed form versions against:
+
+```text
+https://www.consumerprotection.wa.gov.au/rental-forms-and-notices
+```
+
+Prescribed-form content should not be recreated as a modified ProInspect legal form.
+The portal collects structured data and workflow evidence; official statutory output
+must continue to use the current approved form/template and official bond process.
+
+
+## Architecture-freeze pre-merge gate
+
+The `tenant-portal` branch is frozen for broad feature development. Before merging
+it into `main`, use a staging/integration branch and complete all of the following:
+
+- take a Firestore export/backup;
+- run `npm run migrate:portal:dry`;
+- resolve duplicate property address keys before any migration apply;
+- review bookings reported without reliable client context rather than inferring
+  landlord identity from the booking requester;
+- deploy the committed Firestore indexes;
+- confirm browser Firestore and Storage access remain denied;
+- confirm `REPORT_INGEST_TOKEN`, `PAYMENT_WEBHOOK_TOKEN`, Storage signing,
+  tenant email-link Authentication and Resend configuration in staging;
+- test owner/admin/member/viewer Client Portal roles;
+- test read-only and operational Staff Portal roles;
+- test a post-tenancy bond-release workflow;
+- test Form 2 only with a specifically authorised restricted staff account;
+- run `npm run test:e2e:portal-security` with the optional role-specific tokens;
+- run the controlled booking smoke test.
+
+Do not use production as the first environment in which the migration or combined
+portal architecture is exercised.

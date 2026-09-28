@@ -15,6 +15,9 @@ import { PublicBookingManageModal } from './components/manage/PublicBookingManag
 import { ClientHub } from './components/hub/ClientHub';
 import { PlaceholderPage } from './components/hub/PlaceholderPage';
 import { DocumentRequestFlow } from './components/documents/DocumentRequestFlow';
+import { ClientPortal } from './components/client/ClientPortal';
+import { ClientSignIn } from './components/client/ClientSignIn';
+import { TenantPortal } from './components/tenant/TenantPortal';
 import {
   InspectionService,
   ServiceCategory,
@@ -24,12 +27,12 @@ import {
   PublicBookingSummary,
 } from './types/booking';
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
-import { initAuthListener, logoutAdmin } from './services/firebase';
+import { initAuthListener, logoutAdmin, logoutTenant } from './services/firebase';
 import { User } from 'firebase/auth';
 import { Search } from 'lucide-react';
 
-type PublicRoute = 'hub' | 'book' | 'request-document' | 'signin';
-type PublicPath = '/' | '/book' | '/request-document' | '/signin';
+type PublicRoute = 'hub' | 'book' | 'request-document' | 'signin' | 'tenant' | 'client';
+type PublicPath = '/' | '/book' | '/request-document' | '/signin' | '/tenant' | '/tenant/complete-signin' | '/client';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
@@ -43,6 +46,8 @@ function publicRouteFromPath(): PublicRoute {
   if (pathname === '/book') return 'book';
   if (pathname === '/request-document') return 'request-document';
   if (pathname === '/signin') return 'signin';
+  if (pathname === '/tenant' || pathname === '/tenant/complete-signin') return 'tenant';
+  if (pathname === '/client') return 'client';
   return 'hub';
 }
 
@@ -91,6 +96,7 @@ export default function App() {
   const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Admin & Auth State
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [directManageToken, setDirectManageToken] = useState<string | null>(
@@ -156,14 +162,15 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = initAuthListener(
       (user) => {
+        setAuthUser(user);
         verifyAdminSession()
           .then(() => setCurrentUser(user))
-          .catch(async () => {
+          .catch(() => {
             setCurrentUser(null);
-            await logoutAdmin();
           });
       },
       () => {
+        setAuthUser(null);
         setCurrentUser(null);
       }
     );
@@ -315,6 +322,7 @@ export default function App() {
 
   const handleAdminLogout = async () => {
     await logoutAdmin();
+    setAuthUser(null);
     setCurrentUser(null);
     setActiveView('booking');
   };
@@ -364,7 +372,34 @@ export default function App() {
         ) : publicRoute === 'hub' ? (
           <ClientHub onNavigate={navigatePublic} />
         ) : publicRoute === 'request-document' ? (
-          <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
+          <DocumentRequestFlow onBack={() => navigatePublic('/')} />
+        ) : publicRoute === 'client' ? (
+          authUser ? (
+            <ClientPortal
+              user={authUser}
+              onLogout={async () => {
+                await logoutTenant();
+                setAuthUser(null);
+                setCurrentUser(null);
+                navigatePublic('/');
+              }}
+            />
+          ) : (
+            <ClientSignIn
+              onSignedIn={(user) => setAuthUser(user)}
+              onBack={() => navigatePublic('/')}
+            />
+          )
+        ) : publicRoute === 'tenant' ? (
+          <TenantPortal
+            authUser={authUser}
+            onAuthenticated={(user) => setAuthUser(user)}
+            onLoggedOut={() => {
+              setAuthUser(null);
+              setCurrentUser(null);
+            }}
+            onBack={() => navigatePublic('/')}
+          />
         ) : publicRoute === 'signin' ? (
           <PlaceholderPage type="signin" onBack={() => navigatePublic('/')} />
         ) : confirmedBooking ? (
@@ -473,6 +508,7 @@ export default function App() {
         isOpen={isAdminLoginOpen}
         onClose={() => setIsAdminLoginOpen(false)}
         onLoginSuccess={(user) => {
+          setAuthUser(user);
           setCurrentUser(user);
           setActiveView('admin');
         }}

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - cloud-run-migration
+      - tenant-portal
   pull_request:
     branches:
       - main
@@ -15,19 +16,48 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Set up Java for Firestore emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - name: Install dependencies
         run: npm ci
+      - name: Runtime dependency security gate
+        run: npm audit --omit=dev --audit-level=high
       - name: Type check
         run: npm run lint
+      - name: Architecture and portal-isolation freeze gate
+        run: npm run freeze:check
+      - name: Verify migration dry-run is read-only
+        timeout-minutes: 8
+        env:
+          FIREBASE_PROJECT_ID: demo-tenant-stage1
+          GCLOUD_PROJECT: demo-tenant-stage1
+          FIRESTORE_DATABASE_ID: '(default)'
+        run: npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-tenant-stage1 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
       - name: Build
         run: npm run build
       - name: Build production container image
         run: docker build -t proinspect-booking-portal:verify .
+      - name: Record exact tested commit
+        if: always()
+        run: git rev-parse HEAD > tenant-stage1-source-sha.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-stage1-evidence
+          path: tenant-stage1-source-sha.txt
+          retention-days: 14
+          if-no-files-found: error
