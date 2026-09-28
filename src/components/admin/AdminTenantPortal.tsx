@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   CalendarPlus,
+  FileText,
   FileUp,
   Loader2,
   RefreshCw,
@@ -15,6 +16,7 @@ import type {
   TenantInspection,
   TenantRequestStatus,
 } from '../../types/tenant';
+import { AdminTenantForms } from './AdminTenantForms';
 import {
   createAdminTenancy,
   createAdminTenantInspection,
@@ -27,7 +29,7 @@ import {
   uploadAdminTenantDocument,
 } from '../../services/api';
 
-type Section = 'requests' | 'onboarding' | 'documents' | 'inspections';
+type Section = 'forms' | 'requests' | 'onboarding' | 'documents' | 'inspections';
 
 const STATUS_OPTIONS: TenantRequestStatus[] = [
   'submitted',
@@ -236,6 +238,7 @@ export const AdminTenantPortal: React.FC = () => {
 
       <div className="flex gap-2 overflow-x-auto">
         {([
+          ['forms', 'Statutory Forms', FileText],
           ['requests', 'Requests', Wrench],
           ['onboarding', 'Onboarding', Users],
           ['documents', 'Documents', FileUp],
@@ -267,6 +270,8 @@ export const AdminTenantPortal: React.FC = () => {
           {message}
         </div>
       )}
+
+      {section === 'forms' && <AdminTenantForms />}
 
       {section === 'requests' && (
         <div className="space-y-3">
