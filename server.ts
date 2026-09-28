@@ -318,7 +318,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       operations_officer: ['bookings','clients','tenants','operations','documents','tenant_forms'],
       inspector: ['bookings','operations','documents'],
       maintenance_coordinator: ['operations','clients','tenants','documents'],
-      document_administrator: ['documents','clients','operations','tenant_forms'],
+      document_administrator: ['documents','clients','operations'],
       read_only: ['bookings','clients','tenants','operations','documents','audit'],
     };
     const permissions = permissionMap[role] || permissionMap.operations_officer;
@@ -333,6 +333,21 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 function requireAdminPermission(permission: string) {
   return (_req: Request, res: Response, next: NextFunction) => {
+    const permissions = Array.isArray(res.locals.admin?.permissions)
+      ? res.locals.admin.permissions as string[]
+      : [];
+    if (permissions.includes('*') || permissions.includes(permission)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
+  };
+}
+
+function requireAdminWritePermission(permission: string) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    if (res.locals.admin?.role === 'read_only') {
+      return res.status(403).json({ error: 'This staff account has read-only access.' });
+    }
     const permissions = Array.isArray(res.locals.admin?.permissions)
       ? res.locals.admin.permissions as string[]
       : [];
@@ -2503,7 +2518,7 @@ app.get('/api/admin/operations', requireAdmin, requireAdminPermission('operation
   }
 });
 
-app.post('/api/admin/contractors', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
+app.post('/api/admin/contractors', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
   try {
     const name = normalizeText(req.body?.name, 180);
     if (name.length < 2) return res.status(400).json({ error: 'Contractor name is required.' });
@@ -2521,7 +2536,7 @@ app.post('/api/admin/contractors', requireAdmin, requireAdminPermission('operati
   }
 });
 
-app.post('/api/admin/work-orders', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
+app.post('/api/admin/work-orders', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
   try {
     const propertyId = normalizeText(req.body?.propertyId, 128);
     const title = normalizeText(req.body?.title, 180);
@@ -2555,7 +2570,7 @@ app.post('/api/admin/work-orders', requireAdmin, requireAdminPermission('operati
   }
 });
 
-app.patch('/api/admin/work-orders/:id', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
+app.patch('/api/admin/work-orders/:id', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
   try {
     const status = normalizeText(req.body?.status,32) as WorkOrderStatus;
     const workOrder = await updateWorkOrder(req.params.id, {
@@ -2578,7 +2593,7 @@ app.patch('/api/admin/work-orders/:id', requireAdmin, requireAdminPermission('op
   }
 });
 
-app.post('/api/admin/approvals', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
+app.post('/api/admin/approvals', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
   try {
     const clientId = normalizeText(req.body?.clientId,128);
     const title = normalizeText(req.body?.title,180);
@@ -2617,7 +2632,7 @@ app.post('/api/admin/approvals', requireAdmin, requireAdminPermission('operation
   }
 });
 
-app.patch('/api/admin/client-requests/:id', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
+app.patch('/api/admin/client-requests/:id', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
   const status = normalizeText(req.body?.status,32) as ClientRequestStatus;
   const request = await updateClientRequestRecord(req.params.id, {
     status: status && ['submitted','under_review','awaiting_client','approved','in_progress','completed','cancelled'].includes(status) ? status : undefined,
@@ -2627,7 +2642,7 @@ app.patch('/api/admin/client-requests/:id', requireAdmin, requireAdminPermission
   return res.json({ success:true, request });
 });
 
-app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminPermission('documents'), async (req, res) => {
+app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminWritePermission('documents'), async (req, res) => {
   const status = normalizeText(req.body?.status,40) as DocumentRequestStatus;
   const request = await updateDocumentRequest(req.params.id, {
     status: status && ['submitted','under_review','awaiting_information','in_preparation','ready','completed','cancelled'].includes(status) ? status : undefined,
@@ -2639,7 +2654,7 @@ app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminPermissi
   return res.json({ success:true, request });
 });
 
-app.patch('/api/admin/payments/:id', requireAdmin, requireAdminPermission('payments'), async (req, res) => {
+app.patch('/api/admin/payments/:id', requireAdmin, requireAdminWritePermission('payments'), async (req, res) => {
   const status = normalizeText(req.body?.status,32) as PaymentStatus;
   if (!['pending','payment_required','paid','failed','refunded','waived'].includes(status)) {
     return res.status(400).json({ error:'Invalid payment status.' });
@@ -2676,7 +2691,7 @@ app.get('/api/admin/services', requireAdmin, requireAdminPermission('services'),
   }
 });
 
-app.post('/api/admin/services', requireAdmin, requireAdminPermission('services'), async (req, res) => {
+app.post('/api/admin/services', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const existingServices = await listServices(false);
     const nextOrder =
@@ -2709,7 +2724,7 @@ app.post('/api/admin/services', requireAdmin, requireAdminPermission('services')
   }
 });
 
-app.patch('/api/admin/services/:id', requireAdmin, requireAdminPermission('services'), async (req, res) => {
+app.patch('/api/admin/services/:id', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const serviceId = req.params.id;
     const existing = await getService(serviceId);
@@ -2743,7 +2758,7 @@ app.patch('/api/admin/services/:id', requireAdmin, requireAdminPermission('servi
   }
 });
 
-app.post('/api/admin/services/reorder', requireAdmin, requireAdminPermission('services'), async (req, res) => {
+app.post('/api/admin/services/reorder', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const rawServiceIds: unknown = req.body?.serviceIds;
 
@@ -2794,7 +2809,7 @@ app.get('/api/admin/settings', requireAdmin, requireAdminPermission('settings'),
   }
 });
 
-app.patch('/api/admin/bookings/:id', requireAdmin, requireAdminPermission('bookings'), async (req, res) => {
+app.patch('/api/admin/bookings/:id', requireAdmin, requireAdminWritePermission('bookings'), async (req, res) => {
   try {
     const booking = await getBooking(req.params.id);
     if (!booking) {
@@ -2847,7 +2862,7 @@ app.get('/api/admin/tenant-portal', requireAdmin, requireAdminPermission('tenant
   }
 });
 
-app.post('/api/admin/clients', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
+app.post('/api/admin/clients', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
   try {
     const name = normalizeText(req.body?.name, 180);
     const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
@@ -2871,7 +2886,7 @@ app.post('/api/admin/clients', requireAdmin, requireAdminPermission('clients'), 
   }
 });
 
-app.post('/api/admin/client-users', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
+app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
   try {
     const email = normalizeText(req.body?.email, 254).toLowerCase();
     const displayName = normalizeText(req.body?.displayName, 160);
@@ -2912,7 +2927,7 @@ app.post('/api/admin/client-users', requireAdmin, requireAdminPermission('client
   }
 });
 
-app.post('/api/admin/client-property-links', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
+app.post('/api/admin/client-property-links', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
   try {
     const clientId = normalizeText(req.body?.clientId, 128);
     const propertyId = normalizeText(req.body?.propertyId, 128);
@@ -2969,7 +2984,7 @@ app.get(
   }
 );
 
-app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminPermission('tenant_forms'), async (req, res) => {
+app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminWritePermission('tenant_forms'), async (req, res) => {
   try {
     const rawStatus = normalizeText(req.body?.status, 64);
     const allowedStatuses = new Set<TenantFormStatus>([
@@ -3027,7 +3042,7 @@ app.get(
 app.patch(
   '/api/admin/sensitive-tenant-forms/:id',
   requireAdmin,
-  requireAdminPermission('sensitive_tenancy'),
+  requireAdminWritePermission('sensitive_tenancy'),
   async (req, res) => {
     try {
       const rawStatus = normalizeText(req.body?.status, 64);
@@ -3077,7 +3092,7 @@ app.get(
   }
 );
 
-app.post('/api/admin/tenant-properties', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.post('/api/admin/tenant-properties', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const streetAddress = normalizeText(req.body?.streetAddress, 160);
     const suburb = normalizeText(req.body?.suburb, 100);
@@ -3113,7 +3128,7 @@ app.post('/api/admin/tenant-properties', requireAdmin, requireAdminPermission('t
   }
 });
 
-app.post('/api/admin/tenancies', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.post('/api/admin/tenancies', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const propertyId = normalizeText(req.body?.propertyId, 128);
     const startDate = normalizeText(req.body?.startDate, 20);
@@ -3163,7 +3178,7 @@ app.post('/api/admin/tenancies', requireAdmin, requireAdminPermission('tenants')
   }
 });
 
-app.post('/api/admin/tenant-users', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.post('/api/admin/tenant-users', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const email = normalizeText(req.body?.email, 254).toLowerCase();
     const displayName = normalizeText(req.body?.displayName, 160);
@@ -3204,7 +3219,7 @@ app.post('/api/admin/tenant-users', requireAdmin, requireAdminPermission('tenant
   }
 });
 
-app.patch('/api/admin/tenancies/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.patch('/api/admin/tenancies/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const rawStatus = normalizeText(req.body?.status, 20);
     const status = rawStatus
@@ -3239,7 +3254,7 @@ app.patch('/api/admin/tenancies/:id', requireAdmin, requireAdminPermission('tena
   }
 });
 
-app.patch('/api/admin/tenant-users/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.patch('/api/admin/tenant-users/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const tenancyIds = req.body?.tenancyIds === undefined
       ? undefined
@@ -3278,7 +3293,7 @@ app.patch('/api/admin/tenant-users/:id', requireAdmin, requireAdminPermission('t
   }
 });
 
-app.patch('/api/admin/tenant-requests/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.patch('/api/admin/tenant-requests/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const rawStatus = normalizeText(req.body?.status, 40);
     const status = rawStatus ? (rawStatus as TenantRequestStatus) : undefined;
@@ -3319,7 +3334,7 @@ app.patch('/api/admin/tenant-requests/:id', requireAdmin, requireAdminPermission
 app.post(
   '/api/admin/property-documents/:propertyId',
   requireAdmin,
-  requireAdminPermission('documents'),
+  requireAdminWritePermission('documents'),
   tenantFileBody,
   async (req, res) => {
     let savedPath: string | null = null;
@@ -3402,7 +3417,7 @@ app.post(
 app.post(
   '/api/admin/tenant-documents/:tenancyId',
   requireAdmin,
-  requireAdminPermission('documents'),
+  requireAdminWritePermission('documents'),
   tenantFileBody,
   async (req, res) => {
     let savedPath: string | null = null;
@@ -3462,7 +3477,7 @@ app.post(
   }
 );
 
-app.post('/api/admin/tenant-inspections', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
+app.post('/api/admin/tenant-inspections', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
   try {
     const tenancyId = normalizeText(req.body?.tenancyId, 128);
     const propertyId = normalizeText(req.body?.propertyId, 128);
