@@ -1299,7 +1299,7 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
                     .filter((field) =>
                       isWorkflowFieldVisible(field, answers)
                     )
-                    .map((field) => [
+                    .map((field): [string, string] => [
                       field.label,
                       formatWorkflowAnswer(
                         field,
