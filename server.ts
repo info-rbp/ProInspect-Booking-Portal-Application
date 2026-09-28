@@ -2185,7 +2185,8 @@ app.post(
         sizeBytes: stored.sizeBytes,
       });
 
-      return res.status(201).json({ success: true, document });
+      const { storagePath: _storagePath, ...clientDocument } = document;
+      return res.status(201).json({ success: true, document: clientDocument });
     } catch (error) {
       console.error('Client file upload failed:', error);
       return res.status(500).json({ error: 'Unable to upload this file.' });
@@ -2210,6 +2211,16 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, r
       return res.status(404).json({ error: 'Document request not found.' });
     }
 
+    const existingDetails = existingRequest.details || {};
+    const documentType = String(
+      existingDetails.documentType || 'Other'
+    ) as ClientDocumentRequestInput['documentType'];
+    if (!CLIENT_DOCUMENT_TYPES.has(documentType)) {
+      return res.status(400).json({
+        error: 'This request does not contain a supported document type.',
+      });
+    }
+
     const request = await claimClientDocumentDraftGeneration({
       context,
       requestId: req.params.id,
@@ -2217,11 +2228,6 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, r
     generationClaimed = true;
 
     const details = request.details || {};
-    const documentType = String(details.documentType || 'Other') as ClientDocumentRequestInput['documentType'];
-    if (!CLIENT_DOCUMENT_TYPES.has(documentType)) {
-      return res.status(400).json({ error: 'This request does not contain a supported document type.' });
-    }
-
     const input: ClientDocumentRequestInput = {
       propertyId: request.propertyId,
       documentType,
@@ -2291,7 +2297,12 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, r
       },
     });
 
-    return res.status(201).json({ success: true, document, approval });
+    const { storagePath: _storagePath, ...clientDocument } = document;
+    return res.status(201).json({
+      success: true,
+      document: clientDocument,
+      approval,
+    });
   } catch (error) {
     if (generationClaimed) {
       await releaseClientDocumentDraftGeneration({
