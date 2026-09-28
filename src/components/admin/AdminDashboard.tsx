@@ -8,6 +8,7 @@ import {
   reorderAdminServices,
   updateAdminBooking,
   updateAdminService,
+  verifyAdminSession,
 } from '../../services/api';
 import { logoutAdmin } from '../../services/firebase';
 import { AdminWorkOrderDetail } from './AdminWorkOrderDetail';
@@ -58,6 +59,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [services, setServices] = useState<InspectionService[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters & Search
@@ -81,23 +83,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
+      const session = await verifyAdminSession();
+      setPermissions(session.permissions);
+      const can = (permission: string) =>
+        session.permissions.includes('*') || session.permissions.includes(permission);
+
       const [bkList, srvList, stData] = await Promise.all([
-        fetchAdminBookings(),
-        fetchAdminServices(),
-        fetchAdminSettings(),
+        can('bookings') ? fetchAdminBookings() : Promise.resolve([] as BookingRecord[]),
+        can('services') ? fetchAdminServices() : Promise.resolve([] as InspectionService[]),
+        can('settings') ? fetchAdminSettings() : Promise.resolve(null),
       ]);
+
       setBookings(bkList);
       setServices(srvList);
       onServicesChanged?.(
         srvList.filter((service) => service.active && service.publiclyBookable)
       );
       setSettings(stData);
+
+      const allowedTabs: Array<typeof activeTab> = [
+        ...(can('bookings') ? ['bookings' as const] : []),
+        ...(can('operations') ? ['operations' as const] : []),
+        ...(can('tenants') ? ['tenants' as const] : []),
+        ...(can('clients') ? ['clients' as const] : []),
+        ...(can('services') ? ['services' as const] : []),
+        ...(can('settings') ? ['settings' as const] : []),
+      ];
+      if (!allowedTabs.includes(activeTab) && allowedTabs[0]) {
+        setActiveTab(allowedTabs[0]);
+      }
     } catch (err) {
       console.error('Failed to load admin data:', err);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const canAccess = (permission: string) =>
+    permissions.includes('*') || permissions.includes(permission);
 
   const handleUpdateBookingStatus = async (id: string, status: BookingStatus, notes?: string) => {
     const updated = await updateAdminBooking(id, { status, adminNotes: notes });
@@ -264,6 +287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Admin Nav Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-1">
+        {canAccess('bookings') && (
         <button
           onClick={() => setActiveTab('bookings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -275,7 +299,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <Calendar className="w-4 h-4" />
           <span>Work Orders &amp; Bookings ({bookings.length})</span>
         </button>
+        )}
 
+        {canAccess('services') && (
         <button
           onClick={() => setActiveTab('services')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -287,7 +313,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <Layers className="w-4 h-4" />
           <span>Booking Services ({services.length})</span>
         </button>
+        )}
 
+        {canAccess('tenants') && (
         <button
           onClick={() => setActiveTab('tenants')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -299,7 +327,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <Building className="w-4 h-4" />
           <span>Tenant Portal</span>
         </button>
+        )}
 
+        {canAccess('operations') && (
         <button
           onClick={() => setActiveTab('operations')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -311,7 +341,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <Layers className="w-4 h-4" />
           <span>Operations</span>
         </button>
+        )}
 
+        {canAccess('clients') && (
         <button
           onClick={() => setActiveTab('clients')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -323,7 +355,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <ShieldCheck className="w-4 h-4" />
           <span>Clients &amp; Properties</span>
         </button>
+        )}
 
+        {canAccess('settings') && (
         <button
           onClick={() => setActiveTab('settings')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
@@ -335,10 +369,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <Settings className="w-4 h-4" />
           <span>Calendar &amp; Hours</span>
         </button>
+        )}
       </div>
 
       {/* TAB 1: WORK ORDERS & BOOKINGS */}
-      {activeTab === 'bookings' && (
+      {canAccess('bookings') && activeTab === 'bookings' && (
         <div className="space-y-6">
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -543,7 +578,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 2: BOOKING SERVICES */}
-      {activeTab === 'services' && (
+      {canAccess('services') && activeTab === 'services' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -749,16 +784,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* TAB 3: TENANT PORTAL */}
-      {activeTab === 'tenants' && <AdminTenantPortal />}
+      {canAccess('tenants') && activeTab === 'tenants' && <AdminTenantPortal />}
 
       {/* TAB 4: OPERATIONS */}
-      {activeTab === 'operations' && <AdminOperations />}
+      {canAccess('operations') && activeTab === 'operations' && <AdminOperations />}
 
       {/* TAB 5: CLIENTS & PROPERTIES */}
-      {activeTab === 'clients' && <AdminClientArchitecture />}
+      {canAccess('clients') && activeTab === 'clients' && <AdminClientArchitecture />}
 
       {/* TAB 5: CALENDAR & SETTINGS */}
-      {activeTab === 'settings' && (
+      {canAccess('settings') && activeTab === 'settings' && (
         <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
             <h3 className="font-bold text-base text-[#1A2B4A]">
