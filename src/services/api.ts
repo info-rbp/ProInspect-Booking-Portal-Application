@@ -910,3 +910,45 @@ export async function updateAdminPayment(id: string, status: PaymentRecord['stat
   if (!res.ok || !data.payment) throw new Error(data.error || 'Unable to update payment.');
   return data.payment;
 }
+
+
+export async function createClientPropertySelf(input: {
+  clientId: string;
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  propertyType?: string;
+  clientReference?: string;
+}): Promise<TenantProperty> {
+  const res = await clientFetch('/api/client/properties', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { property?: TenantProperty; error?: string };
+  if (!res.ok || !data.property) throw new Error(data.error || 'Unable to add property.');
+  return data.property;
+}
+
+export async function createClientTeamUser(input: {
+  clientId: string;
+  displayName: string;
+  email: string;
+  phone?: string;
+  role: 'admin' | 'member' | 'viewer';
+}): Promise<{ clientUser: ClientUserRecord; portalUrl: string }> {
+  const res = await clientFetch('/api/client/team-users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as {
+    clientUser?: ClientUserRecord;
+    portalUrl?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.clientUser) throw new Error(data.error || 'Unable to add portal user.');
+  return { clientUser: data.clientUser, portalUrl: data.portalUrl || '/client' };
+}
