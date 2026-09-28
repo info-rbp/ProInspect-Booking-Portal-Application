@@ -11,6 +11,26 @@ permissions:
   contents: read
 
 jobs:
+  source-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Retain tracked public source and ancestry only
+        run: |
+          git bundle create /tmp/release-source.bundle HEAD
+          git rev-parse HEAD > /tmp/release-source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-source-provenance
+          path: |
+            /tmp/release-source.bundle
+            /tmp/release-source-sha.txt
+          retention-days: 14
+          if-no-files-found: error
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
