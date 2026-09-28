@@ -36,11 +36,22 @@ Configure these on the Cloud Run service:
 ```text
 FIREBASE_PROJECT_ID=business-plan-applicatio-17047
 FIRESTORE_DATABASE_ID=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a
+FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047.firebasestorage.app
 ADMIN_EMAILS=info@proinspect.systems,info@remotebusinesspartner.com.au
 GOOGLE_CALENDAR_ID=c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com
 ```
 
 Cloud Run provides `PORT`; the Docker image defaults to 8080 and the server reads the runtime `PORT` value.
+
+### Client Portal storage permissions
+
+The Client Portal stores uploaded supporting files and generated draft documents in the Firebase Storage bucket while retaining only metadata in Firestore.
+
+The Cloud Run runtime service account must have object read/write access to the configured bucket. Grant an appropriate bucket-level Storage role such as **Storage Object Admin** to:
+
+`proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com`
+
+The application keeps browser Firestore access closed and proxies authenticated file upload/download through the Express server. Client files are limited to 10 MB each and constrained to the file types enforced in `src/server/clientFiles.ts`.
 
 ## Continuous deployment
 
@@ -78,6 +89,10 @@ After Cloud Run creates the service, test the generated `run.app` URL before con
 7. Create one controlled test booking.
 8. Confirm the corresponding Google Calendar event is created.
 9. Cancel the test booking and confirm the Calendar event is removed.
+10. Sign in through `/signin` with a controlled client account.
+11. Complete client onboarding and add a controlled property.
+12. Upload a small PDF/image through a client request and confirm it can be downloaded again.
+13. Submit a document request, generate a draft and confirm the approval appears in the Client Portal and Staff Portal.
 
 Do not change production DNS until these tests pass.
 
