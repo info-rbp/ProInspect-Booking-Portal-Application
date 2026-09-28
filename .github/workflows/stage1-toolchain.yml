@@ -1,0 +1,43 @@
+name: Stage 1 isolated toolchain
+on:
+  push:
+    branches: [Admin-Portal]
+    paths: [.github/workflows/stage1-toolchain.yml]
+permissions:
+  contents: read
+jobs:
+  toolchain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install pinned application dependencies and sandbox-only emulators
+        run: |
+          npm ci
+          npm audit --json > stage1-dependency-audit.json || true
+          mkdir -p /tmp/stage1-tools
+          npm install --prefix /tmp/stage1-tools --ignore-scripts firebase-tools@latest
+          /tmp/stage1-tools/node_modules/.bin/firebase setup:emulators:firestore
+          /tmp/stage1-tools/node_modules/.bin/firebase setup:emulators:storage
+          mkdir -p stage1-toolchain
+          mv node_modules stage1-toolchain/application-node_modules
+          mv /tmp/stage1-tools/node_modules stage1-toolchain/tools-node_modules
+          cp -r "$HOME/.cache/firebase/emulators" stage1-toolchain/emulators
+          cp package-lock.json stage1-dependency-audit.json /tmp/stage1-tools/package-lock.json stage1-toolchain/ 2>/dev/null || true
+          tar -czf stage1-toolchain.tar.gz stage1-toolchain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage1-isolated-toolchain
+          path: stage1-toolchain.tar.gz
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
