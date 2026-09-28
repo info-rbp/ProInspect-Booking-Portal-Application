@@ -139,3 +139,76 @@ export async function deleteTenantFile(storagePath: string): Promise<void> {
   const bucket = requireBucket();
   await bucket.file(storagePath).delete({ ignoreNotFound: true });
 }
+
+
+export async function saveTenantFormAttachment(params: {
+  requestId: string;
+  fileName: string;
+  contentType: string;
+  bytes: Buffer;
+}) {
+  const bucket = requireBucket();
+  const contentType = validateTenantFile({
+    contentType: params.contentType,
+    size: params.bytes.length,
+  });
+  const objectName = uniqueObjectName(params.fileName);
+  const storagePath = `tenant-portal/forms/${params.requestId}/${objectName}`;
+  const file = bucket.file(storagePath);
+
+  await file.save(params.bytes, {
+    resumable: false,
+    contentType,
+    metadata: {
+      cacheControl: 'private, max-age=0, no-store',
+      metadata: {
+        requestId: params.requestId,
+        originalFileName: params.fileName,
+        portalScope: 'tenant-form',
+      },
+    },
+  });
+
+  return {
+    storagePath,
+    fileName: safeFileName(params.fileName),
+    contentType,
+    size: params.bytes.length,
+  };
+}
+
+export async function saveSensitiveTenantEvidence(params: {
+  requestId: string;
+  fileName: string;
+  contentType: string;
+  bytes: Buffer;
+}) {
+  const bucket = requireBucket();
+  const contentType = validateTenantFile({
+    contentType: params.contentType,
+    size: params.bytes.length,
+  });
+  const objectName = uniqueObjectName(params.fileName);
+  const storagePath = `tenant-sensitive/forms/${params.requestId}/${objectName}`;
+  const file = bucket.file(storagePath);
+
+  await file.save(params.bytes, {
+    resumable: false,
+    contentType,
+    metadata: {
+      cacheControl: 'private, max-age=0, no-store',
+      metadata: {
+        requestId: params.requestId,
+        originalFileName: params.fileName,
+        portalScope: 'restricted-family-violence',
+      },
+    },
+  });
+
+  return {
+    storagePath,
+    fileName: safeFileName(params.fileName),
+    contentType,
+    size: params.bytes.length,
+  };
+}
