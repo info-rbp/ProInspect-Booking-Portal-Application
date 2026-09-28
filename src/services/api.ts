@@ -25,6 +25,8 @@ import type {
 import type {
   DocumentProduct,
   DocumentRequestDetails,
+  DocumentRequestRecord,
+  DocumentWorkflowData,
   PublicDocumentRequestSummary,
 } from '../types/documentRequest';
 import { getAdminIdToken, getAuthIdToken } from './firebase';
@@ -43,6 +45,7 @@ type BookingCreateResponse = {
   message?: string;
 } & ApiErrorResponse;
 type AdminBookingsResponse = { bookings: BookingRecord[] };
+type AdminDocumentRequestsResponse = { requests: DocumentRequestRecord[] };
 type AdminClientRequestsResponse = { requests: ClientRequestSummary[] };
 type AdminClientApprovalsResponse = { approvals: ClientApproval[] };
 type AdminClientDocumentsResponse = { documents: ClientDocumentSummary[] };
@@ -167,6 +170,7 @@ export async function submitDocumentRequest(payload: {
   documentId: string;
   documentCategory: ServiceCategory;
   details: DocumentRequestDetails;
+  workflow: DocumentWorkflowData;
 }): Promise<{
   success: boolean;
   request: PublicDocumentRequestSummary;
@@ -451,6 +455,13 @@ export async function fetchAdminBookings(): Promise<BookingRecord[]> {
   if (!res.ok) throw new Error('Failed to load bookings.');
   const data = (await res.json()) as AdminBookingsResponse;
   return data.bookings;
+}
+
+export async function fetchAdminDocumentRequests(): Promise<DocumentRequestRecord[]> {
+  const res = await adminFetch('/api/admin/document-requests');
+  if (!res.ok) throw new Error('Failed to load document requests.');
+  const data = (await res.json()) as AdminDocumentRequestsResponse;
+  return data.requests;
 }
 
 export async function fetchAdminClientRequests(): Promise<ClientRequestSummary[]> {
