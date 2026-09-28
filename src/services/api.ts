@@ -350,6 +350,8 @@ export async function createAdminStaff(input: {
   displayName: string;
   role: AdminRole;
   assignedServiceIds?: string[];
+  assignedPropertyIds?: string[];
+  assignedClientIds?: string[];
 }): Promise<AdminStaffUser> {
   const res = await adminFetch('/api/admin/staff', {
     method: 'POST',
@@ -363,7 +365,7 @@ export async function createAdminStaff(input: {
 
 export async function updateAdminStaff(
   uid: string,
-  updates: Partial<Pick<AdminStaffUser, 'displayName' | 'role' | 'active' | 'assignedServiceIds' | 'permissionGrants' | 'permissionRevokes'>>
+  updates: Partial<Pick<AdminStaffUser, 'displayName' | 'role' | 'active' | 'assignedServiceIds' | 'assignedPropertyIds' | 'assignedClientIds' | 'resourceScope' | 'permissionGrants' | 'permissionRevokes'>>
 ): Promise<AdminStaffUser> {
   const res = await adminFetch(`/api/admin/staff/${encodeURIComponent(uid)}`, {
     method: 'PATCH',
