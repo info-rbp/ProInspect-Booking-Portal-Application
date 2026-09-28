@@ -386,7 +386,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {[
                     ['/book', CalendarDays, 'Book a Service', 'Use the current ProInspect scheduling workflow.'],
-                    ['/portal/requests/document', FileText, 'Request a Document', 'Submit detailed instructions, files and generate a working draft.'],
+                    ['/portal/requests/document', FileText, 'Request a Document', 'Submit detailed instructions, files and prepare a review summary.'],
                     ['/portal/requests/maintenance', Wrench, 'Maintenance Request', 'Create a trackable property maintenance request.'],
                     ['/portal/properties', Home, 'Manage Properties', 'Add and review saved client properties.'],
                   ].map(([path, Icon, title, copy]) => {
@@ -538,7 +538,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                       <div className="mt-1 text-xs text-slate-500">{formatDate(request.createdAt)}</div>
                     </div>
                     {request.type === 'document' && !request.generatedDocumentId && data.membership.role !== 'viewer' && (
-                      <button type="button" disabled={actionId === request.id} onClick={() => generateDraft(request.id)} className="text-xs font-bold text-[#006D70]">{actionId === request.id ? 'Generating…' : 'Generate Draft'}</button>
+                      <button type="button" disabled={actionId === request.id} onClick={() => generateDraft(request.id)} className="text-xs font-bold text-[#006D70]">{actionId === request.id ? 'Generating…' : 'Generate Preparation Summary'}</button>
                     )}
                   </div>
                 </div>
