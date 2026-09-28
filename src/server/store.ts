@@ -1,6 +1,10 @@
 import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
 import type { DocumentProduct, DocumentRequestRecord } from '../types/documentRequest.js';
+import {
+  decryptDocumentRequestSecrets,
+  type EncryptedDocumentRequestSecrets,
+} from './documentRequestSecrets.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { DEFAULT_DOCUMENT_PRODUCTS } from '../documents/defaultDocumentProducts.js';
 import { adminDb } from './firebaseAdmin.js';
@@ -300,9 +304,21 @@ export async function documentRequestReferenceExists(
 }
 
 export async function saveDocumentRequest(
-  request: DocumentRequestRecord
+  request: DocumentRequestRecord,
+  encryptedSecrets?: EncryptedDocumentRequestSecrets
 ): Promise<DocumentRequestRecord> {
-  await adminDb.collection('documentRequests').doc(request.id).set(request);
+  const requestRef = adminDb.collection('documentRequests').doc(request.id);
+  const batch = adminDb.batch();
+  batch.set(requestRef, request);
+
+  if (encryptedSecrets) {
+    batch.set(
+      adminDb.collection('documentRequestSecrets').doc(request.id),
+      encryptedSecrets
+    );
+  }
+
+  await batch.commit();
   return request;
 }
 
@@ -317,6 +333,44 @@ export async function listDocumentRequests(): Promise<DocumentRequestRecord[]> {
     ...(doc.data() as DocumentRequestRecord),
     id: doc.id,
   }));
+}
+
+export async function listDocumentRequestsWithSecrets(): Promise<DocumentRequestRecord[]> {
+  const requests = await listDocumentRequests();
+  if (requests.length === 0) return requests;
+
+  const secretRefs = requests.map((request) =>
+    adminDb.collection('documentRequestSecrets').doc(request.id)
+  );
+  const secretDocs = await adminDb.getAll(...secretRefs);
+
+  return requests.map((request, index) => {
+    const secretDoc = secretDocs[index];
+    if (!secretDoc?.exists) return request;
+
+    try {
+      const secrets = decryptDocumentRequestSecrets(
+        request.id,
+        secretDoc.data() as EncryptedDocumentRequestSecrets
+      );
+      return {
+        ...request,
+        workflow: {
+          ...request.workflow,
+          answers: {
+            ...request.workflow.answers,
+            ...secrets,
+          },
+        },
+      };
+    } catch (error) {
+      console.error(
+        `Failed to decrypt sensitive document-request details for ${request.id}:`,
+        error
+      );
+      return request;
+    }
+  });
 }
 
 export async function getSettings(): Promise<BusinessSettings> {
