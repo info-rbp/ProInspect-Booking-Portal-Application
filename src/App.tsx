@@ -391,7 +391,7 @@ export default function App() {
         ) : publicRoute === 'hub' ? (
           <ClientHub onNavigate={navigatePublic} />
         ) : publicRoute === 'request-document' ? (
-          <DocumentRequestFlow onBack={() => navigatePublic('/')} />
+          <DocumentRequestFlow onBackToHub={() => navigatePublic('/')} />
         ) : publicRoute === 'client' ? (
           authUser ? (
             <ClientPortal
