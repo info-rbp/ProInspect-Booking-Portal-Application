@@ -83,6 +83,7 @@ import {
   saveDocumentRequest,
   ScheduleLockConflictError,
   updateBooking,
+  updateDocumentRequestStatusForAdmin,
   updateService,
 } from './src/server/store.js';
 import {
@@ -2890,6 +2891,28 @@ app.get('/api/admin/document-requests', requireAdmin, async (_req, res) => {
     return res.status(500).json({
       error: 'Unable to load document requests.',
     });
+  }
+});
+
+app.patch('/api/admin/document-requests/:id', requireAdmin, async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status, 40);
+    if (!['submitted', 'in_review', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid document request status.' });
+    }
+
+    const request = await updateDocumentRequestStatusForAdmin({
+      requestId: req.params.id,
+      status: status as 'submitted' | 'in_review' | 'completed' | 'cancelled',
+    });
+    if (!request) {
+      return res.status(404).json({ error: 'Document request not found.' });
+    }
+
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin document request update failed:', error);
+    return res.status(500).json({ error: 'Unable to update document request.' });
   }
 });
 
