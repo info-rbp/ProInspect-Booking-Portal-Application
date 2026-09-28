@@ -15,6 +15,17 @@ import type {
   ServiceCategory,
 } from './src/types/booking.js';
 import type {
+  DocumentParty,
+  DocumentRequesterRole,
+  DocumentRequestDetails,
+  DocumentRequestRecord,
+  DocumentWorkflowAnswer,
+  DocumentWorkflowData,
+  DocumentWorkflowDefinition,
+  DocumentWorkflowField,
+  PublicDocumentRequestSummary,
+} from './src/types/documentRequest.js';
+import type {
   ClientPropertyRole,
   ClientType,
   ClientUserRecord,
@@ -109,7 +120,23 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendDocumentRequestEmails,
 } from './src/server/email.js';
+import {
+  isValidAustralianPhone,
+  isWAPostcode,
+} from './src/utils/australianValidation.js';
+import {
+  getDocumentWorkflowDefinition,
+  isWorkflowAnswerPresent,
+  isWorkflowFieldVisible,
+  sensitiveWorkflowFieldIds,
+  validateDocumentWorkflowRules,
+} from './src/documents/documentWorkflowDefinitions.js';
+import {
+  documentRequestEncryptionIsConfigured,
+  encryptDocumentRequestSecrets,
+} from './src/server/documentRequestSecrets.js';
 import {
   addTenantRequestAttachment,
   createClient,
@@ -270,6 +297,12 @@ const manageRateLimit = rateLimit({
   windowMs: 15 * 60_000,
   max: 30,
   prefix: 'manage',
+});
+
+const documentRequestRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  prefix: 'document-request',
 });
 
 const tenantRateLimit = rateLimit({
@@ -892,6 +925,447 @@ async function generateBookingReference(start: Date): Promise<string> {
   return `PI-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
+function sanitizeDocumentRequestDetails(
+  input: unknown
+): { details?: DocumentRequestDetails; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Document request details are required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const streetAddress = normalizeText(value.streetAddress, 160);
+  const unit = normalizeText(value.unit, 50);
+  const suburb = normalizeText(value.suburb, 100);
+  const state = normalizeText(value.state, 3).toUpperCase();
+  const postcode = normalizeText(value.postcode, 4);
+  const customerName = normalizeText(value.customerName, 120);
+  const customerEmail = normalizeText(value.customerEmail, 160).toLowerCase();
+  const customerPhone = normalizeText(value.customerPhone, 40);
+  const clientName = normalizeText(value.clientName, 160);
+  const clientReference = normalizeText(value.clientReference, 100);
+  const notes = normalizeText(value.notes, 3000);
+
+  if (!streetAddress || !suburb) {
+    return { error: 'A property street address and suburb are required.' };
+  }
+
+  if (state !== 'WA') {
+    return {
+      error:
+        'The current Residential document workflows are for Western Australian properties.',
+    };
+  }
+
+  if (!isWAPostcode(postcode)) {
+    return { error: 'Enter a valid Western Australian postcode.' };
+  }
+
+  if (!customerName) {
+    return { error: 'A request contact name is required.' };
+  }
+
+  if (!isValidEmail(customerEmail)) {
+    return { error: 'Enter a valid request contact email address.' };
+  }
+
+  if (!isValidAustralianPhone(customerPhone)) {
+    return { error: 'Enter a valid Australian contact phone number.' };
+  }
+
+  return {
+    details: {
+      streetAddress,
+      ...(unit ? { unit } : {}),
+      suburb,
+      state,
+      postcode,
+      customerName,
+      customerEmail,
+      customerPhone,
+      ...(clientName ? { clientName } : {}),
+      ...(clientReference ? { clientReference } : {}),
+      ...(notes ? { notes } : {}),
+    },
+  };
+}
+
+const DOCUMENT_REQUESTER_ROLES = new Set<DocumentRequesterRole>([
+  'lessor',
+  'property-manager',
+  'tenant',
+  'other',
+]);
+
+function sanitizeDocumentParty(input: unknown): DocumentParty | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = input as Record<string, unknown>;
+  const id = normalizeText(value.id, 80) || randomBytes(8).toString('hex');
+  const name = normalizeText(value.name, 180);
+  const address = normalizeText(value.address, 300);
+  const postcode = normalizeText(value.postcode, 4);
+  const email = normalizeText(value.email, 180).toLowerCase();
+  const phone = normalizeText(value.phone, 50);
+
+  if (!name) return null;
+  if (email && !isValidEmail(email)) return null;
+  if (phone && !isValidAustralianPhone(phone)) return null;
+  if (postcode && !isWAPostcode(postcode)) return null;
+
+  return {
+    id,
+    name,
+    ...(address ? { address } : {}),
+    ...(postcode ? { postcode } : {}),
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
+  };
+}
+
+function sanitizeWorkflowValue(
+  input: unknown,
+  depth = 0
+): DocumentWorkflowAnswer | undefined {
+  if (depth > 4) return undefined;
+
+  if (typeof input === 'string') {
+    return input.trim().slice(0, 5000);
+  }
+
+  if (typeof input === 'boolean') return input;
+
+  if (typeof input === 'number') {
+    return Number.isFinite(input) ? input : undefined;
+  }
+
+  if (input === null) return null;
+
+  if (Array.isArray(input)) {
+    const array = input
+      .slice(0, 30)
+      .map((item) => sanitizeWorkflowValue(item, depth + 1))
+      .filter((item) => item !== undefined);
+
+    if (array.every((item) => typeof item === 'string')) {
+      return array as string[];
+    }
+
+    return array
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === 'object' && !Array.isArray(item))
+      )
+      .slice(0, 20);
+  }
+
+  if (typeof input === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, rawValue] of Object.entries(
+      input as Record<string, unknown>
+    ).slice(0, 60)) {
+      const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+      if (!safeKey) continue;
+      const sanitized = sanitizeWorkflowValue(rawValue, depth + 1);
+      if (sanitized !== undefined) output[safeKey] = sanitized;
+    }
+    return output;
+  }
+
+  return undefined;
+}
+
+function validOptionValue(
+  field: DocumentWorkflowField,
+  value: DocumentWorkflowAnswer | undefined
+): boolean {
+  if (!field.options?.length) return true;
+  const allowed = new Set(field.options.map((option) => option.value));
+
+  if (field.type === 'multiselect') {
+    return (
+      Array.isArray(value) &&
+      value.every((item) => typeof item === 'string' && allowed.has(item))
+    );
+  }
+
+  return typeof value === 'string' && allowed.has(value);
+}
+
+function validatePartyElectronicConsents(
+  value: DocumentWorkflowAnswer | undefined,
+  parties: DocumentParty[]
+): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const map = value as Record<string, unknown>;
+
+  return parties.every((party) => {
+    const entry = map[party.id];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return false;
+    }
+    const data = entry as Record<string, unknown>;
+    const emailConsent = data.email === 'yes' || data.email === 'no';
+    const faxConsent = data.fax === 'yes' || data.fax === 'no';
+
+    if (!emailConsent || !faxConsent) return false;
+    if (data.email === 'yes' && !party.email) return false;
+    if (
+      data.fax === 'yes' &&
+      !normalizeText(data.faxNumber, 50)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function validatePartyPayouts(
+  value: DocumentWorkflowAnswer | undefined,
+  parties: DocumentParty[]
+): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const map = value as Record<string, unknown>;
+
+  return parties.every((party) => {
+    const entry = map[party.id];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return false;
+    }
+
+    const data = entry as Record<string, unknown>;
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount < 0) return false;
+    if (amount === 0) return true;
+
+    return Boolean(
+      normalizeText(data.accountName, 180) &&
+        normalizeText(data.bsb, 20) &&
+        normalizeText(data.accountNumber, 40) &&
+        normalizeText(data.institution, 180)
+    );
+  });
+}
+
+function validateWorkflowField(
+  field: DocumentWorkflowField,
+  value: DocumentWorkflowAnswer | undefined,
+  workflow: DocumentWorkflowData
+): string | null {
+  if (field.required && !isWorkflowAnswerPresent(field, value)) {
+    return `${field.label} is required.`;
+  }
+
+  if (value === undefined || value === null || value === '') return null;
+
+  if (
+    (field.type === 'select' ||
+      field.type === 'radio' ||
+      field.type === 'multiselect') &&
+    !validOptionValue(field, value)
+  ) {
+    return `${field.label} contains an invalid selection.`;
+  }
+
+  if (field.type === 'date') {
+    if (typeof value !== 'string' || !isValidDateKey(value)) {
+      return `${field.label} must be a valid date.`;
+    }
+  }
+
+  if (
+    field.type === 'email' &&
+    (typeof value !== 'string' || !isValidEmail(value))
+  ) {
+    return `${field.label} must be a valid email address.`;
+  }
+
+  if (
+    field.type === 'phone' &&
+    (typeof value !== 'string' || !isValidAustralianPhone(value))
+  ) {
+    return `${field.label} must be a valid Australian phone number.`;
+  }
+
+  if (field.type === 'number' || field.type === 'currency') {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return `${field.label} must be a valid number.`;
+    }
+    if (field.min !== undefined && parsed < field.min) {
+      return `${field.label} is below the permitted minimum.`;
+    }
+    if (field.max !== undefined && parsed > field.max) {
+      return `${field.label} exceeds the permitted maximum.`;
+    }
+  }
+
+  if (field.type === 'tenant-select') {
+    if (
+      typeof value !== 'string' ||
+      !workflow.tenants.some((tenant) => tenant.id === value)
+    ) {
+      return `${field.label} must identify a tenant named in this request.`;
+    }
+  }
+
+  if (field.type === 'party-electronic-consents') {
+    if (
+      !validatePartyElectronicConsents(value, [
+        ...workflow.lessors,
+        ...workflow.tenants,
+      ])
+    ) {
+      return 'Select email and fax notice preferences for each named party.';
+    }
+  }
+
+  if (field.type === 'party-payouts') {
+    if (
+      !validatePartyPayouts(value, [
+        ...workflow.tenants,
+        ...workflow.lessors,
+      ])
+    ) {
+      return 'Complete the proposed bond payment amount for every named party and bank details for each party receiving money.';
+    }
+  }
+
+  return null;
+}
+
+function sanitizeDocumentWorkflow(
+  input: unknown,
+  definition: DocumentWorkflowDefinition
+): {
+  workflow?: DocumentWorkflowData;
+  sensitiveAnswers?: Record<string, DocumentWorkflowAnswer>;
+  error?: string;
+} {
+  if (!input || typeof input !== 'object') {
+    return { error: 'The document-specific workflow is required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const version = Number(value.version);
+  const requesterRole = normalizeText(value.requesterRole, 40) as DocumentRequesterRole;
+
+  if (version !== 1) {
+    return { error: 'Unsupported document workflow version.' };
+  }
+
+  if (!DOCUMENT_REQUESTER_ROLES.has(requesterRole)) {
+    return { error: 'Select a valid requester role.' };
+  }
+
+  if (
+    definition.allowedRequesterRoles &&
+    !definition.allowedRequesterRoles.includes(requesterRole)
+  ) {
+    return {
+      error:
+        'The selected document is not designed for the requester role provided.',
+    };
+  }
+
+  const lessors = Array.isArray(value.lessors)
+    ? value.lessors
+        .slice(0, 10)
+        .map(sanitizeDocumentParty)
+        .filter((party): party is DocumentParty => Boolean(party))
+    : [];
+  const tenants = Array.isArray(value.tenants)
+    ? value.tenants
+        .slice(0, 10)
+        .map(sanitizeDocumentParty)
+        .filter((party): party is DocumentParty => Boolean(party))
+    : [];
+
+  if (lessors.length < (definition.minimumLessors || 0)) {
+    return { error: 'Enter the required landlord / lessor details.' };
+  }
+  if (tenants.length < (definition.minimumTenants || 0)) {
+    return { error: 'Enter the required tenant details.' };
+  }
+
+  const rawAnswers =
+    value.answers && typeof value.answers === 'object' && !Array.isArray(value.answers)
+      ? (value.answers as Record<string, unknown>)
+      : {};
+
+  const permittedFields = definition.sections.flatMap((section) => section.fields);
+  const answers: Record<string, DocumentWorkflowAnswer> = {};
+
+  for (const field of permittedFields) {
+    const sanitized = sanitizeWorkflowValue(rawAnswers[field.id]);
+    if (sanitized !== undefined) answers[field.id] = sanitized;
+  }
+
+  const workflow: DocumentWorkflowData = {
+    version: 1,
+    requesterRole,
+    lessors,
+    tenants,
+    answers,
+  };
+
+  for (const field of permittedFields) {
+    if (!isWorkflowFieldVisible(field, answers)) continue;
+    const validationError = validateWorkflowField(
+      field,
+      answers[field.id],
+      workflow
+    );
+    if (validationError) return { error: validationError };
+  }
+
+  const ruleErrors = validateDocumentWorkflowRules(
+    definition.documentId,
+    answers
+  );
+  if (ruleErrors.length > 0) {
+    return { error: ruleErrors[0].message };
+  }
+
+  const sensitiveIds = sensitiveWorkflowFieldIds(definition);
+  const sensitiveAnswers: Record<string, DocumentWorkflowAnswer> = {};
+
+  for (const fieldId of sensitiveIds) {
+    if (answers[fieldId] !== undefined) {
+      sensitiveAnswers[fieldId] = answers[fieldId];
+      delete answers[fieldId];
+    }
+  }
+
+  return {
+    workflow,
+    ...(Object.keys(sensitiveAnswers).length
+      ? { sensitiveAnswers }
+      : {}),
+  };
+}
+
+function publicDocumentRequestView(
+  request: DocumentRequestRecord
+): PublicDocumentRequestSummary {
+  return {
+    requestReference: request.requestReference,
+    documentName: request.documentName,
+    documentCategory: request.documentCategory,
+    priceExGst: request.priceExGst,
+    status: request.status,
+    details: {
+      streetAddress: request.details.streetAddress,
+      ...(request.details.unit ? { unit: request.details.unit } : {}),
+      suburb: request.details.suburb,
+      state: request.details.state,
+      postcode: request.details.postcode,
+      customerName: request.details.customerName,
+      customerEmail: request.details.customerEmail,
+    },
+  };
+}
+
+
 function serviceCalendarId(service: InspectionService): string {
   return getCalendarId(service.calendarId);
 }
@@ -1417,51 +1891,150 @@ app.get('/api/document-products', async (_req, res) => {
   }
 });
 
-app.post('/api/document-requests', bookingRateLimit, async (req, res) => {
+app.post('/api/document-requests', documentRequestRateLimit, async (req, res) => {
   try {
-    const documentId = normalizeText(req.body?.documentId, 128);
-    const category = normalizeText(req.body?.documentCategory, 40) as ServiceCategory;
-    const details = req.body?.details || {};
-    const product = await getDocumentProduct(documentId);
+    const { documentId, documentCategory, details, workflow } = req.body || {};
 
-    if (!product || !product.active || !product.publiclyRequestable || !product.categories.includes(category)) {
-      return res.status(400).json({ error: 'The selected document is not available.' });
+    if (!documentId || !documentCategory || !details || !workflow) {
+      return res.status(400).json({
+        error: 'Select a document and complete the required document workflow.',
+      });
     }
 
-    const requesterName = normalizeText(details.customerName, 160);
-    const requesterEmail = normalizeText(details.customerEmail, 254).toLowerCase();
-    const requesterPhone = normalizeText(details.customerPhone, 40);
-    const streetAddress = normalizeText(details.streetAddress, 180);
-    const suburb = normalizeText(details.suburb, 100);
-    const state = normalizeText(details.state, 10).toUpperCase();
-    const postcode = normalizeText(details.postcode, 10);
-
-    if (!requesterName || !isValidEmail(requesterEmail) || !requesterPhone || !streetAddress || !suburb || !postcode) {
-      return res.status(400).json({ error: 'Valid contact and property details are required.' });
+    if (!isServiceCategory(documentCategory)) {
+      return res.status(400).json({ error: 'Invalid document category.' });
     }
 
-    const request = await createDocumentRequest({
+    const product = await getDocumentProduct(String(documentId));
+    if (!product || !product.active || !product.publiclyRequestable) {
+      return res.status(400).json({
+        error: 'The selected document is not available for public requests.',
+      });
+    }
+
+    if (!product.categories.includes(documentCategory)) {
+      return res.status(400).json({
+        error: 'The selected document is not available for that property category.',
+      });
+    }
+
+    const definition = getDocumentWorkflowDefinition(product.id);
+    if (!definition) {
+      return res.status(503).json({
+        error: 'The guided workflow for this document is not available. Please contact ProInspect.',
+      });
+    }
+
+    const detailValidation = sanitizeDocumentRequestDetails(details);
+    if (!detailValidation.details) {
+      return res.status(400).json({
+        error:
+          detailValidation.error ||
+          'Valid document request details are required.',
+      });
+    }
+
+    const workflowValidation = sanitizeDocumentWorkflow(workflow, definition);
+    if (!workflowValidation.workflow) {
+      return res.status(400).json({
+        error:
+          workflowValidation.error ||
+          'Complete the required document-specific information.',
+      });
+    }
+
+    const requestId = adminDb.collection('documentRequests').doc().id;
+    let encryptedSecrets;
+
+    if (
+      workflowValidation.sensitiveAnswers &&
+      Object.keys(workflowValidation.sensitiveAnswers).length > 0
+    ) {
+      if (!documentRequestEncryptionIsConfigured()) {
+        return res.status(503).json({
+          error:
+            'Secure storage for sensitive document details is temporarily unavailable. Please try again shortly.',
+        });
+      }
+
+      encryptedSecrets = encryptDocumentRequestSecrets(
+        requestId,
+        workflowValidation.sensitiveAnswers
+      );
+    }
+
+    const canonical = await createDocumentRequest({
+      id: requestId,
       product,
-      category,
+      documentName: product.formCode
+        ? `${product.name} (${product.formCode})`
+        : product.name,
+      category: documentCategory,
       propertyId: normalizeText(details.propertyId, 128) || undefined,
       clientId: normalizeText(details.clientId, 128) || undefined,
       clientUserId: normalizeText(details.clientUserId, 128) || undefined,
-      requesterName,
-      requesterEmail,
-      requesterPhone,
+      requesterName: detailValidation.details.customerName,
+      requesterEmail: detailValidation.details.customerEmail,
+      requesterPhone: detailValidation.details.customerPhone,
       address: {
-        streetAddress,
-        unit: normalizeText(details.unit, 80) || undefined,
-        suburb,
-        state: state || 'WA',
-        postcode,
+        streetAddress: detailValidation.details.streetAddress,
+        unit: detailValidation.details.unit,
+        suburb: detailValidation.details.suburb,
+        state: detailValidation.details.state,
+        postcode: detailValidation.details.postcode,
       },
-      notes: normalizeText(details.notes, 3000) || undefined,
+      notes: detailValidation.details.notes,
+      workflow: workflowValidation.workflow,
     });
-    return res.status(201).json({ success: true, request });
+
+    if (encryptedSecrets) {
+      await adminDb
+        .collection('documentRequestSecrets')
+        .doc(canonical.id)
+        .set(encryptedSecrets);
+    }
+
+    const emailRequest: DocumentRequestRecord = {
+      id: canonical.id,
+      requestReference: canonical.reference,
+      documentId: canonical.documentProductId,
+      documentName: canonical.documentName,
+      documentCategory: canonical.documentCategory,
+      priceExGst: canonical.priceExGst || 0,
+      details: detailValidation.details,
+      workflow: workflowValidation.workflow,
+      status: 'submitted',
+      createdAt: canonical.createdAt,
+      updatedAt: canonical.updatedAt,
+    };
+
+    const emailResult = await sendDocumentRequestEmails(emailRequest);
+    if (emailResult.customer.status === 'failed') {
+      console.error(
+        `Document request ${canonical.reference} customer confirmation email failed:`,
+        emailResult.customer.error
+      );
+    }
+    if (emailResult.internal.status === 'failed') {
+      console.error(
+        `Document request ${canonical.reference} internal notification email failed:`,
+        emailResult.internal.error
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      request: publicDocumentRequestView(emailRequest),
+      message:
+        emailResult.customer.status === 'sent'
+          ? 'Document request submitted successfully. A confirmation email has been sent.'
+          : 'Document request submitted successfully. ProInspect will review the supplied details before preparation or distribution.',
+    });
   } catch (error) {
     console.error('Document request creation failed:', error);
-    return res.status(500).json({ error: 'Unable to submit the document request.' });
+    return res.status(500).json({
+      error: 'The document request could not be submitted. Please try again.',
+    });
   }
 });
 
