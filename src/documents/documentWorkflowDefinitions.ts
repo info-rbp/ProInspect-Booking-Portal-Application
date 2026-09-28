@@ -836,7 +836,6 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           },
           {
             id: 'noticeDate',
-            sensitive: true,
             label: 'Proposed date of notice',
             type: 'date',
             required: true,
@@ -1156,6 +1155,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
           },
           {
             id: 'noticeDate',
+            sensitive: true,
             label: 'Date the notice will be given',
             type: 'date',
             required: true,
