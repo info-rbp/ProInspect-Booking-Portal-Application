@@ -65,8 +65,17 @@ async function main() {
   summary.bookingsScanned = bookings.size;
 
   for (const bookingDoc of bookings.docs) {
-    const booking = bookingDoc.data() as Record<string, any>;
-    const embeddedProperty = (booking.property || {}) as Record<string, unknown>;
+    const booking = bookingDoc.data() as Record<string, unknown>;
+    const embeddedProperty =
+      booking.property && typeof booking.property === 'object' && !Array.isArray(booking.property)
+        ? (booking.property as Record<string, unknown>)
+        : {};
+    const addressVerification =
+      embeddedProperty.addressVerification &&
+      typeof embeddedProperty.addressVerification === 'object' &&
+      !Array.isArray(embeddedProperty.addressVerification)
+        ? (embeddedProperty.addressVerification as Record<string, unknown>)
+        : {};
 
     if (
       !value(embeddedProperty.streetAddress) ||
@@ -94,14 +103,14 @@ async function main() {
           postcode: value(embeddedProperty.postcode),
           propertyType: value(embeddedProperty.propertyType) || undefined,
           addressKey: propertyId.replace(/^property_/, ''),
-          placeId: value(embeddedProperty.addressVerification?.placeId) || undefined,
+          placeId: value(addressVerification.placeId) || undefined,
           latitude:
-            typeof embeddedProperty.addressVerification?.latitude === 'number'
-              ? embeddedProperty.addressVerification.latitude
+            typeof addressVerification.latitude === 'number'
+              ? addressVerification.latitude
               : undefined,
           longitude:
-            typeof embeddedProperty.addressVerification?.longitude === 'number'
-              ? embeddedProperty.addressVerification.longitude
+            typeof addressVerification.longitude === 'number'
+              ? addressVerification.longitude
               : undefined,
           status: 'active',
           createdAt: value(booking.createdAt) || now,
