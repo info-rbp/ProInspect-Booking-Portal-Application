@@ -759,6 +759,7 @@ export async function buildUnifiedClientDashboard(params: {
   properties: TenantProperty[];
   propertyLinks: ClientPropertyLink[];
   documents: TenantDocument[];
+  documentRequests?: DocumentRequest[];
 }): Promise<UnifiedClientDashboard> {
   const [requests, approvals, payments, notifications, teamSnapshots] = await Promise.all([
     listClientRequestsForUser(params.user),
@@ -862,6 +863,7 @@ export async function buildUnifiedClientDashboard(params: {
     propertyLinks: params.propertyLinks,
     bookings,
     requests,
+    documentRequests: params.documentRequests || [],
     documents: params.documents,
     approvals,
     payments,
