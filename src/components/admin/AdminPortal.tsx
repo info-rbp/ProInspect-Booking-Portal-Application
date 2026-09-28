@@ -52,6 +52,7 @@ import type {
 import {
   archiveAdminResource,
   createAdminResource,
+  createAdminReportHandoff,
   createAdminService,
   createAdminStaff,
   fetchAdminAudit,
@@ -133,6 +134,33 @@ const navItems: Array<{
   { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings.read' },
   { id: 'audit', label: 'Audit & Security', icon: ShieldCheck, permission: 'audit.read' },
 ];
+
+const REPORT_TOOL_TYPES = [
+  'Entry',
+  'Routine',
+  'Exit',
+  'PropertyOnboarding',
+  'VacantProperty',
+  'MaintenanceAssessment',
+  'MaintenanceCompletion',
+  'CleaningRectification',
+  'CommercialIngoing',
+  'CommercialPeriodic',
+  'CommercialExit',
+  'CommonProperty',
+  'BuildingManagement',
+  'BuildingManagementDaily',
+  'BuildingManagementMonthly',
+  'Incident',
+  'ContractorWorks',
+  'PropertyHandover',
+  'PreventativeMaintenance',
+  'CleaningQuality',
+  'AnnualPropertySummary',
+  'KeySafeInstallation',
+  'KeyReceipt',
+  'Custom',
+] as const;
 
 const resourceMap: Partial<Record<SectionId, AdminResourceName>> = {
   clients: 'clients',
@@ -1133,14 +1161,219 @@ function ServicesPanel({
   );
 }
 
-function ReportsPanel({ report }: { report: AdminReportSummary | null }) {
+function ReportsPanel({
+  report,
+  session,
+  bookings,
+}: {
+  report: AdminReportSummary | null;
+  session: AdminSession;
+  bookings: BookingRecord[];
+}) {
+  const canCreate = hasPermission(session, 'reports.manage');
+  const [properties, setProperties] = useState<AdminResourceRecord[]>([]);
+  const [workOrders, setWorkOrders] = useState<AdminResourceRecord[]>([]);
+  const [tenancies, setTenancies] = useState<AdminResourceRecord[]>([]);
+  const [propertyId, setPropertyId] = useState('');
+  const [workOrderId, setWorkOrderId] = useState('');
+  const [bookingId, setBookingId] = useState('');
+  const [tenancyId, setTenancyId] = useState('');
+  const [reportType, setReportType] = useState<(typeof REPORT_TOOL_TYPES)[number]>('Routine');
+  const [handoffStatus, setHandoffStatus] = useState<string | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+
+  useEffect(() => {
+    if (!canCreate) return;
+    let cancelled = false;
+    Promise.all([
+      fetchAdminResource('properties'),
+      fetchAdminResource('workOrders'),
+      fetchAdminResource('tenancies'),
+    ])
+      .then(([propertyRecords, workOrderRecords, tenancyRecords]) => {
+        if (cancelled) return;
+        setProperties(propertyRecords);
+        setWorkOrders(workOrderRecords);
+        setTenancies(tenancyRecords);
+        setPropertyId((current) => current || propertyRecords[0]?.id || '');
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setHandoffStatus(
+            error instanceof Error ? error.message : 'Unable to load report context.'
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canCreate]);
+
+  const selectedProperty = properties.find((property) => property.id === propertyId);
+  const propertyBookings = bookings.filter((booking) => booking.propertyId === propertyId);
+  const propertyWorkOrders = workOrders.filter((item) => item.propertyId === propertyId);
+  const propertyTenancies = tenancies.filter((item) => item.propertyId === propertyId);
+
+  const openReportTool = async () => {
+    if (!propertyId) {
+      setHandoffStatus('Select a property before opening the Report Tool.');
+      return;
+    }
+    setHandoffBusy(true);
+    setHandoffStatus(null);
+    try {
+      const result = await createAdminReportHandoff({
+        propertyId,
+        clientId:
+          typeof selectedProperty?.primaryClientId === 'string'
+            ? selectedProperty.primaryClientId
+            : undefined,
+        tenancyId: tenancyId || undefined,
+        bookingId: bookingId || undefined,
+        workOrderId: workOrderId || undefined,
+        reportType,
+      });
+      const opened = window.open(result.url, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        setHandoffStatus('Allow pop-ups for this site, then try opening the Report Tool again.');
+      } else {
+        setHandoffStatus('Property Report Tool opened with a five-minute signed context handoff.');
+      }
+    } catch (error) {
+      setHandoffStatus(
+        error instanceof Error ? error.message : 'Unable to open the Property Report Tool.'
+      );
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+
   if (!report) return <div className="text-sm text-slate-500">Loading management summary…</div>;
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Bookings by status</h3><div className="mt-4 space-y-2">{Object.entries(report.bookingsByStatus).map(([name, count]) => <div key={name} className="flex justify-between text-sm"><span className="capitalize">{name}</span><strong>{count}</strong></div>)}</div></div>
-      <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Work by service</h3><div className="mt-4 space-y-2">{report.bookingsByService.slice(0, 12).map((item) => <div key={item.name} className="flex justify-between text-sm"><span>{item.name}</span><strong>{item.count}</strong></div>)}</div></div>
-      <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Staff workload</h3><div className="mt-4 space-y-2">{report.bookingsByStaff.map((item) => <div key={item.name} className="flex justify-between text-sm"><span>{item.name}</span><strong>{item.completed}/{item.count} complete</strong></div>)}</div></div>
-      <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Portfolio</h3><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Clients</span><strong>{report.clientCount}</strong></div><div className="flex justify-between"><span>Properties</span><strong>{report.propertyCount}</strong></div><div className="flex justify-between"><span>Active subscriptions</span><strong>{report.activeSubscriptionCount}</strong></div></div></div>
+    <div className="space-y-5">
+      {canCreate && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-black text-[#1A2B4A]">Create Property Report</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Opens the separate Property Report Tool with signed canonical property and work context.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={handoffBusy || !propertyId}
+              onClick={() => void openReportTool()}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#007F82] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              <FileText className="w-4 h-4" />
+              {handoffBusy ? 'Opening…' : 'Open Report Tool'}
+            </button>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            <label className="text-xs font-bold text-slate-600">
+              Property
+              <select
+                value={propertyId}
+                onChange={(event) => {
+                  setPropertyId(event.target.value);
+                  setBookingId('');
+                  setWorkOrderId('');
+                  setTenancyId('');
+                }}
+                className="mt-1 w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                <option value="">Select property</option>
+                {properties.map((property) => (
+                  <option key={property.id} value={property.id}>
+                    {String(property.unit || '')}
+                    {property.unit ? ', ' : ''}
+                    {String(property.streetAddress || property.name || property.id)}
+                    {property.suburb ? ` · ${String(property.suburb)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-bold text-slate-600">
+              Report type
+              <select
+                value={reportType}
+                onChange={(event) =>
+                  setReportType(event.target.value as (typeof REPORT_TOOL_TYPES)[number])
+                }
+                className="mt-1 w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                {REPORT_TOOL_TYPES.map((type) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-bold text-slate-600">
+              Work order (optional)
+              <select
+                value={workOrderId}
+                onChange={(event) => setWorkOrderId(event.target.value)}
+                className="mt-1 w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                <option value="">No work order</option>
+                {propertyWorkOrders.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {String(item.reference || item.title || item.id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-bold text-slate-600">
+              Booking (optional)
+              <select
+                value={bookingId}
+                onChange={(event) => setBookingId(event.target.value)}
+                className="mt-1 w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                <option value="">No booking</option>
+                {propertyBookings.map((booking) => (
+                  <option key={booking.id} value={booking.id}>
+                    {booking.bookingReference} · {booking.serviceName}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs font-bold text-slate-600">
+              Tenancy (optional)
+              <select
+                value={tenancyId}
+                onChange={(event) => setTenancyId(event.target.value)}
+                className="mt-1 w-full h-10 rounded-lg border border-slate-300 px-3 text-sm"
+              >
+                <option value="">No tenancy</option>
+                {propertyTenancies.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {String(item.status || 'tenancy')} · {item.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {handoffStatus && (
+            <div className="mt-4 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
+              {handoffStatus}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Bookings by status</h3><div className="mt-4 space-y-2">{Object.entries(report.bookingsByStatus).map(([name, count]) => <div key={name} className="flex justify-between text-sm"><span className="capitalize">{name}</span><strong>{count}</strong></div>)}</div></div>
+        <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Work by service</h3><div className="mt-4 space-y-2">{report.bookingsByService.slice(0, 12).map((item) => <div key={item.name} className="flex justify-between text-sm"><span>{item.name}</span><strong>{item.count}</strong></div>)}</div></div>
+        <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Staff workload</h3><div className="mt-4 space-y-2">{report.bookingsByStaff.map((item) => <div key={item.name} className="flex justify-between text-sm"><span>{item.name}</span><strong>{item.completed}/{item.count} complete</strong></div>)}</div></div>
+        <div className="bg-white border border-slate-200 rounded-xl p-5"><h3 className="font-black text-[#1A2B4A]">Portfolio</h3><div className="mt-4 space-y-2 text-sm"><div className="flex justify-between"><span>Clients</span><strong>{report.clientCount}</strong></div><div className="flex justify-between"><span>Properties</span><strong>{report.propertyCount}</strong></div><div className="flex justify-between"><span>Active subscriptions</span><strong>{report.activeSubscriptionCount}</strong></div></div></div>
+      </div>
     </div>
   );
 }
@@ -1313,7 +1546,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           {resourceMap[section] && <ResourcePanel section={section} session={session} />}
           {section === 'services' && <ServicesPanel session={session} services={services} setServices={setServices} onServicesChanged={onServicesChanged} />}
           {section === 'staff' && <StaffPanel session={session} />}
-          {section === 'reports' && <ReportsPanel report={report} />}
+          {section === 'reports' && session && <ReportsPanel report={report} session={session} bookings={bookings} />}
           {section === 'integrations' && <IntegrationsPanel integrations={integrations} />}
           {section === 'settings' && <SettingsPanel session={session} settings={settings} setSettings={setSettings} />}
           {section === 'audit' && <AuditPanel events={audit} />}
