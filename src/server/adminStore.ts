@@ -899,6 +899,23 @@ export function getAdminIntegrationStatuses(): AdminIntegrationStatus[] {
       detail: 'Booking, document and operational notifications.',
     },
     {
+      id: 'property-report-tool',
+      name: 'Property Report Tool',
+      configured: Boolean(
+        process.env.REPORT_TOOL_URL &&
+        process.env.REPORT_HANDOFF_SIGNING_KEY &&
+        process.env.REPORT_INGEST_TOKEN
+      ),
+      status:
+        process.env.REPORT_TOOL_URL &&
+        process.env.REPORT_HANDOFF_SIGNING_KEY &&
+        process.env.REPORT_INGEST_TOKEN
+          ? 'connected'
+          : 'configuration_required',
+      detail:
+        'Signed Admin handoff and completed-report ingestion into canonical property documents.',
+    },
+    {
       id: 'google-sheets',
       name: 'Google Sheets export',
       configured: Boolean(process.env.GOOGLE_SHEETS_SPREADSHEET_ID),
