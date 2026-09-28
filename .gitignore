@@ -6,3 +6,21 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Stage 3: plans, state, credentials and data evidence must never be committed.
+**/.terraform/
+*.tfstate*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+*.auto.tf
+*.auto.tf.json
+infrastructure/backend.hcl
+.stage3/
+gha-creds-*.json
+
+# Actual local environment selections; examples remain committed.
+infrastructure/environments/*.tfvars
+infrastructure/**/*.tfvars.json
+infrastructure/*.backend.hcl

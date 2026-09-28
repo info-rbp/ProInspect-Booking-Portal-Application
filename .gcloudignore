@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+.stage3
+infrastructure/.terraform
+**/*.tfstate*
+**/*.tfplan
+**/terraform.tfvars
+**/backend.hcl
+.env
+.env.*
+!.env.example
+gha-creds-*.json

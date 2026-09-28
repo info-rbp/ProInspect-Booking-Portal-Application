@@ -300,3 +300,9 @@ Pre-merge reconciliation must:
 The migration deliberately does not infer a landlord/client from a booking
 requester's email. Historical bookings without reliable client context remain
 property-linked only until staff reconcile the correct client relationship.
+
+## Stage 3 infrastructure and migration operations
+
+See [STAGE3_INFRASTRUCTURE.md](STAGE3_INFRASTRUCTURE.md) for the combined-platform Terraform ownership/import path, isolated staging build, numeric secret provisioning, Workspace Calendar configuration, guarded migration rehearsal, reconciliation and rollback. Repository checks do not imply live-cloud acceptance. Production apply and migration writes remain locked in the Stage 3 commands.
+
+Run `npm run stage3:test` for offline safety regressions. The ordinary verification workflow also runs the real Firestore-emulator apply/resume/reconciliation/rollback rehearsal and Terraform provider/mock-plan checks. `npm run stage3:migrate -- plan ...` is the supported explicit-target planning entry point; direct legacy migration `--apply` is disabled.

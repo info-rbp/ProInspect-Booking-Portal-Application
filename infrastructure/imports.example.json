@@ -1,0 +1,8 @@
+{
+  "environment": "production",
+  "project": "business-plan-applicatio-17047",
+  "bindings": [
+    {"address": "google_storage_bucket.client_documents", "id": "REPLACE_WITH_VERIFIED_EXISTING_BUCKET"},
+    {"address": "google_secret_manager_secret.runtime[\"access_data_encryption_key\"]", "id": "projects/business-plan-applicatio-17047/secrets/proinspect-production-access-data-encryption-key"}
+  ]
+}

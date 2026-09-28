@@ -1,3 +1,4 @@
+import { assertRuntimeIsolation } from './src/server/stage3Runtime.js';
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
@@ -228,6 +229,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+assertRuntimeIsolation();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const TIMEZONE = 'Australia/Perth';
@@ -1737,6 +1739,8 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
+      environment: process.env.PLATFORM_ENVIRONMENT || 'legacy',
+      sourceSha: process.env.SOURCE_SHA || null,
     calendarConfigured: calendarIsConfigured(),
     bookingEmailConfigured: bookingEmailIsConfigured(),
     sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),

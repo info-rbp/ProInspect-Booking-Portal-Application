@@ -1,0 +1,26 @@
+# Replace CHANGE_ME with a dedicated, billed staging project. Never use production.
+project_id = "CHANGE_ME"
+environment = "staging"
+region = "australia-southeast1"
+storage_location = "australia-southeast1"
+firestore_location = "australia-southeast1"
+firestore_database_id = "proinspect-staging"
+manage_database = true
+manage_firestore_rules = true
+manage_runtime_service_account = true
+runtime_service_account_email = "proinspect-staging-runtime@CHANGE_ME.iam.gserviceaccount.com"
+cloud_run_service_name = "proinspect-platform-staging"
+app_url = "https://CHANGE_ME"
+admin_emails = "info@proinspect.systems,info@remotebusinesspartner.com.au"
+google_calendar_id = "" # Share a separate test calendar before integration acceptance.
+address_validation_mode = "off"
+booking_email_from = "ProInspect Staging <bookings@proinspect.systems>"
+booking_email_reply_to = "info@proinspect.systems"
+document_request_notify_to = "info@proinspect.systems"
+email_delivery_mode = "disabled"
+report_tool_url = "" # A separate Report Tool staging Worker with the pinned Stage 2 companion.
+enable_staging_ci = true
+runtime_secret_versions = {} # Add numeric versions after secure provisioning.
+
+staging_calendar_ids = [] # Must contain the separately shared default and service-specific test calendars.
+operator_members = [] # e.g. ["user:AUTHORISED_OPERATOR_EMAIL"] for keyless runtime/migration probes.

@@ -1,0 +1,2 @@
+bucket = "CHANGE_ME-proinspect-terraform-state"
+prefix = "booking-portal/staging"

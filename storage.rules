@@ -1,11 +1,6 @@
 rules_version = '2';
-
 service firebase.storage {
   match /b/{bucket}/o {
-    // Tenant portal files are accessed only through the trusted Express API.
-    // The Cloud Run Firebase Admin runtime bypasses these client rules.
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
+    match /{allPaths=**} { allow read, write: if false; }
   }
 }

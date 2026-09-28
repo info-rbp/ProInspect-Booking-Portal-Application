@@ -1,3 +1,4 @@
+import { emailDeliveryEnabled } from './stage3Runtime.js';
 import type { TenantRequest, TenantUserRecord } from '../types/tenant.js';
 import type { TenantFormRequest } from '../types/tenantForms.js';
 
@@ -24,7 +25,7 @@ function emailConfig() {
 
 export function tenantPortalEmailIsConfigured(): boolean {
   const config = emailConfig();
-  return Boolean(config.apiKey && config.from);
+  return Boolean(emailDeliveryEnabled() && config.apiKey && config.from);
 }
 
 async function sendEmail(params: {
@@ -34,7 +35,7 @@ async function sendEmail(params: {
   html: string;
 }) {
   const { apiKey, from, replyTo } = emailConfig();
-  if (!apiKey || !from) return;
+  if (!emailDeliveryEnabled() || !apiKey || !from) return;
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',

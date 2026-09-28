@@ -1,3 +1,4 @@
+import { emailDeliveryEnabled } from './stage3Runtime.js';
 import type {
   BookingRecord,
   BookingReadinessStatus,
@@ -55,7 +56,7 @@ function readinessCopy(status: BookingReadinessStatus): {
 
 export function bookingEmailIsConfigured(): boolean {
   return Boolean(
-    process.env.RESEND_API_KEY?.trim() &&
+    emailDeliveryEnabled() && process.env.RESEND_API_KEY?.trim() &&
       process.env.BOOKING_EMAIL_FROM?.trim()
   );
 }
@@ -67,7 +68,7 @@ export async function sendBookingConfirmationEmail(params: {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.BOOKING_EMAIL_FROM?.trim();
 
-  if (!apiKey || !from) {
+  if (!emailDeliveryEnabled() || !apiKey || !from) {
     return { status: 'not_configured' };
   }
 
@@ -201,7 +202,7 @@ async function sendResendEmail(input: {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.BOOKING_EMAIL_FROM?.trim();
 
-  if (!apiKey || !from) {
+  if (!emailDeliveryEnabled() || !apiKey || !from) {
     return { status: 'not_configured' };
   }
 

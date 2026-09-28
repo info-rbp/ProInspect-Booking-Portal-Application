@@ -13,11 +13,17 @@
     "container:build": "docker build -t proinspect-booking-portal .",
     "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs",
     "migrate:portal:dry": "tsx scripts/migrate-unified-portal.ts",
-    "migrate:portal": "tsx scripts/migrate-unified-portal.ts --apply",
+    "migrate:portal": "node scripts/stage3/migrate.mjs",
     "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs",
     "freeze:check": "node scripts/premerge-freeze-check.mjs",
     "test:migration-preflight": "tsx scripts/verify-tenant-migration-preflight.ts",
-    "stage2:check": "node scripts/stage2-integration-check.mjs"
+    "stage2:check": "node scripts/stage2-integration-check.mjs",
+    "stage3:test": "node --test scripts/stage3/tests/*.test.mjs && node --import tsx --test scripts/stage3/tests/*.test.ts",
+    "stage3:test:emulator": "node scripts/stage3/tests/emulator.mjs",
+    "stage3:migrate": "node scripts/stage3/migrate.mjs",
+    "stage3:infra": "node scripts/stage3/infra.mjs",
+    "stage3:deploy": "node scripts/stage3/deploy-staging.mjs",
+    "stage3:probe": "node scripts/stage3/probe-integrations.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

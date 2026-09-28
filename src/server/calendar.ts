@@ -1,3 +1,4 @@
+import { assertCalendarAllowed } from './stage3Runtime.js';
 import { GoogleAuth } from 'google-auth-library';
 import type { BookingRecord } from '../types/booking.js';
 
@@ -7,7 +8,7 @@ export interface BusyInterval {
 }
 
 type FreeBusyResponse = {
-  calendars?: Record<string, { busy?: BusyInterval[] }>;
+  calendars?: Record<string, { busy?: BusyInterval[]; errors?: Array<{ reason?: string }> }>;
 };
 
 type CalendarEventResponse = {
@@ -20,6 +21,7 @@ let authClientPromise: Promise<any> | null = null;
 function configuredCalendarId(serviceCalendarId?: string): string {
   const id = serviceCalendarId || process.env.GOOGLE_CALENDAR_ID;
   if (!id) throw new Error('GOOGLE_CALENDAR_ID is not configured.');
+  assertCalendarAllowed(id);
   return id;
 }
 
@@ -91,7 +93,11 @@ export async function freeBusy(params: {
   }
 
   const data = (await response.json()) as FreeBusyResponse;
-  return data.calendars?.[calendarId]?.busy || [];
+  const result = data.calendars?.[calendarId];
+  if (!result || result.errors?.length || !Array.isArray(result.busy)) {
+    throw new Error('Google Calendar did not return valid availability for the requested calendar. Check Workspace sharing.');
+  }
+  return result.busy;
 }
 
 function calendarDescription(booking: BookingRecord): string {

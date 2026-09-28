@@ -3,6 +3,9 @@ import { createHash } from 'crypto';
 import { adminDb } from '../src/server/firebaseAdmin.js';
 
 const apply = process.argv.includes('--apply');
+if (apply) {
+  throw new Error('Direct legacy migration apply is disabled. Use scripts/stage3/migrate.mjs with an approved dry-run plan, completed backup and paused writers.');
+}
 
 function normalise(value: unknown): string {
   return typeof value === 'string'

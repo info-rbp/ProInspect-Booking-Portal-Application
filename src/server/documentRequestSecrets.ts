@@ -1,3 +1,4 @@
+import { encryptionKey } from './encryptionKeyring.js';
 import {
   createCipheriv,
   createDecipheriv,
@@ -16,21 +17,6 @@ export interface EncryptedDocumentRequestSecrets {
   updatedAt: string;
 }
 
-function encryptionKey(): Buffer | null {
-  const raw = process.env.ACCESS_DATA_ENCRYPTION_KEY?.trim();
-  if (!raw) return null;
-
-  const normalized = raw.startsWith('base64:') ? raw.slice(7) : raw;
-  const decoded = Buffer.from(normalized, 'base64');
-
-  if (decoded.length !== 32) {
-    throw new Error(
-      'ACCESS_DATA_ENCRYPTION_KEY must be a base64-encoded 32-byte key.'
-    );
-  }
-
-  return decoded;
-}
 
 export function documentRequestEncryptionIsConfigured(): boolean {
   return Boolean(process.env.ACCESS_DATA_ENCRYPTION_KEY?.trim());
@@ -74,7 +60,7 @@ export function decryptDocumentRequestSecrets(
     throw new Error('Unsupported encrypted document-request format.');
   }
 
-  const key = encryptionKey();
+  const key = encryptionKey(encrypted.keyId || 'v1');
   if (!key) {
     throw new Error('Document request encryption is not configured.');
   }
