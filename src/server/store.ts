@@ -1421,9 +1421,16 @@ export async function getClientPortalDashboard(params: {
   displayName?: string;
 }): Promise<ClientPortalDashboard> {
   const context = await ensureClientContext(params);
-  await linkHistoricalBookingsToClient({ context });
-
   const memberships = await activeMembershipsForUid(params.uid);
+
+  // Automatic historical-email reconciliation is safe only when the client has
+  // one organisation. With multiple organisations the email alone is ambiguous,
+  // so existing unlinked bookings remain untouched instead of being assigned to
+  // whichever organisation happens to be active first.
+  if (memberships.length === 1) {
+    await linkHistoricalBookingsToClient({ context });
+  }
+
   const organisationDocs = await Promise.all(
     memberships.map((membership) =>
       adminDb.collection('clientOrganisations').doc(membership.organisationId).get()
