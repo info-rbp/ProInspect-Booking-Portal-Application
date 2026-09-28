@@ -396,10 +396,23 @@ async function validateDocumentRequest(
   await optionalDocument('adminUsers', assignedStaffId, 'Assigned staff member');
   if (propertyId && clientId) await validatePropertyClientLink(propertyId, clientId);
 
-  const addressInput =
+  const existingAddress =
+    existing?.address && typeof existing.address === 'object' && !Array.isArray(existing.address)
+      ? existing.address as Record<string, unknown>
+      : {};
+  const suppliedAddress =
     payload.address && typeof payload.address === 'object' && !Array.isArray(payload.address)
       ? payload.address as Record<string, unknown>
-      : (existing?.address as Record<string, unknown> | undefined) || {};
+      : {};
+  const addressInput: Record<string, unknown> = {
+    ...existingAddress,
+    ...suppliedAddress,
+    ...(payload.streetAddress !== undefined ? { streetAddress: payload.streetAddress } : {}),
+    ...(payload.unit !== undefined ? { unit: payload.unit } : {}),
+    ...(payload.suburb !== undefined ? { suburb: payload.suburb } : {}),
+    ...(payload.state !== undefined ? { state: payload.state } : {}),
+    ...(payload.postcode !== undefined ? { postcode: payload.postcode } : {}),
+  };
   const status = text(payload.status ?? existing?.status, 40) || 'submitted';
   if (!['submitted','under_review','awaiting_information','in_preparation','review','ready','completed','cancelled'].includes(status)) {
     throw new PlatformValidationError('Invalid document request status.');
@@ -720,6 +733,54 @@ async function syncClientUserMembershipCache(userId: string) {
   await userDoc.ref.set({ clientIds, clientRoles, updatedAt: nowIso() }, { merge: true });
 }
 
+async function syncMembershipsFromClientUser(user: ClientUserRecord) {
+  const snapshot = await adminDb
+    .collection('clientMemberships')
+    .where('clientUserId', '==', user.id)
+    .get();
+  const existing = new Map(
+    snapshot.docs.map((doc) => {
+      const membership = docWithId<ClientMembership>(doc);
+      return [membership.clientId, membership] as const;
+    })
+  );
+  const now = nowIso();
+  const batch = adminDb.batch();
+
+  for (const clientId of user.clientIds) {
+    const current = existing.get(clientId);
+    const ref = current
+      ? adminDb.collection('clientMemberships').doc(current.id)
+      : adminDb.collection('clientMemberships').doc();
+    batch.set(
+      ref,
+      {
+        id: ref.id,
+        clientId,
+        clientUserId: user.id,
+        email: user.email,
+        role: user.clientRoles[clientId] || 'member',
+        status: 'active',
+        createdAt: current?.createdAt || now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  }
+
+  for (const membership of existing.values()) {
+    if (!user.clientIds.includes(membership.clientId) && membership.status === 'active') {
+      batch.set(
+        adminDb.collection('clientMemberships').doc(membership.id),
+        { status: 'revoked', updatedAt: now },
+        { merge: true }
+      );
+    }
+  }
+
+  await batch.commit();
+}
+
 export async function createPlatformResource<R extends PlatformResourceName>(
   resource: R,
   payload: Record<string, unknown>,
@@ -730,8 +791,25 @@ export async function createPlatformResource<R extends PlatformResourceName>(
   const record = { id: ref.id, ...validated } as PlatformCollectionMap[R];
   await ref.set(record);
 
+  if (resource === 'clientUsers') {
+    await syncMembershipsFromClientUser(record as ClientUserRecord);
+  }
   if (resource === 'clientMemberships') {
     await syncClientUserMembershipCache((record as ClientMembership).clientUserId);
+  }
+  if (resource === 'properties' && (record as PropertyRecord).primaryClientId) {
+    const property = record as PropertyRecord;
+    const linkRef = adminDb.collection('clientPropertyLinks').doc();
+    await linkRef.set({
+      id: linkRef.id,
+      clientId: property.primaryClientId,
+      propertyId: property.id,
+      role: 'owner',
+      primary: true,
+      active: true,
+      createdAt: property.createdAt,
+      updatedAt: property.updatedAt,
+    });
   }
   if (resource === 'clientPropertyLinks' && (record as ClientPropertyLink).primary) {
     const link = record as ClientPropertyLink;
@@ -758,8 +836,38 @@ export async function updatePlatformResource<R extends PlatformResourceName>(
   const updated = await ref.get();
   const record = docWithId<PlatformCollectionMap[R]>(updated);
 
+  if (resource === 'clientUsers') {
+    await syncMembershipsFromClientUser(record as ClientUserRecord);
+  }
   if (resource === 'clientMemberships') {
     await syncClientUserMembershipCache((record as ClientMembership).clientUserId);
+  }
+  if (resource === 'properties' && (record as PropertyRecord).primaryClientId) {
+    const property = record as PropertyRecord;
+    const existingLink = await adminDb
+      .collection('clientPropertyLinks')
+      .where('propertyId', '==', property.id)
+      .where('clientId', '==', property.primaryClientId)
+      .limit(1)
+      .get();
+    if (existingLink.empty) {
+      const linkRef = adminDb.collection('clientPropertyLinks').doc();
+      await linkRef.set({
+        id: linkRef.id,
+        clientId: property.primaryClientId,
+        propertyId: property.id,
+        role: 'owner',
+        primary: true,
+        active: true,
+        createdAt: property.updatedAt,
+        updatedAt: property.updatedAt,
+      });
+    } else {
+      await existingLink.docs[0].ref.set(
+        { primary: true, active: true, updatedAt: property.updatedAt },
+        { merge: true }
+      );
+    }
   }
   if (resource === 'clientPropertyLinks' && (record as ClientPropertyLink).primary) {
     const link = record as ClientPropertyLink;
