@@ -952,6 +952,10 @@
         "updatedAt": {
           "type": "string",
           "maxLength": 50
+        },
+        "workflow": {
+          "type": "object",
+          "description": "Validated form-specific workflow data. Sensitive workflow answers are removed before this document is stored."
         }
       },
       "required": [
@@ -962,7 +966,57 @@
         "documentCategory",
         "priceExGst",
         "details",
+        "workflow",
         "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DocumentRequestSecrets": {
+      "title": "DocumentRequestSecrets",
+      "description": "AES-256-GCM encrypted sensitive answers for a document request, stored separately from the normal request record.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number"
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "aes-256-gcm"
+          ]
+        },
+        "keyId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "iv": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "authTag": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "ciphertext": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 50
+        }
+      },
+      "required": [
+        "version",
+        "algorithm",
+        "keyId",
+        "iv",
+        "authTag",
+        "ciphertext",
         "createdAt",
         "updatedAt"
       ]
@@ -1028,6 +1082,10 @@
     "/documentRequests/{requestId}": {
       "schema": "DocumentRequest",
       "description": "Customer document requests created by the trusted server API."
+    },
+    "/documentRequestSecrets/{requestId}": {
+      "schema": "DocumentRequestSecrets",
+      "description": "Encrypted bank-account and other sensitive form-specific answers. Server-only access."
     }
   },
   "security": {
