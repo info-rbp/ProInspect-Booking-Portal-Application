@@ -17,6 +17,7 @@ import {
   createClientRequest,
   createClientTeamUser,
   fetchClientDashboard,
+  updateClientTeamMembership,
   getClientDocumentDownloadUrl,
   markClientNotificationRead,
   respondClientApproval,
@@ -660,17 +661,84 @@ export const ClientPortal: React.FC<{
             <div className="divide-y divide-slate-100">
               {data.teamUsers
                 .filter((member) => member.clientRoles[selectedClient.id])
-                .map((member) => (
-                  <div key={member.id} className="px-5 py-4 flex justify-between gap-3">
-                    <div>
-                      <div className="font-bold text-sm text-slate-800">{member.displayName}</div>
-                      <div className="text-xs text-slate-500">{member.email}</div>
+                .map((member) => {
+                  const memberRole = member.clientRoles[selectedClient.id];
+                  const canManageMember =
+                    canManageAccount &&
+                    (selectedMembership?.role === 'owner' || memberRole !== 'owner');
+                  return (
+                    <div key={member.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-sm text-slate-800">
+                          {member.displayName}
+                          {member.id === data.clientUser.id && (
+                            <span className="ml-2 text-[10px] uppercase font-black text-slate-400">You</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500">{member.email}</div>
+                      </div>
+                      {canManageMember ? (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={memberRole}
+                            disabled={busy}
+                            onChange={async (event) => {
+                              const role = event.target.value as 'owner' | 'admin' | 'member' | 'viewer';
+                              setBusy(true);
+                              setError(null);
+                              try {
+                                await updateClientTeamMembership({
+                                  clientUserId: member.id,
+                                  clientId: selectedClient.id,
+                                  role,
+                                });
+                                await load();
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : 'Unable to update portal access.');
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                            className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-bold bg-white"
+                          >
+                            {selectedMembership?.role === 'owner' && <option value="owner">Owner</option>}
+                            <option value="admin">Admin</option>
+                            <option value="member">Member</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              if (!window.confirm(`Remove ${member.displayName} from ${selectedClient.name}?`)) return;
+                              setBusy(true);
+                              setError(null);
+                              try {
+                                await updateClientTeamMembership({
+                                  clientUserId: member.id,
+                                  clientId: selectedClient.id,
+                                  revoke: true,
+                                });
+                                await load();
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : 'Unable to remove portal access.');
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                            className="h-9 px-3 rounded-lg border border-rose-200 text-xs font-bold text-rose-700 disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs font-bold text-slate-500">
+                          {memberRole}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-xs font-bold text-slate-500">
-                      {member.clientRoles[selectedClient.id]}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           </div>
         </div>
