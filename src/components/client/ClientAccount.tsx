@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Building2, Loader2, Plus, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import type {
   ClientOrganisationRole,
@@ -40,6 +40,29 @@ export function ClientAccount({
   const canManage =
     dashboard.membership.role === 'owner' || dashboard.membership.role === 'admin';
   const isOwner = dashboard.membership.role === 'owner';
+
+  useEffect(() => {
+    setOrgName(dashboard.organisation.name);
+    setEntityType(dashboard.organisation.entityType);
+    setAbn(dashboard.organisation.abn || '');
+    setAcn(dashboard.organisation.acn || '');
+    setBillingEmail(
+      dashboard.organisation.billingEmail || dashboard.profile.email
+    );
+    setPhone(
+      dashboard.organisation.phone || dashboard.profile.phone || ''
+    );
+  }, [
+    dashboard.organisation.id,
+    dashboard.organisation.name,
+    dashboard.organisation.entityType,
+    dashboard.organisation.abn,
+    dashboard.organisation.acn,
+    dashboard.organisation.billingEmail,
+    dashboard.organisation.phone,
+    dashboard.profile.email,
+    dashboard.profile.phone,
+  ]);
 
   const saveOrganisation = async () => {
     setBusy('organisation');
