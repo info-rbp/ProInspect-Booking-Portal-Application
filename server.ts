@@ -100,7 +100,12 @@ import {
   updateAdminResource,
   updateAdminStaff,
 } from './src/server/adminStore.js';
-import { PlatformValidationError } from './src/server/platformStore.js';
+import {
+  PlatformValidationError,
+  syncBookingWorkOrderStatus,
+  upsertCanonicalPropertyFromAddress,
+  writeAuditEvent,
+} from './src/server/platformStore.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -975,6 +980,13 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     const now = new Date().toISOString();
     const requestDetails = detailValidation.details;
+    const canonicalProperty = await upsertCanonicalPropertyFromAddress({
+      streetAddress: requestDetails.streetAddress,
+      unit: requestDetails.unit,
+      suburb: requestDetails.suburb,
+      state: requestDetails.state,
+      postcode: requestDetails.postcode,
+    });
     const request: DocumentRequestRecord = {
       id: newDocumentRequestId(),
       reference: await generateDocumentRequestReference(),
@@ -985,6 +997,7 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
       documentCategory,
       pricingMode: 'fixed',
       priceExGst: product.priceExGst,
+      propertyId: canonicalProperty.id,
       requesterName: requestDetails.customerName,
       requesterEmail: requestDetails.customerEmail,
       requesterPhone: requestDetails.customerPhone,
@@ -1006,6 +1019,14 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
     };
 
     await saveDocumentRequest(request);
+    await writeAuditEvent({
+      entityType: 'document_request',
+      entityId: request.id,
+      action: 'submitted',
+      summary: `Document request ${request.reference} submitted.`,
+      actor: { type: 'system' },
+      propertyId: request.propertyId,
+    });
 
     const emailResult = await sendDocumentRequestEmails(request);
     if (emailResult.customer.status === 'failed') {
@@ -1272,6 +1293,15 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
+    const canonicalProperty = await upsertCanonicalPropertyFromAddress({
+      streetAddress: validatedProperty.streetAddress,
+      unit: validatedProperty.unit,
+      suburb: validatedProperty.suburb,
+      state: validatedProperty.state,
+      postcode: validatedProperty.postcode,
+      propertyType: validatedProperty.propertyType,
+      addressVerification: validatedProperty.addressVerification,
+    });
 
     const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
@@ -1282,6 +1312,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       serviceName: service.name,
       serviceCategory,
       calendarId: resolvedCalendarId,
+      propertyId: canonicalProperty.id,
       property: validatedProperty,
       access: accessValidation.access,
       readinessStatus: accessValidation.readinessStatus,
@@ -1325,6 +1356,14 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     try {
       await saveBooking(booking, encryptedAccessSecrets);
+      await writeAuditEvent({
+        entityType: 'booking',
+        entityId: booking.id,
+        action: 'created',
+        summary: `Booking ${booking.bookingReference} created.`,
+        actor: { type: 'system' },
+        propertyId: booking.propertyId,
+      });
     } catch (firestoreError) {
       await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
         console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
@@ -1456,6 +1495,16 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
     if (!updated) {
       throw new Error('Booking disappeared while cancellation was being processed.');
     }
+    await syncBookingWorkOrderStatus(updated, 'public-cancellation');
+    await writeAuditEvent({
+      entityType: 'booking',
+      entityId: updated.id,
+      action: 'cancelled',
+      summary: `Booking ${updated.bookingReference} cancelled through the customer management link.`,
+      actor: { type: 'system' },
+      propertyId: updated.propertyId,
+      clientId: updated.clientId,
+    });
 
     const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
     return res.json({
@@ -1828,6 +1877,7 @@ app.patch(
         ...(clientId !== undefined ? { clientId } : {}),
         ...(propertyId !== undefined ? { propertyId } : {}),
       });
+      if (updated) await syncBookingWorkOrderStatus(updated, session.email);
       await recordAuditEvent({
         session,
         action: 'booking.updated',
