@@ -121,66 +121,50 @@ See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration,
 
 ## Admin Portal branch
 
-The `Admin-Portal` branch expands the original staff booking screen into a full operational control centre.
+The `Admin-Portal` branch is the internal operational control centre and now uses the canonical platform architecture shared by future Client/Tenant portal consolidation. See `CANONICAL_PLATFORM_ARCHITECTURE.md` for the permanent data contract.
 
-### Roles and permissions
+### Roles, permissions and resource scope
 
-Internal users are stored in `adminUsers/{firebaseUid}` with one of four roles:
+Internal identities live in `adminUsers` with the roles `administrator`, `operations_manager`, `inspector` and `read_only`. Express resolves permissions server-side. Inspectors default to assigned-only resource scope, so permission to read bookings or sensitive access details does not grant visibility across the whole organisation.
 
-- `administrator` - full platform, security and user administration.
-- `operations_manager` - full operational control without security/user-management authority.
-- `inspector` - operational work execution with limited management authority.
-- `read_only` - view-only operational access.
+Accounts in `ADMIN_EMAILS` remain environment-level break-glass administrators.
 
-The Express API resolves the signed-in Firebase user into a server-side permission set. Protected actions use permission checks such as `bookings.update`, `services.manage`, `clients.manage`, `users.manage` and `audit.read`. UI visibility is not relied on as a security control.
+### Canonical operational collections
 
-Accounts listed in `ADMIN_EMAILS` are treated as bootstrap administrators so the portal cannot be locked out before Firestore staff records exist.
+The branch uses:
 
-### Admin Portal modules
-
-The branch includes:
-
-- Operational dashboard and exception alerts
-- Bookings and work-order assignment/status management
-- Calendar/scheduling workload view
-- Client management
-- Property management
-- Tenant/occupant management
-- Document/report records
-- Document-request workflow management
-- Maintenance-request management
-- Booking service catalogue administration
-- Staff accounts, roles and activation/deactivation
-- Communication records
-- Billing/subscription records
-- Management reporting
-- Integration health/configuration status
-- Business scheduling settings
-- Audit/security event history
-
-### Shared operational collections
-
-The Admin Portal uses Firestore collections designed to be shared later with the Client and Tenant Portal branches:
-
-- `clients`
-- `properties`
-- `tenants`
-- `propertyDocuments`
-- `documentRequests`
-- `maintenanceRequests`
+- `clients`, `clientUsers`, `clientMemberships`
+- `properties`, `clientPropertyLinks`
+- `tenancies`, `tenantUsers`
+- `bookings`, `workOrders`
+- `propertyDocuments`, `documentRequests`
 - `communications`
-- `subscriptions`
-- `adminUsers`
-- `auditEvents`
+- `subscriptions`, `payments`
+- `adminUsers`, `auditEvents`
 
-Booking records may also contain `assignedStaffId`, `clientId` and `propertyId` so existing bookings can progressively attach to the shared operational model without a breaking migration.
+The legacy `tenants` and `maintenanceRequests` collections are not canonical. Tenant identity is represented through `tenantUsers` + `tenancies`; operational maintenance is represented as `workOrders`.
 
-### Security
+New public bookings are linked to a canonical Property and create a booking-backed Work Order atomically. Public document requests also resolve to a canonical Property while retaining their current customer-facing response flow.
 
-Sensitive lockbox/alarm data remains stored separately in encrypted `bookingAccessSecrets` documents. It is returned from the admin bookings API only when the current role has `bookings.sensitive_access`.
+### Validation and integrity
 
-All operational Firestore writes continue through the trusted Express server. The browser does not receive direct Firestore write authority.
+Admin CRUD is resource-specific rather than arbitrary Firestore object writing. The trusted server validates enum values, required fields and cross-record relationships before persistence. Direct browser Firestore access remains denied.
 
-### External integrations
+Sensitive lockbox/alarm data remains separately encrypted in `bookingAccessSecrets`. Inspector access requires both `bookings.sensitive_access` and a matching assigned resource scope.
 
-The Integrations page reports whether server configuration is detected for Firebase/Firestore, Google Calendar, email delivery, optional Google Sheets export and optional Xero integration. External provider credentials and OAuth setup remain deployment configuration and are not exposed in the browser.
+### Migration and verification
+
+Dry-run the legacy compatibility migration:
+
+```bash
+npm run migrate:platform
+```
+
+Apply only after reviewing the dry-run counts:
+
+```bash
+npm run migrate:platform:apply
+```
+
+CI additionally runs `npm run test:architecture` to verify the canonical resource registry and resource-scope security rules.
+
