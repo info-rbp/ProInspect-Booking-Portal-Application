@@ -185,10 +185,10 @@ export async function sendBookingConfirmationEmail(params: {
 
 function documentRequestAddress(request: DocumentRequestRecord): string {
   return [
-    request.details.unit
-      ? `${request.details.unit}, ${request.details.streetAddress}`
-      : request.details.streetAddress,
-    `${request.details.suburb} ${request.details.state} ${request.details.postcode}`,
+    request.address.unit
+      ? `${request.address.unit}, ${request.address.streetAddress}`
+      : request.address.streetAddress,
+    `${request.address.suburb} ${request.address.state} ${request.address.postcode}`,
   ].join(', ');
 }
 
@@ -268,7 +268,7 @@ export async function sendDocumentRequestEmails(
   const customerText = [
     'Your ProInspect document request has been received.',
     '',
-    `Reference: ${request.requestReference}`,
+    `Reference: ${request.reference}`,
     `Document: ${request.documentName}`,
     `Category: ${categoryLabel}`,
     `Property: ${address}`,
@@ -287,7 +287,7 @@ export async function sendDocumentRequestEmails(
       </div>
       <p>Your request has been recorded for review by ProInspect.</p>
       <table role="presentation" style="border-collapse:collapse;width:100%;margin:20px 0;background:#f8fafc;border:1px solid #e2e8f0;">
-        <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Reference</td><td style="padding:10px 14px;">${escapeHtml(request.requestReference)}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:700;width:34%;">Reference</td><td style="padding:10px 14px;">${escapeHtml(request.reference)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Document</td><td style="padding:10px 14px;">${escapeHtml(request.documentName)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Category</td><td style="padding:10px 14px;">${escapeHtml(categoryLabel)}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:700;">Property</td><td style="padding:10px 14px;">${escapeHtml(address)}</td></tr>
@@ -301,30 +301,30 @@ export async function sendDocumentRequestEmails(
   const internalText = [
     'New ProInspect document request.',
     '',
-    `Reference: ${request.requestReference}`,
+    `Reference: ${request.reference}`,
     `Document: ${request.documentName}`,
     `Category: ${categoryLabel}`,
     `Property: ${address}`,
-    `Contact: ${request.details.customerName}`,
-    `Email: ${request.details.customerEmail}`,
-    `Phone: ${request.details.customerPhone}`,
-    request.details.clientName ? `Client/agency: ${request.details.clientName}` : '',
-    request.details.clientReference ? `Reference: ${request.details.clientReference}` : '',
-    request.details.notes ? `Instructions: ${request.details.notes}` : '',
+    `Contact: ${request.requesterName}`,
+    `Email: ${request.requesterEmail}`,
+    `Phone: ${request.requesterPhone}`,
+    request.clientId ? `Client/agency: ${request.clientId}` : '',
+    request.clientId ? `Reference: ${request.clientId}` : '',
+    request.notes ? `Instructions: ${request.notes}` : '',
     `Scheduled fee: $${request.priceExGst} + GST`,
   ].filter(Boolean).join('\n');
 
   const internalHtml = `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.5;max-width:700px;margin:0 auto;">
       <h1 style="font-size:22px;">New document request</h1>
-      <p><strong>${escapeHtml(request.requestReference)}</strong></p>
+      <p><strong>${escapeHtml(request.reference)}</strong></p>
       <p><strong>Document:</strong> ${escapeHtml(request.documentName)}</p>
       <p><strong>Category:</strong> ${escapeHtml(categoryLabel)}</p>
       <p><strong>Property:</strong> ${escapeHtml(address)}</p>
-      <p><strong>Contact:</strong> ${escapeHtml(request.details.customerName)} · ${escapeHtml(request.details.customerEmail)} · ${escapeHtml(request.details.customerPhone)}</p>
-      ${request.details.clientName ? `<p><strong>Client/agency:</strong> ${escapeHtml(request.details.clientName)}</p>` : ''}
-      ${request.details.clientReference ? `<p><strong>Client reference:</strong> ${escapeHtml(request.details.clientReference)}</p>` : ''}
-      ${request.details.notes ? `<p><strong>Instructions:</strong><br />${escapeHtml(request.details.notes)}</p>` : ''}
+      <p><strong>Contact:</strong> ${escapeHtml(request.requesterName)} · ${escapeHtml(request.requesterEmail)} · ${escapeHtml(request.requesterPhone)}</p>
+      ${request.clientId ? `<p><strong>Client/agency:</strong> ${escapeHtml(request.clientId)}</p>` : ''}
+      ${request.clientId ? `<p><strong>Client reference:</strong> ${escapeHtml(request.clientId)}</p>` : ''}
+      ${request.notes ? `<p><strong>Instructions:</strong><br />${escapeHtml(request.notes)}</p>` : ''}
       <p><strong>Scheduled fee:</strong> $${request.priceExGst} + GST</p>
     </div>
   `;
@@ -334,14 +334,14 @@ export async function sendDocumentRequestEmails(
 
   const [customer, internal] = await Promise.all([
     sendResendEmail({
-      to: [request.details.customerEmail],
-      subject: `ProInspect document request received – ${request.requestReference}`,
+      to: [request.requesterEmail],
+      subject: `ProInspect document request received – ${request.reference}`,
       html: customerHtml,
       text: customerText,
     }),
     sendResendEmail({
       to: [notifyTo],
-      subject: `New document request – ${request.requestReference}`,
+      subject: `New document request – ${request.reference}`,
       html: internalHtml,
       text: internalText,
     }),
