@@ -28,6 +28,8 @@ jobs:
         run: npm ci
       - name: Type check
         run: npm run lint
+      - name: Architecture freeze gate
+        run: npm run freeze:check
       - name: Build
         run: npm run build
       - name: Build production container image
