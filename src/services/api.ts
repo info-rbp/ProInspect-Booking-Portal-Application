@@ -464,6 +464,28 @@ export async function fetchAdminDocumentRequests(): Promise<DocumentRequestRecor
   return data.requests;
 }
 
+export async function updateAdminDocumentRequest(
+  requestId: string,
+  status: DocumentRequestRecord['status']
+): Promise<DocumentRequestRecord> {
+  const res = await adminFetch(
+    `/api/admin/document-requests/${encodeURIComponent(requestId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    }
+  );
+  const data = (await res.json()) as {
+    request?: DocumentRequestRecord;
+    error?: string;
+  };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Failed to update document request.');
+  }
+  return data.request;
+}
+
 export async function fetchAdminClientRequests(): Promise<ClientRequestSummary[]> {
   const res = await adminFetch('/api/admin/client-requests');
   if (!res.ok) throw new Error('Failed to load client requests.');
