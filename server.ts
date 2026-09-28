@@ -216,11 +216,10 @@ async function requireClient(req: Request, res: Response, next: NextFunction) {
       return res.status(401).json({ error: 'A verified client account is required.' });
     }
 
-    const profile = await ensureClientProfile(identity);
+    const context = await ensureClientContext(identity);
     res.locals.client = {
-      uid: identity.uid,
-      email: identity.email,
-      displayName: profile.displayName,
+      ...identity,
+      context,
     };
     return next();
   } catch (error) {
