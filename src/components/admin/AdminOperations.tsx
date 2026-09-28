@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Loader2, Plus, RefreshCw, UserRoundCog, Wrench } from 'lucide-react';
 import type { AdminTenantPortalSnapshot } from '../../types/tenant';
-import type { Contractor, OperationsQueueItem, WorkOrder, WorkOrderStatus } from '../../types/platform';
+import type { AuditEvent, Contractor, OperationsQueueItem, PaymentRecord, WorkOrder, WorkOrderStatus } from '../../types/platform';
 import {
   createAdminContractor,
   createAdminWorkOrder,
   fetchAdminOperations,
   fetchAdminTenantPortal,
+  updateAdminClientRequest,
+  updateAdminDocumentRequest,
+  updateAdminPayment,
+  updateAdminTenantRequest,
   updateAdminWorkOrder,
 } from '../../services/api';
 
@@ -16,6 +20,8 @@ export const AdminOperations:React.FC=()=>{
   const [queue,setQueue]=useState<OperationsQueueItem[]>([]);
   const [workOrders,setWorkOrders]=useState<WorkOrder[]>([]);
   const [contractors,setContractors]=useState<Contractor[]>([]);
+  const [payments,setPayments]=useState<PaymentRecord[]>([]);
+  const [auditEvents,setAuditEvents]=useState<AuditEvent[]>([]);
   const [snapshot,setSnapshot]=useState<AdminTenantPortalSnapshot|null>(null);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
@@ -30,7 +36,7 @@ export const AdminOperations:React.FC=()=>{
     setLoading(true);setError(null);
     try{
       const [ops,portal]=await Promise.all([fetchAdminOperations(),fetchAdminTenantPortal()]);
-      setQueue(ops.queue);setWorkOrders(ops.workOrders);setContractors(ops.contractors);setSnapshot(portal);
+      setQueue(ops.queue);setWorkOrders(ops.workOrders);setContractors(ops.contractors);setPayments(ops.payments);setAuditEvents(ops.auditEvents);setSnapshot(portal);
       if(!wo.propertyId&&portal.properties[0]) setWo(v=>({...v,propertyId:portal.properties[0].id}));
     }catch(e){setError(e instanceof Error?e.message:'Unable to load operations.');}
     finally{setLoading(false);}
@@ -41,6 +47,26 @@ export const AdminOperations:React.FC=()=>{
   const clientMap=useMemo(()=>new Map(snapshot?.clients.map(c=>[c.id,c])||[]),[snapshot]);
 
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);setError(null);setMessage(null);try{await fn();await load();}catch(e){setError(e instanceof Error?e.message:'Operation failed.');}finally{setBusy(false);}};
+
+  const updateQueueStatus=async(item:OperationsQueueItem,status:string)=>{
+    if(item.source==='client_request'){
+      await updateAdminClientRequest(item.id,{status:status as any});
+    }else if(item.source==='document_request'){
+      await updateAdminDocumentRequest(item.id,{status:status as any});
+    }else if(item.source==='tenant_request'){
+      await updateAdminTenantRequest(item.id,{status:status as any});
+    }else if(item.source==='work_order'){
+      await updateAdminWorkOrder(item.id,{status:status as WorkOrderStatus});
+    }
+  };
+
+  const queueStatuses=(item:OperationsQueueItem):string[]=>{
+    if(item.source==='client_request') return ['submitted','under_review','awaiting_client','approved','in_progress','completed','cancelled'];
+    if(item.source==='document_request') return ['submitted','under_review','awaiting_information','in_preparation','ready','completed','cancelled'];
+    if(item.source==='tenant_request') return ['submitted','under_review','action_required','approved','declined','in_progress','completed','closed'];
+    if(item.source==='work_order') return STATUSES;
+    return [];
+  };
 
   if(loading&&!snapshot)return <div className="rounded-xl border border-slate-200 bg-white p-10 flex justify-center gap-2 text-sm text-slate-600"><Loader2 className="w-5 h-5 animate-spin"/>Loading operations…</div>;
 
@@ -69,7 +95,7 @@ export const AdminOperations:React.FC=()=>{
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-500 uppercase"><tr><th className="text-left px-4 py-3">Reference</th><th className="text-left px-4 py-3">Type</th><th className="text-left px-4 py-3">Property</th><th className="text-left px-4 py-3">Priority</th><th className="text-left px-4 py-3">Status</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{queue.map(item=><tr key={item.source+item.id}><td className="px-4 py-3 font-mono font-bold text-[#1A2B4A]">{item.reference}</td><td className="px-4 py-3">{item.source.replaceAll('_',' ')}</td><td className="px-4 py-3">{item.propertyLabel||'—'}{item.clientName&&<div className="text-[10px] text-slate-400">{item.clientName}</div>}</td><td className="px-4 py-3"><span className={`font-bold uppercase ${['urgent','emergency'].includes(item.priority)?'text-rose-700':'text-slate-600'}`}>{item.priority}</span></td><td className="px-4 py-3">{item.status.replaceAll('_',' ')}</td></tr>)}{!queue.length&&<tr><td colSpan={5} className="p-10 text-center text-slate-500">No active operations items.</td></tr>}</tbody>
+          <tbody className="divide-y divide-slate-100">{queue.map(item=>{const options=queueStatuses(item);return <tr key={item.source+item.id}><td className="px-4 py-3 font-mono font-bold text-[#1A2B4A]">{item.reference}</td><td className="px-4 py-3">{item.source.replaceAll('_',' ')}</td><td className="px-4 py-3">{item.propertyLabel||'—'}{item.clientName&&<div className="text-[10px] text-slate-400">{item.clientName}</div>}</td><td className="px-4 py-3"><span className={`font-bold uppercase ${['urgent','emergency'].includes(item.priority)?'text-rose-700':'text-slate-600'}`}>{item.priority}</span></td><td className="px-4 py-3">{options.length?<select disabled={busy} value={item.status} onChange={e=>void run(async()=>{await updateQueueStatus(item,e.target.value);setMessage(`${item.reference} status updated.`);})} className="h-9 rounded-lg border border-slate-300 px-2 text-xs">{options.map(status=><option key={status} value={status}>{status.replaceAll('_',' ')}</option>)}</select>:item.status.replaceAll('_',' ')}</td></tr>})}{!queue.length&&<tr><td colSpan={5} className="p-10 text-center text-slate-500">No active operations items.</td></tr>}</tbody>
         </table>
       </div>
     </div>
@@ -85,6 +111,17 @@ export const AdminOperations:React.FC=()=>{
           </div>
         </div>
       </div>)}{!workOrders.length&&<div className="py-6 text-sm text-slate-500">No work orders yet.</div>}</div>
+    </div>
+
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-extrabold text-[#1A2B4A]">Payments</h3><p className="text-xs text-slate-500 mt-1">Fixed-fee and externally settled payment records.</p></div>
+        <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{payments.map(payment=><div key={payment.id} className="px-5 py-4 flex items-center justify-between gap-3"><div><div className="font-bold text-sm text-slate-800">{payment.description}</div><div className="text-xs text-slate-500">{payment.reference} · ${payment.totalAmount.toFixed(2)}</div></div><select disabled={busy} value={payment.status} onChange={e=>void run(async()=>{await updateAdminPayment(payment.id,e.target.value as PaymentRecord['status']);setMessage(`${payment.reference} payment updated.`);})} className="h-9 rounded-lg border border-slate-300 px-2 text-xs"><option value="pending">pending</option><option value="payment_required">payment required</option><option value="paid">paid</option><option value="failed">failed</option><option value="refunded">refunded</option><option value="waived">waived</option></select></div>)}{!payments.length&&<div className="p-8 text-sm text-center text-slate-500">No payments recorded.</div>}</div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100"><h3 className="font-extrabold text-[#1A2B4A]">Recent Audit History</h3><p className="text-xs text-slate-500 mt-1">Immutable operational events across the platform.</p></div>
+        <div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{auditEvents.map(event=><div key={event.id} className="px-5 py-3"><div className="text-sm font-bold text-slate-800">{event.summary}</div><div className="text-[11px] text-slate-500 mt-1">{event.entityType.replaceAll('_',' ')} · {new Date(event.createdAt).toLocaleString('en-AU')}</div></div>)}{!auditEvents.length&&<div className="p-8 text-sm text-center text-slate-500">No audit events recorded yet.</div>}</div>
+      </div>
     </div>
 
     {showWO&&snapshot&&<div className="fixed inset-0 z-50 bg-slate-950/50 p-4 overflow-y-auto"><div className="max-w-xl mx-auto my-8 rounded-2xl bg-white p-6">
