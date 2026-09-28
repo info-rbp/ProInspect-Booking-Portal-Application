@@ -955,6 +955,75 @@ export async function createClientUser(input: {
   return user;
 }
 
+export async function updateClientUserMembership(input: {
+  clientUserId: string;
+  clientId: string;
+  role?: 'owner' | 'admin' | 'member' | 'viewer';
+  revoke?: boolean;
+}): Promise<ClientUserRecord | null> {
+  const [userDoc, clientDoc] = await Promise.all([
+    adminDb.collection('clientUsers').doc(input.clientUserId).get(),
+    adminDb.collection('clients').doc(input.clientId).get(),
+  ]);
+  if (!userDoc.exists) return null;
+  if (!clientDoc.exists) throw new Error('CLIENT_NOT_FOUND');
+
+  const current = docWithId<ClientUserRecord>(userDoc);
+  if (!current.clientIds.includes(input.clientId)) {
+    throw new Error('CLIENT_MEMBERSHIP_NOT_FOUND');
+  }
+
+  const currentRole = current.clientRoles?.[input.clientId] || 'member';
+  const isRemovingOwner =
+    currentRole === 'owner' && (input.revoke || (input.role && input.role !== 'owner'));
+
+  if (isRemovingOwner) {
+    const members = await adminDb
+      .collection('clientUsers')
+      .where('clientIds', 'array-contains', input.clientId)
+      .get();
+    const ownerCount = members.docs
+      .map((doc) => docWithId<ClientUserRecord>(doc))
+      .filter(
+        (user) =>
+          user.active &&
+          (user.clientRoles?.[input.clientId] || 'member') === 'owner'
+      ).length;
+    if (ownerCount <= 1) throw new Error('LAST_CLIENT_OWNER');
+  }
+
+  const nextClientIds = input.revoke
+    ? current.clientIds.filter((clientId) => clientId !== input.clientId)
+    : current.clientIds;
+  const nextRoles = { ...(current.clientRoles || {}) };
+
+  if (input.revoke) {
+    delete nextRoles[input.clientId];
+  } else if (input.role) {
+    nextRoles[input.clientId] = input.role;
+  }
+
+  const updatedAt = nowIso();
+  const active = nextClientIds.length > 0 ? current.active : false;
+  await userDoc.ref.set(
+    {
+      clientIds: nextClientIds,
+      clientRoles: nextRoles,
+      active,
+      updatedAt,
+    },
+    { merge: true }
+  );
+
+  return {
+    ...current,
+    clientIds: nextClientIds,
+    clientRoles: nextRoles,
+    active,
+    updatedAt,
+  };
+}
+
 export async function findAndLinkClientUser(params: {
   uid: string;
   email: string;
