@@ -12,6 +12,13 @@ import type {
 } from '../types/booking';
 import type {
   AdminTenantPortalSnapshot,
+  ClientPortalDashboard,
+  ClientPropertyLink,
+  ClientPropertyRole,
+  ClientRecord,
+  ClientType,
+  ClientUserRecord,
+  PortalAudience,
   TenancyRecord,
   TenantDocument,
   TenantDocumentCategory,
@@ -402,6 +409,7 @@ export async function createAdminTenantProperty(input: {
   state: string;
   postcode: string;
   propertyType?: string;
+  primaryClientId?: string;
   clientName?: string;
   clientReference?: string;
 }): Promise<TenantProperty> {
@@ -553,4 +561,133 @@ export async function updateAdminTenantUser(
   const data = (await res.json()) as { tenant?: TenantUserRecord; error?: string };
   if (!res.ok || !data.tenant) throw new Error(data.error || 'Unable to update tenant access.');
   return data.tenant;
+}
+
+
+export async function createAdminClient(input: {
+  name: string;
+  clientType: ClientType;
+  email?: string;
+  phone?: string;
+  externalReference?: string;
+}): Promise<ClientRecord> {
+  const res = await adminFetch('/api/admin/clients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { client?: ClientRecord; error?: string };
+  if (!res.ok || !data.client) throw new Error(data.error || 'Unable to create client.');
+  return data.client;
+}
+
+export async function createAdminClientUser(input: {
+  email: string;
+  displayName: string;
+  phone?: string;
+  clientIds: string[];
+}): Promise<{ clientUser: ClientUserRecord; portalUrl: string }> {
+  const res = await adminFetch('/api/admin/client-users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as {
+    clientUser?: ClientUserRecord;
+    portalUrl?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.clientUser) throw new Error(data.error || 'Unable to create client portal user.');
+  return { clientUser: data.clientUser, portalUrl: data.portalUrl || '/client' };
+}
+
+export async function linkAdminClientProperty(input: {
+  clientId: string;
+  propertyId: string;
+  role: ClientPropertyRole;
+  primary?: boolean;
+}): Promise<ClientPropertyLink> {
+  const res = await adminFetch('/api/admin/client-property-links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { link?: ClientPropertyLink; error?: string };
+  if (!res.ok || !data.link) throw new Error(data.error || 'Unable to link client to property.');
+  return data.link;
+}
+
+export async function uploadAdminPropertyDocument(params: {
+  propertyId: string;
+  tenancyId?: string;
+  title: string;
+  category: TenantDocumentCategory;
+  clientIds?: string[];
+  audiences: PortalAudience[];
+  file: File;
+}): Promise<TenantDocument> {
+  const headers = new Headers({
+    'Content-Type': params.file.type || 'application/octet-stream',
+    'X-File-Name': params.file.name,
+    'X-Document-Title': params.title,
+    'X-Document-Category': params.category,
+    'X-Document-Audiences': params.audiences.join(','),
+  });
+
+  if (params.tenancyId) headers.set('X-Tenancy-Id', params.tenancyId);
+  if (params.clientIds?.length) headers.set('X-Client-Ids', params.clientIds.join(','));
+
+  const res = await adminFetch(
+    `/api/admin/property-documents/${encodeURIComponent(params.propertyId)}`,
+    {
+      method: 'POST',
+      headers,
+      body: params.file,
+    }
+  );
+  const data = (await res.json()) as { document?: TenantDocument; error?: string };
+  if (!res.ok || !data.document) throw new Error(data.error || 'Unable to upload property document.');
+  return data.document;
+}
+
+async function clientFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const idToken = await getCurrentIdToken();
+  if (!idToken) throw new Error('Client authentication is required.');
+
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${idToken}`);
+  return fetch(input, { ...init, headers });
+}
+
+export async function verifyClientSession(): Promise<{
+  clientUser: Pick<ClientUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
+}> {
+  const res = await clientFetch('/api/client/session');
+  const data = (await res.json()) as {
+    clientUser?: Pick<ClientUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
+    error?: string;
+  };
+  if (!res.ok || !data.clientUser) {
+    throw new Error(data.error || 'This account is not authorised for the client portal.');
+  }
+  return { clientUser: data.clientUser };
+}
+
+export async function fetchClientDashboard(): Promise<ClientPortalDashboard> {
+  const res = await clientFetch('/api/client/dashboard');
+  const data = (await res.json()) as { dashboard?: ClientPortalDashboard; error?: string };
+  if (!res.ok || !data.dashboard) throw new Error(data.error || 'Unable to load the client portal.');
+  return data.dashboard;
+}
+
+export async function getClientDocumentDownloadUrl(documentId: string): Promise<string> {
+  const res = await clientFetch(
+    `/api/client/documents/${encodeURIComponent(documentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open the document.');
+  return data.url;
 }
