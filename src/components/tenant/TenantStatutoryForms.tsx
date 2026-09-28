@@ -33,6 +33,7 @@ import {
   uploadSensitiveTenantEvidence,
   uploadTenantFormAttachment,
 } from '../../services/api';
+import { logoutTenant } from '../../services/firebase';
 
 type Props = {
   tenancies: TenantTenancyView[];
@@ -467,7 +468,11 @@ export const TenantStatutoryForms: React.FC<Props> = ({ tenancies, pastTenancies
                 </div>
                 <button
                   type="button"
-                  onClick={() => window.location.assign('/')}
+                  onClick={async () => {
+                    reset();
+                    await logoutTenant().catch(() => undefined);
+                    window.location.replace('/');
+                  }}
                   className="mt-3 text-xs font-black text-slate-800 underline"
                 >
                   Quick exit
