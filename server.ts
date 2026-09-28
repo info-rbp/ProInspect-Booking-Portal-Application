@@ -105,6 +105,7 @@ import {
   getTenantRequestForUser,
   getTenancyById,
   listAdminTenantPortal,
+  updateClientUserMembership,
   updateTenantRequestAdmin,
   updateTenantUserAdmin,
   updateTenancyAdmin,
@@ -2424,6 +2425,74 @@ app.post('/api/client/team-users', clientRateLimit, requireClient, async (req, r
     }
     console.error('Client team user creation failed:', error);
     return res.status(500).json({ error: 'Unable to add the Client Portal user.' });
+  }
+});
+
+app.patch('/api/client/team-users/:id/membership', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const requester = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !requesterRole || !['owner', 'admin'].includes(requesterRole)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can manage portal access.' });
+    }
+
+    const targetDoc = await adminDb.collection('clientUsers').doc(req.params.id).get();
+    if (!targetDoc.exists) return res.status(404).json({ error: 'Client portal user not found.' });
+    const target = { ...(targetDoc.data() as ClientUserRecord), id: targetDoc.id };
+    if (!target.clientIds.includes(clientId)) {
+      return res.status(404).json({ error: 'That user is not linked to this client account.' });
+    }
+
+    const currentTargetRole = target.clientRoles?.[clientId] || 'member';
+    if (requesterRole !== 'owner' && currentTargetRole === 'owner') {
+      return res.status(403).json({ error: 'Only a client owner can change another owner’s access.' });
+    }
+
+    const revoke = req.body?.revoke === true;
+    const rawRole = normalizeText(req.body?.role, 20);
+    const role = rawRole ? rawRole as 'owner' | 'admin' | 'member' | 'viewer' : undefined;
+    if (!revoke && (!role || !['owner', 'admin', 'member', 'viewer'].includes(role))) {
+      return res.status(400).json({ error: 'Select a valid client portal role.' });
+    }
+    if (role === 'owner' && requesterRole !== 'owner') {
+      return res.status(403).json({ error: 'Only a client owner can grant owner access.' });
+    }
+
+    const updated = await updateClientUserMembership({
+      clientUserId: req.params.id,
+      clientId,
+      role,
+      revoke,
+    });
+    if (!updated) return res.status(404).json({ error: 'Client portal user not found.' });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: clientId,
+      action: revoke ? 'portal_user_revoked' : 'portal_user_role_changed',
+      summary: revoke
+        ? `${target.displayName} was removed from the Client Portal account.`
+        : `${target.displayName} was changed from ${currentTargetRole} to ${role}.`,
+      actor: { type: 'client', id: requester.id, email: requester.email },
+      clientId,
+      metadata: {
+        clientUserId: target.id,
+        previousRole: currentTargetRole,
+        ...(role ? { role } : {}),
+      },
+    });
+
+    return res.json({ success: true, clientUser: updated });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'LAST_CLIENT_OWNER') {
+      return res.status(409).json({ error: 'This is the last active owner. Assign another owner before changing or removing this access.' });
+    }
+    if (error instanceof Error && ['CLIENT_NOT_FOUND', 'CLIENT_MEMBERSHIP_NOT_FOUND'].includes(error.message)) {
+      return res.status(404).json({ error: 'Client account membership not found.' });
+    }
+    console.error('Client membership update failed:', error);
+    return res.status(500).json({ error: 'Unable to update Client Portal access.' });
   }
 });
 
