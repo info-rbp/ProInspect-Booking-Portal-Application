@@ -22,6 +22,11 @@ import type {
   ClientOrganisationRole,
   ClientPropertyInput,
 } from './src/types/clientPortal.js';
+import type {
+  DocumentRequestDetails,
+  DocumentRequestRecord,
+  PublicDocumentRequestSummary,
+} from './src/types/documentRequest.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -34,6 +39,8 @@ import {
   getService,
   getSettings,
   listBookingsWithAccessSecrets,
+  listDocumentProducts,
+  getDocumentProduct,
   listServices,
   activateClientOrganisation,
   completeClientOnboarding,
@@ -58,9 +65,12 @@ import {
   updateClientRequest,
   updateClientRequestForAdmin,
   newBookingId,
+  newDocumentRequestId,
+  documentRequestReferenceExists,
   releaseScheduleLocks,
   reorderServices,
   saveBooking,
+  saveDocumentRequest,
   ScheduleLockConflictError,
   updateBooking,
   updateService,
@@ -88,6 +98,7 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendDocumentRequestEmails,
 } from './src/server/email.js';
 import {
   openClientFileStream,
@@ -96,6 +107,10 @@ import {
   validateClientUpload,
 } from './src/server/clientFiles.js';
 import { generateDocumentDraft } from './src/server/documentGenerator.js';
+import {
+  isValidAustralianPhone,
+  isValidAustralianPostcode,
+} from './src/utils/australianValidation.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -171,6 +186,12 @@ const manageRateLimit = rateLimit({
   windowMs: 15 * 60_000,
   max: 30,
   prefix: 'manage',
+});
+
+const documentRequestRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  prefix: 'document-request',
 });
 
 function parseAdminEmails(): Set<string> {
