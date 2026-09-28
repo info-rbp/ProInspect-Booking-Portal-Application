@@ -173,7 +173,13 @@ New lockbox codes and security-alarm details are removed from the normal
 `bookingAccessSecrets/{bookingId}`. Authenticated staff responses decrypt and
 restore those details only inside the operations portal.
 
-Do not enable or use lockbox/alarm booking paths in production until
+The same encryption key also protects sensitive guided document-request answers,
+including bank-account details and protected workflow metadata. Those answers are
+removed from the normal `documentRequests` record and stored separately in
+`documentRequestSecrets/{requestId}` with a distinct authenticated-encryption context.
+
+Do not enable document workflows that collect sensitive financial or protected
+information, or lockbox/alarm booking paths, until
 `ACCESS_DATA_ENCRYPTION_KEY` is configured.
 
 ### Booking confirmation email
@@ -214,6 +220,7 @@ shown on the confirmation screen.
   "calendarConfigured": true,
   "bookingEmailConfigured": true,
   "sensitiveAccessEncryptionConfigured": true,
+  "documentRequestEncryptionConfigured": true,
   "addressValidationMode": "required",
   "timezone": "Australia/Perth"
 }
