@@ -13,6 +13,7 @@ import type {
 import type {
   DocumentProduct,
   DocumentRequestDetails,
+  DocumentWorkflowData,
   PublicDocumentRequestSummary,
 } from '../types/documentRequest';
 import { getAdminIdToken } from './firebase';
@@ -146,6 +147,7 @@ export async function submitDocumentRequest(payload: {
   documentId: string;
   documentCategory: ServiceCategory;
   details: DocumentRequestDetails;
+  workflow: DocumentWorkflowData;
 }): Promise<{
   success: boolean;
   request: PublicDocumentRequestSummary;
