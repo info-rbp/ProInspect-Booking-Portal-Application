@@ -98,6 +98,7 @@ import {
 import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
+  sendClientPortalInvitationEmail,
   sendDocumentRequestEmails,
 } from './src/server/email.js';
 import {
@@ -1462,12 +1463,33 @@ app.post('/api/client/organisation/members', requireClient, async (req, res) => 
       return res.status(400).json({ error: 'Enter a valid email and member role.' });
     }
 
+    const context = clientContext(res);
     const membership = await inviteClientOrganisationMember({
-      context: clientContext(res),
+      context,
       email,
       role,
     });
-    return res.status(201).json({ success: true, membership });
+
+    const invitationEmail = await sendClientPortalInvitationEmail({
+      email,
+      organisationName: context.organisation.name,
+      invitedByName: context.profile.displayName,
+      role,
+      signInUrl: `${publicBaseUrl(req)}/signin`,
+    });
+
+    if (invitationEmail.status === 'failed') {
+      console.error(
+        `Client Portal invitation email failed for ${email}:`,
+        invitationEmail.error
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      membership,
+      invitationEmailStatus: invitationEmail.status,
+    });
   } catch (error) {
     if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_ADMIN_REQUIRED') {
       return res.status(403).json({ error: 'Owner or admin access is required to invite members.' });
