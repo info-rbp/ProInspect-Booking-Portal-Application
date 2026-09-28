@@ -41,6 +41,13 @@ import type {
   UnifiedClientDashboard,
   WorkOrder,
 } from '../types/platform';
+import type {
+  SensitiveTenantFormRequest,
+  SensitiveTenantFormStatus,
+  TenantFormRequest,
+  TenantFormStatus,
+  TenantFormsDashboard,
+} from '../types/tenantForms';
 import { getAdminIdToken, getCurrentIdToken } from './firebase';
 
 type ApiErrorResponse = {
@@ -340,6 +347,129 @@ export async function fetchTenantDashboard(): Promise<TenantPortalDashboard> {
     throw new Error(data.error || 'Unable to load the tenant portal.');
   }
   return data.dashboard;
+}
+
+export async function fetchTenantFormsDashboard(): Promise<TenantFormsDashboard> {
+  const res = await tenantFetch('/api/tenant/forms');
+  const data = (await res.json()) as { dashboard?: TenantFormsDashboard; error?: string };
+  if (!res.ok || !data.dashboard) {
+    throw new Error(data.error || 'Unable to load tenancy forms.');
+  }
+  return data.dashboard;
+}
+
+export async function submitTenantFormRequest(input: {
+  tenancyId: string;
+  formDefinitionId: string;
+  payload: Record<string, unknown>;
+}): Promise<TenantFormRequest> {
+  const res = await tenantFetch('/api/tenant/forms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: TenantFormRequest; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Unable to submit tenancy form.');
+  }
+  return data.request;
+}
+
+export async function uploadTenantFormAttachment(
+  requestId: string,
+  file: File
+): Promise<TenantFormRequest> {
+  const res = await tenantFetch(
+    `/api/tenant/forms/${encodeURIComponent(requestId)}/attachments`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': file.name,
+      },
+      body: file,
+    }
+  );
+  const data = (await res.json()) as { request?: TenantFormRequest; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Unable to upload attachment.');
+  }
+  return data.request;
+}
+
+export async function getTenantFormAttachmentDownloadUrl(
+  requestId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await tenantFetch(
+    `/api/tenant/forms/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open attachment.');
+  return data.url;
+}
+
+export async function createSensitiveTenantFormDraft(input: {
+  tenancyId: string;
+  formDefinitionId: string;
+  payload: Record<string, unknown>;
+}): Promise<SensitiveTenantFormRequest> {
+  const res = await tenantFetch('/api/tenant/forms-sensitive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: SensitiveTenantFormRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to start private tenancy workflow.');
+  return data.request;
+}
+
+export async function uploadSensitiveTenantEvidence(
+  requestId: string,
+  file: File
+): Promise<void> {
+  const res = await tenantFetch(
+    `/api/tenant/forms-sensitive/${encodeURIComponent(requestId)}/evidence`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': file.name,
+      },
+      body: file,
+    }
+  );
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || 'Unable to upload private evidence.');
+  }
+}
+
+export async function submitSensitiveTenantFormWorkflow(
+  requestId: string
+): Promise<Pick<SensitiveTenantFormRequest, 'id' | 'reference' | 'formName' | 'status' | 'submittedAt'>> {
+  const res = await tenantFetch(
+    `/api/tenant/forms-sensitive/${encodeURIComponent(requestId)}/submit`,
+    { method: 'POST' }
+  );
+  const data = (await res.json()) as {
+    request?: Pick<SensitiveTenantFormRequest, 'id' | 'reference' | 'formName' | 'status' | 'submittedAt'>;
+    error?: string;
+  };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to submit private tenancy workflow.');
+  return data.request;
+}
+
+export async function getSensitiveTenantEvidenceDownloadUrl(
+  requestId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await tenantFetch(
+    `/api/tenant/forms-sensitive/${encodeURIComponent(requestId)}/evidence/${encodeURIComponent(attachmentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open private evidence.');
+  return data.url;
 }
 
 export async function submitTenantRequest(
@@ -954,4 +1084,79 @@ export async function createClientTeamUser(input: {
   };
   if (!res.ok || !data.clientUser) throw new Error(data.error || 'Unable to add portal user.');
   return { clientUser: data.clientUser, portalUrl: data.portalUrl || '/client' };
+}
+
+
+export async function fetchAdminTenantForms(): Promise<TenantFormRequest[]> {
+  const res = await adminFetch('/api/admin/tenant-forms');
+  const data = (await res.json()) as { requests?: TenantFormRequest[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Unable to load tenant form requests.');
+  return data.requests || [];
+}
+
+export async function updateAdminTenantForm(
+  id: string,
+  changes: {
+    status?: TenantFormStatus;
+    adminNotes?: string;
+    serviceMethod?: TenantFormRequest['serviceMethod'];
+    generatedDocumentId?: string;
+    finalDocumentId?: string;
+  }
+): Promise<TenantFormRequest> {
+  const res = await adminFetch(`/api/admin/tenant-forms/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+  const data = (await res.json()) as { request?: TenantFormRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to update tenant form request.');
+  return data.request;
+}
+
+export async function fetchAdminSensitiveTenantForms(): Promise<Array<{
+  id: string;
+  reference: string;
+  formName: string;
+  formCode: string;
+  tenantUserId: string;
+  tenancyId: string;
+  propertyId: string;
+  status: SensitiveTenantFormStatus;
+  submittedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}>> {
+  const res = await adminFetch('/api/admin/sensitive-tenant-forms');
+  if (res.status === 403) return [];
+  const data = (await res.json()) as { requests?: any[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Unable to load restricted tenancy workflows.');
+  return data.requests || [];
+}
+
+export async function updateAdminSensitiveTenantForm(
+  id: string,
+  changes: { status?: SensitiveTenantFormStatus; restrictedNotes?: string }
+): Promise<void> {
+  const res = await adminFetch(`/api/admin/sensitive-tenant-forms/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || 'Unable to update restricted tenancy workflow.');
+  }
+}
+
+export async function getAdminSensitiveEvidenceDownloadUrl(
+  requestId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await adminFetch(
+    `/api/admin/sensitive-tenant-forms/${encodeURIComponent(requestId)}/evidence/${encodeURIComponent(attachmentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error || 'Unable to open restricted evidence.');
+  return data.url;
 }
