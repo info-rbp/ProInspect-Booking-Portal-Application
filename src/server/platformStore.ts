@@ -332,6 +332,25 @@ export async function respondApproval(params: {
         },
         { merge: true }
       );
+
+      const tenantForm = tenantFormDoc.data() as {
+        tenantUserId?: string;
+        clientId?: string;
+        propertyId?: string;
+        reference?: string;
+        formName?: string;
+      };
+      if (tenantForm.tenantUserId) {
+        await createNotification({
+          audience: 'tenant',
+          tenantUserId: tenantForm.tenantUserId,
+          clientId: tenantForm.clientId,
+          propertyId: tenantForm.propertyId,
+          title: 'Tenancy form updated',
+          message: `${tenantForm.reference || 'Your tenancy form'} is now ${mappedStatus.replaceAll('_', ' ')}.`,
+          link: '/tenant',
+        });
+      }
     }
   }
 
