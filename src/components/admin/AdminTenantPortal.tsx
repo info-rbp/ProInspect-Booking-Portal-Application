@@ -334,6 +334,7 @@ export const AdminTenantPortal: React.FC = () => {
       )}
 
       {section === 'onboarding' && (
+        <>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <form
             className="rounded-xl border border-slate-200 bg-white p-5 space-y-3"
@@ -531,6 +532,7 @@ export const AdminTenantPortal: React.FC = () => {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {section === 'documents' && (
