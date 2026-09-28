@@ -440,8 +440,9 @@ export async function listBookings(): Promise<BookingRecord[]> {
   return snapshot.docs.map((doc) => ({ ...(doc.data() as BookingRecord), id: doc.id }));
 }
 
-export async function listBookingsWithAccessSecrets(): Promise<BookingRecord[]> {
-  const bookings = await listBookings();
+export async function restoreAccessSecretsForBookings(
+  bookings: BookingRecord[]
+): Promise<BookingRecord[]> {
   if (bookings.length === 0) return bookings;
 
   const refs = bookings.map((booking) =>
@@ -470,6 +471,10 @@ export async function listBookingsWithAccessSecrets(): Promise<BookingRecord[]> 
       return booking;
     }
   });
+}
+
+export async function listBookingsWithAccessSecrets(): Promise<BookingRecord[]> {
+  return restoreAccessSecretsForBookings(await listBookings());
 }
 
 export async function getBooking(bookingId: string): Promise<BookingRecord | null> {
