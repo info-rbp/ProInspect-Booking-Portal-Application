@@ -1,0 +1,135 @@
+name: Stage 4 reviewed production implementation
+on:
+  push:
+    branches: [stage4/reviewed-production-implementation]
+    paths: [.github/workflows/stage4-reviewed-publication.yml]
+permissions:
+  contents: write
+jobs:
+  verify-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Reconstruct exact reviewed source without cloud credentials
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,lzma,subprocess,shutil
+          from pathlib import Path
+          root=Path.cwd()
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='9334937cc03890b01c7018026b452acaf24c0dc0'
+          raw=lzma.decompress(b''.join((root/f'.stage4-reviewed/part{i}').read_bytes() for i in range(7)))
+          assert hashlib.sha256(raw).hexdigest()=='24f140428de544f975c47a198a770ce9cc54b7e616d798092335e290cffa0bff'
+          Path('/tmp/stage4-reviewed.json').write_bytes(raw)
+          prepared=[]
+          for item in json.loads(raw):
+              path=root/item['path']
+              assert path.resolve().is_relative_to(root) and '.git' not in path.parts
+              old=path.read_bytes() if path.exists() else None
+              assert (hashlib.sha256(old).hexdigest() if old is not None else None)==item['before'],item['path']
+              base=old or b''
+              if item.get('basePath'):
+                  base=subprocess.check_output(['git','show','9334937cc03890b01c7018026b452acaf24c0dc0:'+item['basePath']])
+                  assert hashlib.sha256(base).hexdigest()==item['baseHash']
+              result=None
+              if item['after'] is not None:
+                  lines=base.decode().splitlines(keepends=True)
+                  for start,end,insert in reversed(item['edits']):lines[start:end]=insert
+                  result=''.join(lines).encode()
+                  assert hashlib.sha256(result).hexdigest()==item['after'],item['path']
+              prepared.append((path,result))
+          for path,result in prepared:
+              if result is None:path.unlink()
+              else:
+                  path.parent.mkdir(parents=True,exist_ok=True)
+                  path.write_bytes(result)
+          shutil.rmtree(root/'.stage4-reviewed')
+          (root/'.github/workflows/stage4-reviewed-publication.yml').unlink()
+          print('28 reviewed file changes reconstructed with exact preimage and postimage hashes.')
+          PY
+          git diff --check
+      - name: Locked installation and runtime dependency audit
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+      - name: Source and policy checks
+        run: |
+          npm run lint
+          npm run freeze:check
+          npm run stage2:check
+          npm run stage3:check
+          npm run stage4:check
+          npm run stage3:test:controls
+          npm run stage4:test:controls
+          npm run stage4:test
+      - name: Terraform validation and mocked staging/production plans
+        run: |
+          terraform fmt -check -recursive infrastructure
+          terraform -chdir=infrastructure init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infrastructure validate
+          terraform -chdir=infrastructure test -no-color
+      - name: Original migration dry-run immutability
+        env:
+          FIREBASE_PROJECT_ID: demo-platform-stage2
+          GCLOUD_PROJECT: demo-platform-stage2
+          FIRESTORE_DATABASE_ID: '(default)'
+        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-platform-stage2 --config firebase.ci.json 'npm run test:migration-preflight'
+      - name: Atomic Firestore migration and integration regressions
+        env:
+          FIREBASE_PROJECT_ID: demo-stage3-atomic
+          GCLOUD_PROJECT: demo-stage3-atomic
+          FIRESTORE_DATABASE_ID: '(default)'
+        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-stage3-atomic --config firebase.ci.json 'npm run stage3:test'
+      - name: Production application and container builds
+        run: |
+          npm run build
+          docker build -t proinspect-stage4:review .
+      - name: Publish non-workflow Git objects only; never update any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os,urllib.request
+          from pathlib import Path
+          repo=os.environ['GITHUB_REPOSITORY']
+          assert repo=='info-rbp/ProInspect-Booking-Portal-Application'
+          raw=Path('/tmp/stage4-reviewed.json').read_bytes()
+          entries=[]
+          for item in json.loads(raw):
+              path=Path(item['path'])
+              if str(path).startswith('.github/workflows/'):continue
+              data=path.read_bytes() if path.exists() else None
+              assert (hashlib.sha256(data).hexdigest() if data is not None else None)==item['after'],str(path)
+              entry={'path':str(path),'mode':'100644','type':'blob'}
+              if data is None:entry['sha']=None
+              else:entry['content']=data.decode()
+              entries.append(entry)
+          request=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/trees',method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},data=json.dumps({'base_tree':'45c8e085639279a2e9975189f40020939ad3cd63','tree':entries}).encode())
+          with urllib.request.urlopen(request,timeout=60) as response:tree=json.load(response)
+          evidence={'schemaVersion':1,'status':'passed','baseSha':'9334937cc03890b01c7018026b452acaf24c0dc0','nonWorkflowTreeSha':tree['sha'],'reviewedDeltaSha256':hashlib.sha256(raw).hexdigest(),'productionTouched':False,'branchUpdated':False,'note':'Workflow changes must be applied through the separately authorized repository connector, then permanent CI must pass.'}
+          Path('/tmp/stage4-reviewed-tree.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          print(json.dumps(evidence,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage4-reviewed-tree
+          path: /tmp/stage4-reviewed-tree.json
+          retention-days: 14
+          if-no-files-found: error
