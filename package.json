@@ -11,7 +11,10 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "container:build": "docker build -t proinspect-booking-portal .",
-    "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs"
+    "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs",
+    "migrate:portal:dry": "tsx scripts/migrate-unified-portal.ts",
+    "migrate:portal": "tsx scripts/migrate-unified-portal.ts --apply",
+    "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
