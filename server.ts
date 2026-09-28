@@ -1230,11 +1230,12 @@ app.get('/api/document-products', async (_req, res) => {
 
 app.post('/api/document-requests', documentRequestRateLimit, async (req, res) => {
   try {
-    const { documentId, documentCategory, details } = req.body || {};
+    const { documentId, documentCategory, details, workflow } = req.body || {};
 
-    if (!documentId || !documentCategory || !details) {
+    if (!documentId || !documentCategory || !details || !workflow) {
       return res.status(400).json({
-        error: 'Select a document and provide the required request details.',
+        error:
+          'Select a document and complete the required document workflow.',
       });
     }
 
@@ -1251,20 +1252,63 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     if (!product.categories.includes(documentCategory)) {
       return res.status(400).json({
-        error: 'The selected document is not available for that property category.',
+        error:
+          'The selected document is not available for that property category.',
+      });
+    }
+
+    const definition = getDocumentWorkflowDefinition(product.id);
+    if (!definition) {
+      return res.status(503).json({
+        error:
+          'The guided workflow for this document is not available. Please contact ProInspect.',
       });
     }
 
     const detailValidation = sanitizeDocumentRequestDetails(details);
     if (!detailValidation.details) {
       return res.status(400).json({
-        error: detailValidation.error || 'Valid document request details are required.',
+        error:
+          detailValidation.error ||
+          'Valid document request details are required.',
       });
+    }
+
+    const workflowValidation = sanitizeDocumentWorkflow(
+      workflow,
+      definition
+    );
+    if (!workflowValidation.workflow) {
+      return res.status(400).json({
+        error:
+          workflowValidation.error ||
+          'Complete the required document-specific information.',
+      });
+    }
+
+    const requestId = newDocumentRequestId();
+    let encryptedSecrets;
+
+    if (
+      workflowValidation.sensitiveAnswers &&
+      Object.keys(workflowValidation.sensitiveAnswers).length > 0
+    ) {
+      if (!documentRequestEncryptionIsConfigured()) {
+        return res.status(503).json({
+          error:
+            'Secure storage for sensitive document details is temporarily unavailable. Please try again shortly.',
+        });
+      }
+
+      encryptedSecrets = encryptDocumentRequestSecrets(
+        requestId,
+        workflowValidation.sensitiveAnswers
+      );
     }
 
     const now = new Date().toISOString();
     const request: DocumentRequestRecord = {
-      id: newDocumentRequestId(),
+      id: requestId,
       requestReference: await generateDocumentRequestReference(),
       documentId: product.id,
       documentName: product.formCode
@@ -1273,12 +1317,13 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
       documentCategory,
       priceExGst: product.priceExGst,
       details: detailValidation.details,
+      workflow: workflowValidation.workflow,
       status: 'submitted',
       createdAt: now,
       updatedAt: now,
     };
 
-    await saveDocumentRequest(request);
+    await saveDocumentRequest(request, encryptedSecrets);
 
     const emailResult = await sendDocumentRequestEmails(request);
     if (emailResult.customer.status === 'failed') {
@@ -1305,7 +1350,8 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
   } catch (error) {
     console.error('Document request creation failed:', error);
     return res.status(500).json({
-      error: 'The document request could not be submitted. Please try again.',
+      error:
+        'The document request could not be submitted. Please try again.',
     });
   }
 });
