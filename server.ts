@@ -1813,6 +1813,9 @@ app.post('/api/tenant/forms', tenantWriteRateLimit, requireTenant, async (req, r
     if (error instanceof Error && ['PCR_DOCUMENT_NOT_FOUND','PCR_DOCUMENT_NOT_AUTHORISED'].includes(error.message)) {
       return res.status(400).json({ error: 'Select a valid tenant-visible Property Condition Report.' });
     }
+    if (error instanceof Error && error.message === 'BOND_DISTRIBUTION_MISMATCH') {
+      return res.status(400).json({ error: 'The proposed bond payments must equal the total bond amount.' });
+    }
     console.error('Tenant form creation failed:', error);
     return res.status(500).json({ error: 'Unable to submit the tenancy form.' });
   }
@@ -1916,6 +1919,9 @@ app.post('/api/tenant/forms-sensitive', tenantWriteRateLimit, requireTenant, asy
     }
     if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
       return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'FAMILY_VIOLENCE_NOTICE_TOO_SHORT') {
+      return res.status(400).json({ error: 'The proposed termination date must allow at least 7 days from submission. Restricted staff will verify service timing.' });
     }
     console.error('Sensitive tenant form draft failed:', error);
     return res.status(500).json({ error: 'Unable to start the private tenancy workflow.' });
