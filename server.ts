@@ -27,6 +27,9 @@ import {
   getSettings,
   listBookingsWithAccessSecrets,
   listServices,
+  getClientPortalDashboard,
+  ensureClientProfile,
+  linkBookingToClient,
   newBookingId,
   releaseScheduleLocks,
   reorderServices,
@@ -149,26 +152,81 @@ function parseAdminEmails(): Set<string> {
   ]);
 }
 
+async function verifiedFirebaseIdentity(req: Request): Promise<{
+  uid: string;
+  email: string;
+  displayName?: string;
+} | null> {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+
+  const idToken = authHeader.slice(7).trim();
+  const decoded = await adminAuth.verifyIdToken(idToken, true);
+  const email = (decoded.email || '').trim().toLowerCase();
+
+  if (!email || decoded.email_verified !== true) {
+    return null;
+  }
+
+  return {
+    uid: decoded.uid,
+    email,
+    displayName:
+      typeof decoded.name === 'string' && decoded.name.trim()
+        ? decoded.name.trim()
+        : undefined,
+  };
+}
+
+async function requireClient(req: Request, res: Response, next: NextFunction) {
+  try {
+    const identity = await verifiedFirebaseIdentity(req);
+    if (!identity) {
+      return res.status(401).json({ error: 'A verified client account is required.' });
+    }
+
+    const profile = await ensureClientProfile(identity);
+    res.locals.client = {
+      uid: identity.uid,
+      email: identity.email,
+      displayName: profile.displayName,
+    };
+    return next();
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_ACCOUNT_DISABLED') {
+      return res.status(403).json({ error: 'This client portal account has been disabled.' });
+    }
+
+    console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
+async function optionalClientIdentity(req: Request): Promise<{
+  uid: string;
+  email: string;
+  displayName?: string;
+} | null> {
+  try {
+    return await verifiedFirebaseIdentity(req);
+  } catch {
+    return null;
+  }
+}
+
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
+    const identity = await verifiedFirebaseIdentity(req);
+    if (!identity) {
       return res.status(401).json({ error: 'Administrator authentication is required.' });
     }
 
-    const idToken = authHeader.slice(7).trim();
-    const decoded = await adminAuth.verifyIdToken(idToken, true);
-    const email = (decoded.email || '').trim().toLowerCase();
-
-    if (!email || decoded.email_verified !== true) {
-      return res.status(403).json({ error: 'A verified administrator account is required.' });
-    }
-
+    const { uid, email } = identity;
     const configuredAdmins = parseAdminEmails();
     let authorised = configuredAdmins.has(email);
 
     if (!authorised) {
-      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
+      const adminUser = await adminDb.collection('adminUsers').doc(uid).get();
       const data = adminUser.exists ? adminUser.data() : null;
       authorised =
         Boolean(data) &&
@@ -180,7 +238,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
     }
 
-    res.locals.admin = { uid: decoded.uid, email };
+    res.locals.admin = { uid, email };
     return next();
   } catch (error) {
     console.error('Admin authentication failed:', error);
@@ -760,6 +818,26 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
   }
 });
 
+app.get('/api/client/session', requireClient, (req, res) => {
+  return res.json({ authorised: true });
+});
+
+app.get('/api/client/dashboard', requireClient, async (_req, res) => {
+  try {
+    const client = res.locals.client as {
+      uid: string;
+      email: string;
+      displayName?: string;
+    };
+
+    const dashboard = await getClientPortalDashboard(client);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Client portal dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the client portal.' });
+  }
+});
+
 app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
   let calendarEventId: string | undefined;
   let lockedBookingId: string | null = null;
@@ -995,6 +1073,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
+    const authenticatedClient = await optionalClientIdentity(req);
 
     const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
@@ -1023,6 +1102,20 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       createdAt: now,
       updatedAt: now,
     };
+
+    if (
+      authenticatedClient &&
+      authenticatedClient.email === validatedProperty.customerEmail
+    ) {
+      await ensureClientProfile(authenticatedClient);
+      const clientLink = await linkBookingToClient({
+        uid: authenticatedClient.uid,
+        email: authenticatedClient.email,
+        booking,
+      });
+      booking.clientUid = clientLink.clientUid;
+      booking.propertyId = clientLink.propertyId;
+    }
 
     let encryptedAccessSecrets;
     if (accessValidation.secrets) {
