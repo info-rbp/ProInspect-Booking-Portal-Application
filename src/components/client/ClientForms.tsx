@@ -49,10 +49,12 @@ function PropertyFields({
   value: ClientPropertyInput;
   onChange: (value: ClientPropertyInput) => void;
 }) {
-  const set = <K extends keyof ClientPropertyInput>(
+  function set<K extends keyof ClientPropertyInput>(
     key: K,
     next: ClientPropertyInput[K]
-  ) => onChange({ ...value, [key]: next });
+  ) {
+    onChange({ ...value, [key]: next });
+  }
 
   const toggleCategory = (category: ServiceCategory) => {
     const categories = value.categories.includes(category)
