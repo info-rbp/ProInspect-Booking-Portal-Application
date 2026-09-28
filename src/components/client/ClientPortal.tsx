@@ -12,6 +12,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { UnifiedClientDashboard } from '../../types/platform';
+import { ClientOnboarding } from './ClientOnboarding';
 import {
   createClientPropertySelf,
   createClientRequest,
@@ -41,6 +42,7 @@ export const ClientPortal: React.FC<{
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [composer, setComposer] = useState<'maintenance' | 'general' | null>(null);
   const [selectedClientId, setSelectedClientId] = useState('');
   const [propertyId, setPropertyId] = useState('');
@@ -72,6 +74,7 @@ export const ClientPortal: React.FC<{
     setError(null);
     try {
       const next = await fetchClientDashboard();
+      setNeedsOnboarding(false);
       setData(next);
       setSelectedClientId((current) =>
         current && next.clients.some((client) => client.id === current)
@@ -79,7 +82,14 @@ export const ClientPortal: React.FC<{
           : next.clients[0]?.id || ''
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load client portal.');
+      const message = err instanceof Error ? err.message : 'Unable to load client portal.';
+      if (message.includes('not linked to an active ProInspect client account')) {
+        setNeedsOnboarding(true);
+        setData(null);
+        setError(null);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

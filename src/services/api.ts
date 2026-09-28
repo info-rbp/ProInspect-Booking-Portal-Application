@@ -841,6 +841,22 @@ export async function fetchClientDashboard(): Promise<UnifiedClientDashboard> {
   return data.dashboard;
 }
 
+export async function completeClientOnboarding(input: {
+  displayName: string;
+  clientName: string;
+  clientType: import('../types/tenant').ClientType;
+  phone?: string;
+  externalReference?: string;
+}): Promise<void> {
+  const res = await clientFetch('/api/client/onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(data.error || 'Unable to complete Client Portal onboarding.');
+}
+
 export async function getClientDocumentDownloadUrl(documentId: string): Promise<string> {
   const res = await clientFetch(
     `/api/client/documents/${encodeURIComponent(documentId)}/download`

@@ -22,6 +22,9 @@ requireInvariant('Canonical Admin resource API is exposed', server.includes("'/a
 requireInvariant('Tenant statutory forms remain present', server.includes("'/api/tenant/forms'"));
 requireInvariant('Restricted tenant form workflow remains present', server.includes("'/api/tenant/forms-sensitive'"));
 requireInvariant('Client dashboard remains present', server.includes("'/api/client/dashboard'"));
+requireInvariant('Client self-onboarding uses canonical clients', server.includes("'/api/client/onboarding'") && server.includes('onboardCanonicalClient'));
+requireInvariant('Explicit canonical client memberships are active', fs.existsSync('src/server/clientMembershipStore.ts'));
+requireInvariant('Unified migration backfills clientMemberships', read('scripts/migrate-unified-portal.ts').includes('clientMembershipsBackfilled'));
 requireInvariant('Report Tool ingestion remains canonical', server.includes("'/api/integrations/reports'") && server.includes('createTenantDocumentRecord'));
 requireInvariant('Payment integration remains present', server.includes("'/api/integrations/payments/:id/status'"));
 requireInvariant('Public booking remains unauthenticated route', server.includes("'/api/bookings/create'"));
