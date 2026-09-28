@@ -76,6 +76,18 @@ async function main() {
       !Array.isArray(embeddedProperty.addressVerification)
         ? (embeddedProperty.addressVerification as Record<string, unknown>)
         : {};
+    const appointment =
+      booking.appointment &&
+      typeof booking.appointment === 'object' &&
+      !Array.isArray(booking.appointment)
+        ? (booking.appointment as Record<string, unknown>)
+        : {};
+    const access =
+      booking.access &&
+      typeof booking.access === 'object' &&
+      !Array.isArray(booking.access)
+        ? (booking.access as Record<string, unknown>)
+        : {};
 
     if (
       !value(embeddedProperty.streetAddress) ||
@@ -148,9 +160,9 @@ async function main() {
               : booking.status === 'cancelled'
                 ? 'cancelled'
                 : 'scheduled',
-          scheduledStart: value(booking.appointment?.start) || undefined,
-          scheduledEnd: value(booking.appointment?.end) || undefined,
-          accessNotes: value(booking.access?.specialInstructions) || undefined,
+          scheduledStart: value(appointment.start) || undefined,
+          scheduledEnd: value(appointment.end) || undefined,
+          accessNotes: value(access.specialInstructions) || undefined,
           completionDocumentIds: [],
           createdBy: 'migration',
           completedAt: booking.status === 'completed' ? value(booking.updatedAt) || now : undefined,
