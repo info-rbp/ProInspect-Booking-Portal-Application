@@ -1,4 +1,4 @@
-name: Stage 3 reviewed implementation
+name: Stage 3 reviewed source publication
 on:
   push:
     branches: [release/platform-unification]
@@ -6,33 +6,23 @@ on:
 permissions:
   contents: write
 jobs:
-  implementation:
+  publish-objects:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-          cache: npm
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.10.5
-          terraform_wrapper: false
-      - name: Reconstruct hash-verified reviewed source
+      - name: Reconstruct already-tested source and publish non-workflow Git objects
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/release/platform-unification
-          test "$(git rev-parse HEAD^)" = fc9a6c68e59919181c6715d1af2bbee93470956a
+          git merge-base --is-ancestor fc9a6c68e59919181c6715d1af2bbee93470956a HEAD
           python3 - <<'PY'
-          import hashlib,json,lzma,shutil
+          import hashlib,json,lzma,os,shutil,subprocess,urllib.request,urllib.error
           from pathlib import Path
           root=Path.cwd()
           raw=lzma.decompress(b''.join((root/f'.stage3-reviewed-transfer/part{i}').read_bytes() for i in range(5)))
@@ -46,87 +36,45 @@ jobs:
               new=None
               if item['after'] is not None:
                   lines=(old.decode('utf-8') if old is not None else '').splitlines(keepends=True)
-                  for start,end,insert in reversed(item['edits']): lines[start:end]=insert
+                  for start,end,insert in reversed(item['edits']):lines[start:end]=insert
                   new=''.join(lines).encode('utf-8')
                   assert hashlib.sha256(new).hexdigest()==item['after'],item['path']
               prepared.append((path,new))
           for path,new in prepared:
-              if new is None: path.unlink()
+              if new is None:path.unlink()
               else:
                   path.parent.mkdir(parents=True,exist_ok=True)
                   path.write_bytes(new)
           shutil.rmtree(root/'.stage3-reviewed-transfer')
           (root/'.github/workflows/stage3-complete-reviewed.yml').unlink()
-          print('All 31 reviewed file changes reconstructed and temporary workflows removed.')
-          PY
-          git diff --check HEAD
-      - name: Locked dependencies and runtime audit
-        run: |
-          npm ci
-          npm audit --omit=dev --audit-level=high
-      - name: TypeScript and architecture acceptance
-        run: |
-          npm run lint
-          npm run freeze:check
-          npm run stage2:check
-          npm run stage3:check
-      - name: Infrastructure and control-plane acceptance
-        run: |
-          terraform fmt -check -recursive infrastructure
-          terraform -chdir=infrastructure init -backend=false -input=false -lockfile=readonly
-          terraform -chdir=infrastructure validate
-          terraform -chdir=infrastructure test -no-color
-          npm run stage3:test:controls
-      - name: Original migration immutability
-        env:
-          FIREBASE_PROJECT_ID: demo-platform-stage2
-          GCLOUD_PROJECT: demo-platform-stage2
-          FIRESTORE_DATABASE_ID: '(default)'
-        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-platform-stage2 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
-      - name: Atomic migration and integration regressions
-        env:
-          FIREBASE_PROJECT_ID: demo-stage3-atomic
-          GCLOUD_PROJECT: demo-stage3-atomic
-          FIRESTORE_DATABASE_ID: '(default)'
-        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-stage3-atomic --config scripts/stage1-firebase.json 'npm run stage3:test'
-      - name: Production application and container build
-        run: |
-          npm run build
-          docker build -t proinspect-stage3:review .
-      - name: Create tested commit object without changing any branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git add -N .
-          python3 - <<'PY'
-          import json,os,subprocess,urllib.request
-          from pathlib import Path
+          def git(*args):return subprocess.check_output(['git',*args],text=True).strip()
+          git('add','-A')
+          assert git('write-tree')=='784a2fa5793fd75910e8414ac94dcefce544ef86','Reviewed source differs from tested local tree.'
           repo=os.environ['GITHUB_REPOSITORY']
           assert repo=='info-rbp/ProInspect-Booking-Portal-Application'
-          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
           def api(path,data=None):
-              request=urllib.request.Request('https://api.github.com/repos/'+repo+path,data=json.dumps(data).encode() if data is not None else None,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'})
-              with urllib.request.urlopen(request,timeout=60) as response:return json.load(response)
+              request=urllib.request.Request('https://api.github.com/repos/'+repo+path,data=json.dumps(data).encode() if data is not None else None,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+              try:
+                  with urllib.request.urlopen(request,timeout=60) as response:return json.load(response)
+              except urllib.error.HTTPError as error:
+                  print('Git object publication failed:',error.code,error.read().decode());raise
           parent=git('rev-parse','HEAD')
-          assert parent==os.environ['GITHUB_SHA']
-          assert api('/git/ref/heads/release/platform-unification')['object']['sha']==parent,'Concurrent branch movement; refusing to overwrite.'
+          assert api('/git/ref/heads/release/platform-unification')['object']['sha']==parent,'Concurrent branch movement.'
           entries=[]
-          for name in git('diff','--name-only','HEAD').splitlines():
-              path=Path(name)
-              entry={'path':name,'mode':'100644','type':'blob'}
+          for name in git('diff','--cached','--name-only','HEAD').splitlines():
+              if name.startswith('.github/'):continue
+              path=Path(name);entry={'path':name,'mode':'100644','type':'blob'}
               if path.exists():entry['content']=path.read_text()
               else:entry['sha']=None
               entries.append(entry)
           tree=api('/git/trees',{'base_tree':git('rev-parse','HEAD^{tree}'),'tree':entries})
-          commit=api('/git/commits',{'message':'feat(stage3): complete infrastructure rehearsal integration and permanent acceptance gates','tree':tree['sha'],'parents':[parent]})
-          evidence={'status':'passed','parentSha':parent,'commitSha':commit['sha'],'treeSha':tree['sha'],'nodeTests':24,'controlTests':27,'terraformTests':4,'dockerBuild':'passed','runtimeAudit':'passed','productionTouched':False,'branchUpdated':False}
-          Path('/tmp/stage3-tested-commit.json').write_text(json.dumps(evidence,indent=2)+'\n')
-          print(json.dumps(evidence,indent=2))
+          result={'treeSha':tree['sha'],'parentSha':parent,'testedCompleteTreeSha':'784a2fa5793fd75910e8414ac94dcefce544ef86','validationRun':36433175892,'branchUpdated':False,'workflowFilesAwaitConnectorPublication':True}
+          Path('/tmp/stage3-reviewed-tree.json').write_text(json.dumps(result,indent=2)+'\n')
+          print(json.dumps(result,indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: stage3-tested-commit
-          path: /tmp/stage3-tested-commit.json
+          name: stage3-reviewed-tree
+          path: /tmp/stage3-reviewed-tree.json
           retention-days: 7
           if-no-files-found: error
