@@ -1373,7 +1373,7 @@ export async function respondToClientApproval(params: {
     }
 
     let requestRef:
-      | ReturnType<typeof adminDb.collection>['doc']
+      | ReturnType<ReturnType<typeof adminDb.collection>['doc']>
       | undefined;
 
     if (approval.requestId) {
