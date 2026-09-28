@@ -1,0 +1,40 @@
+name: Stage 3 review snapshot
+on:
+  push:
+    branches: [release/platform-unification]
+    paths: [.github/workflows/stage3-review.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Export source and provider cache without cloud credentials
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/stage3-review
+          git bundle create /tmp/stage3-review/source.bundle --all
+          terraform -chdir=infrastructure init -backend=false -input=false
+          tar -czf /tmp/stage3-review/terraform-providers.tgz -C infrastructure .terraform .terraform.lock.hcl
+          npm install --prefix /tmp/firebase --no-audit --no-fund firebase-tools@14.2.1
+          /tmp/firebase/node_modules/.bin/firebase setup:emulators:firestore
+          tar -czf /tmp/stage3-review/emulators.tgz -C "$HOME/.cache/firebase" emulators
+          echo "$GITHUB_SHA" > /tmp/stage3-review/SOURCE_SHA
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage3-review-source
+          path: /tmp/stage3-review/
+          retention-days: 1
+          compression-level: 0
