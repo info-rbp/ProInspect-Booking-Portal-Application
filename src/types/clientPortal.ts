@@ -124,6 +124,11 @@ export interface ClientRequestSummary {
   details?: Record<string, string | number | boolean | string[]>;
   attachmentDocumentIds?: string[];
   generatedDocumentId?: string;
+  draftGenerationStatus?: 'generating' | 'generated' | 'failed';
+  organisationName?: string;
+  propertyAddress?: string;
+  submittedByName?: string;
+  submittedByEmail?: string;
   createdAt: string;
   updatedAt: string;
 }
