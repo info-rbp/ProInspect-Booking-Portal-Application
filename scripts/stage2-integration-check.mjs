@@ -187,9 +187,12 @@ requireInvariant(
     adminPortal.includes("fetchAdminResource('tenancies')")
 );
 requireInvariant(
-  'Report ingestion is idempotency keyed',
+  'Report ingestion is idempotency keyed and retries short-circuit before storage',
   server.includes("'x-report-source-id'") &&
-    server.includes('documentId,') &&
+    server.includes('existingDocument.exists') &&
+    server.indexOf('existingDocument.exists') <
+      server.indexOf('const stored = await saveTenantDocumentFile') &&
+    server.includes('idempotent: true') &&
     tenantStore.includes('DOCUMENT_IDEMPOTENCY_CONFLICT')
 );
 requireInvariant(
