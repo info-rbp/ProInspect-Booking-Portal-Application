@@ -1644,6 +1644,40 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
       });
     }
 
+    if (documentId) {
+      const existingDocument = await adminDb.collection('propertyDocuments').doc(documentId).get();
+      if (existingDocument.exists) {
+        const existing = existingDocument.data() as {
+          id?: string;
+          propertyId?: string;
+          tenancyId?: string;
+          bookingId?: string;
+          workOrderId?: string;
+          requestId?: string;
+          storagePath?: string;
+          [key: string]: unknown;
+        };
+        const sameContext =
+          existing.propertyId === propertyId &&
+          (existing.tenancyId || undefined) === tenancyId &&
+          (existing.bookingId || undefined) === bookingId &&
+          (existing.workOrderId || undefined) === workOrderId &&
+          (existing.requestId || undefined) === requestId;
+        if (!sameContext) {
+          return res.status(409).json({
+            error:
+              'This Report Tool source ID is already linked to different canonical context.',
+          });
+        }
+        const { storagePath: _storagePath, ...publicExisting } = existing;
+        return res.status(200).json({
+          success: true,
+          idempotent: true,
+          document: { ...publicExisting, id: existingDocument.id },
+        });
+      }
+    }
+
     const stored = await saveTenantDocumentFile({
       propertyId,
       tenancyId,
