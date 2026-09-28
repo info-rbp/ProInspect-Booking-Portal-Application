@@ -1,5 +1,13 @@
 import { createHash } from 'crypto';
-import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
+import type { BookingRecord, BusinessSettings, InspectionService, PropertyDetails, ServiceCategory } from '../types/booking.js';
+import type {
+  ClientBookingSummary,
+  ClientDocumentSummary,
+  ClientPortalDashboard,
+  ClientProfile,
+  ClientProperty,
+  ClientRequestSummary,
+} from '../types/clientPortal.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { adminDb } from './firebaseAdmin.js';
 import {
@@ -301,6 +309,228 @@ export async function updateBooking(bookingId: string, changes: Partial<BookingR
   await ref.set({ ...changes, updatedAt: new Date().toISOString() }, { merge: true });
   const updated = await ref.get();
   return { ...(updated.data() as BookingRecord), id: updated.id };
+}
+
+function clientPropertyKey(uid: string, property: PropertyDetails): string {
+  const address = [
+    property.unit || '',
+    property.streetAddress,
+    property.suburb,
+    property.state,
+    property.postcode,
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .join('|');
+
+  return createHash('sha256')
+    .update(`${uid}|${address}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+export function clientPropertyIdFor(uid: string, property: PropertyDetails): string {
+  return clientPropertyKey(uid, property);
+}
+
+export async function ensureClientProfile(params: {
+  uid: string;
+  email: string;
+  displayName?: string;
+}): Promise<ClientProfile> {
+  const ref = adminDb.collection('clientUsers').doc(params.uid);
+  const existing = await ref.get();
+  const now = new Date().toISOString();
+  const current = existing.exists ? (existing.data() as Partial<ClientProfile>) : {};
+
+  if (current.active === false) {
+    throw new Error('CLIENT_ACCOUNT_DISABLED');
+  }
+
+  const profile: ClientProfile = {
+    uid: params.uid,
+    email: params.email.toLowerCase(),
+    displayName: params.displayName?.trim() || current.displayName || params.email,
+    organisationName: current.organisationName,
+    phone: current.phone,
+    active: true,
+    createdAt: current.createdAt || now,
+    updatedAt: now,
+  };
+
+  await ref.set(profile, { merge: true });
+  return profile;
+}
+
+async function upsertClientProperty(
+  uid: string,
+  email: string,
+  property: PropertyDetails,
+  category?: ServiceCategory,
+  lastBookingAt?: string
+): Promise<string> {
+  const id = clientPropertyKey(uid, property);
+  const ref = adminDb.collection('clientProperties').doc(id);
+  const existing = await ref.get();
+  const now = new Date().toISOString();
+  const current = existing.exists ? (existing.data() as Partial<ClientProperty>) : {};
+  const categories = Array.from(
+    new Set<ServiceCategory>([
+      ...((current.categories || []) as ServiceCategory[]),
+      ...(category ? [category] : []),
+    ])
+  );
+
+  const record: ClientProperty = {
+    id,
+    clientUid: uid,
+    clientEmail: email.toLowerCase(),
+    streetAddress: property.streetAddress,
+    unit: property.unit,
+    suburb: property.suburb,
+    state: property.state,
+    postcode: property.postcode,
+    propertyType: property.propertyType,
+    clientName: property.clientName,
+    clientReference: property.clientReference,
+    categories,
+    createdAt: current.createdAt || now,
+    updatedAt: now,
+    lastBookingAt: lastBookingAt || current.lastBookingAt,
+  };
+
+  await ref.set(record, { merge: true });
+  return id;
+}
+
+export async function linkHistoricalBookingsToClient(params: {
+  uid: string;
+  email: string;
+}): Promise<void> {
+  const email = params.email.trim().toLowerCase();
+  const snapshot = await adminDb
+    .collection('bookings')
+    .where('property.customerEmail', '==', email)
+    .limit(500)
+    .get();
+
+  if (snapshot.empty) return;
+
+  for (const doc of snapshot.docs) {
+    const booking = { ...(doc.data() as BookingRecord), id: doc.id };
+    const propertyId = await upsertClientProperty(
+      params.uid,
+      email,
+      booking.property,
+      booking.serviceCategory,
+      booking.appointment.start
+    );
+
+    if (
+      booking.clientUid !== params.uid ||
+      booking.propertyId !== propertyId
+    ) {
+      await doc.ref.set(
+        {
+          clientUid: params.uid,
+          propertyId,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+  }
+}
+
+export async function linkBookingToClient(params: {
+  uid: string;
+  email: string;
+  booking: BookingRecord;
+}): Promise<{ clientUid: string; propertyId: string }> {
+  const propertyId = await upsertClientProperty(
+    params.uid,
+    params.email,
+    params.booking.property,
+    params.booking.serviceCategory,
+    params.booking.appointment.start
+  );
+
+  return {
+    clientUid: params.uid,
+    propertyId,
+  };
+}
+
+function clientBookingView(booking: BookingRecord): ClientBookingSummary {
+  return {
+    id: booking.id,
+    bookingReference: booking.bookingReference,
+    propertyId: booking.propertyId,
+    serviceName: booking.serviceName,
+    serviceCategory: booking.serviceCategory,
+    status: booking.status,
+    property: {
+      streetAddress: booking.property.streetAddress,
+      unit: booking.property.unit,
+      suburb: booking.property.suburb,
+      state: booking.property.state,
+      postcode: booking.property.postcode,
+      propertyType: booking.property.propertyType,
+    },
+    appointment: {
+      start: booking.appointment.start,
+      end: booking.appointment.end,
+      dateString: booking.appointment.dateString,
+      timeString: booking.appointment.timeString,
+      durationMinutes: booking.appointment.durationMinutes,
+      timezone: booking.appointment.timezone,
+    },
+    createdAt: booking.createdAt,
+  };
+}
+
+export async function getClientPortalDashboard(params: {
+  uid: string;
+  email: string;
+  displayName?: string;
+}): Promise<ClientPortalDashboard> {
+  const profile = await ensureClientProfile(params);
+  await linkHistoricalBookingsToClient(params);
+
+  const [propertiesSnapshot, bookingsSnapshot, requestsSnapshot, documentsSnapshot] =
+    await Promise.all([
+      adminDb.collection('clientProperties').where('clientUid', '==', params.uid).get(),
+      adminDb.collection('bookings').where('clientUid', '==', params.uid).get(),
+      adminDb.collection('clientRequests').where('clientUid', '==', params.uid).get(),
+      adminDb.collection('clientDocuments').where('clientUid', '==', params.uid).get(),
+    ]);
+
+  const properties = propertiesSnapshot.docs
+    .map((doc) => ({ ...(doc.data() as ClientProperty), id: doc.id }))
+    .sort((a, b) => (b.lastBookingAt || '').localeCompare(a.lastBookingAt || ''));
+
+  const bookings = bookingsSnapshot.docs
+    .map((doc) => clientBookingView({ ...(doc.data() as BookingRecord), id: doc.id }))
+    .sort(
+      (a, b) =>
+        new Date(b.appointment.start).getTime() -
+        new Date(a.appointment.start).getTime()
+    );
+
+  const requests = requestsSnapshot.docs
+    .map((doc) => ({ ...(doc.data() as ClientRequestSummary), id: doc.id }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  const documents = documentsSnapshot.docs
+    .map((doc) => ({ ...(doc.data() as ClientDocumentSummary), id: doc.id }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  return {
+    profile,
+    properties,
+    bookings,
+    requests,
+    documents,
+  };
 }
 
 
