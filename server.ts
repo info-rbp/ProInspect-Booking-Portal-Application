@@ -139,6 +139,10 @@ import {
   tenantPropertyAddressKey,
 } from './src/server/tenantStore.js';
 import {
+  hydrateClientUserFromCanonicalMemberships,
+  onboardCanonicalClient,
+} from './src/server/clientMembershipStore.js';
+import {
   deleteTenantFile,
   saveSensitiveTenantEvidence,
   saveTenantDocumentFile,
@@ -461,10 +465,13 @@ async function requireClient(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'A verified client email address is required.' });
     }
 
-    const clientUser = await findAndLinkClientUser({
+    const linkedClientUser = await findAndLinkClientUser({
       uid: decoded.uid,
       email,
     });
+    const clientUser = linkedClientUser
+      ? await hydrateClientUserFromCanonicalMemberships(linkedClientUser)
+      : null;
 
     if (!clientUser) {
       return res.status(403).json({
@@ -476,6 +483,29 @@ async function requireClient(req: Request, res: Response, next: NextFunction) {
     return next();
   } catch (error) {
     console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
+async function requireVerifiedClientIdentity(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Client authentication is required.' });
+    }
+    const decoded = await adminAuth.verifyIdToken(authHeader.slice(7).trim(), true);
+    const email = (decoded.email || '').trim().toLowerCase();
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified client email address is required.' });
+    }
+    res.locals.clientIdentity = {
+      uid: decoded.uid,
+      email,
+      displayName: typeof decoded.name === 'string' ? decoded.name : undefined,
+    };
+    return next();
+  } catch (error) {
+    console.error('Client identity verification failed:', error);
     return res.status(401).json({ error: 'Client session is invalid or has expired.' });
   }
 }
@@ -2331,6 +2361,55 @@ app.post('/api/tenant/notifications/:id/read', tenantRateLimit, requireTenant, a
   const notification = await markNotificationRead(req.params.id, tenant.id);
   if (!notification) return res.status(404).json({ error: 'Notification not found.' });
   return res.json({ success: true, notification });
+});
+
+app.post('/api/client/onboarding', clientRateLimit, requireVerifiedClientIdentity, async (req, res) => {
+  try {
+    const identity = res.locals.clientIdentity as { uid: string; email: string; displayName?: string };
+    const displayName = normalizeText(req.body?.displayName, 160) || identity.displayName || identity.email;
+    const clientName = normalizeText(req.body?.clientName, 180);
+    const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
+    const phone = normalizeText(req.body?.phone, 40);
+    const externalReference = normalizeText(req.body?.externalReference, 100);
+
+    if (displayName.length < 2 || clientName.length < 2 || !CLIENT_TYPES.has(clientType)) {
+      return res.status(400).json({
+        error: 'Your name, client/organisation name and client type are required.',
+      });
+    }
+
+    const result = await onboardCanonicalClient({
+      uid: identity.uid,
+      email: identity.email,
+      displayName,
+      phone: phone || undefined,
+      clientName,
+      clientType,
+      externalReference: externalReference || undefined,
+    });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: result.client.id,
+      action: 'self_onboarded',
+      summary: `${result.client.name} completed Client Portal onboarding.`,
+      actor: {
+        type: 'client',
+        id: result.clientUser.id,
+        email: result.clientUser.email,
+        displayName: result.clientUser.displayName,
+      },
+      clientId: result.client.id,
+    });
+
+    return res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_IDENTITY_ALREADY_BOUND') {
+      return res.status(409).json({ error: 'This client identity is already bound to another account.' });
+    }
+    console.error('Client onboarding failed:', error);
+    return res.status(500).json({ error: 'Unable to complete Client Portal onboarding.' });
+  }
 });
 
 app.get('/api/client/session', clientRateLimit, requireClient, (_req, res) => {

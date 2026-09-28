@@ -7,6 +7,7 @@ const collections = [
   'properties',
   'clients',
   'clientUsers',
+  'clientMemberships',
   'clientPropertyLinks',
   'clientProperties',
   'clientDocuments',

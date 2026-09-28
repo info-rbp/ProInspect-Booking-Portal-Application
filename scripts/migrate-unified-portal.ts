@@ -58,6 +58,7 @@ async function main() {
     bookingsPatched: 0,
     bookingsWithoutClientContext: 0,
     clientRolesBackfilled: 0,
+    clientMembershipsBackfilled: 0,
     legacyClientPropertiesScanned: legacyProperties.size,
     legacyClientDocumentsScanned: legacyDocuments.size,
     legacyRecordsMigrated: 0,
@@ -145,6 +146,29 @@ async function main() {
         changed = true;
       }
     });
+
+    for (const clientId of clientIds) {
+      const membershipId = stableId('cm', `${doc.id}|${clientId}`);
+      const membershipRef = adminDb.collection('clientMemberships').doc(membershipId);
+      const membershipDoc = await membershipRef.get();
+      if (!membershipDoc.exists) {
+        summary.clientMembershipsBackfilled += 1;
+        if (apply) {
+          const now = new Date().toISOString();
+          await membershipRef.set({
+            id: membershipId,
+            clientId,
+            clientUserId: doc.id,
+            email: typeof user.email === 'string' ? user.email.trim().toLowerCase() : '',
+            role: nextRoles[clientId] || existingRoles[clientId] || 'member',
+            status: user.active === false ? 'revoked' : 'active',
+            createdAt: user.createdAt || now,
+            updatedAt: now,
+            migrationSource: 'unified-portal-stage2',
+          });
+        }
+      }
+    }
 
     if (changed) {
       summary.clientRolesBackfilled += 1;

@@ -24,6 +24,12 @@ import type {
 } from '../types/tenant.js';
 import { FieldValue, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
+import {
+  hydrateClientUserFromCanonicalMemberships,
+  revokeCanonicalClientMembership,
+  syncCanonicalMembershipsFromCache,
+  upsertCanonicalClientMembership,
+} from './clientMembershipStore.js';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -932,7 +938,8 @@ export async function createClientUser(input: {
     });
 
     if (!updated) throw new Error('CLIENT_USER_UPDATE_FAILED');
-    return updated;
+    await syncCanonicalMembershipsFromCache(updated);
+    return hydrateClientUserFromCanonicalMemberships(updated);
   }
 
   const ref = adminDb.collection('clientUsers').doc();
@@ -955,7 +962,8 @@ export async function createClientUser(input: {
     updatedAt: now,
   };
   await ref.set(user);
-  return user;
+  await syncCanonicalMembershipsFromCache(user);
+  return hydrateClientUserFromCanonicalMemberships(user);
 }
 
 export async function updateClientUserMembership(input: {
@@ -1018,13 +1026,25 @@ export async function updateClientUserMembership(input: {
     { merge: true }
   );
 
-  return {
+  if (input.revoke) {
+    await revokeCanonicalClientMembership(current.id, input.clientId);
+  } else if (input.role) {
+    await upsertCanonicalClientMembership({
+      clientUserId: current.id,
+      clientId: input.clientId,
+      email: current.email,
+      role: input.role,
+      status: 'active',
+    });
+  }
+
+  return hydrateClientUserFromCanonicalMemberships({
     ...current,
     clientIds: nextClientIds,
     clientRoles: nextRoles,
     active,
     updatedAt,
-  };
+  });
 }
 
 export async function findAndLinkClientUser(params: {
