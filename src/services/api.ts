@@ -855,6 +855,9 @@ export async function completeClientOnboarding(input: {
   clientName: string;
   clientType: import('../types/tenant').ClientType;
   phone?: string;
+  billingEmail?: string;
+  abn?: string;
+  acn?: string;
   externalReference?: string;
 }): Promise<void> {
   const res = await clientFetch('/api/client/onboarding', {
