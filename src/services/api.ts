@@ -10,7 +10,20 @@ import type {
   PropertyDetails,
   ServiceCategory,
 } from '../types/booking';
-import { getAdminIdToken } from './firebase';
+import type {
+  AdminTenantPortalSnapshot,
+  TenancyRecord,
+  TenantDocument,
+  TenantDocumentCategory,
+  TenantInspection,
+  TenantPortalDashboard,
+  TenantProperty,
+  TenantRequest,
+  TenantRequestCreateInput,
+  TenantRequestStatus,
+  TenantUserRecord,
+} from '../types/tenant';
+import { getAdminIdToken, getCurrentIdToken } from './firebase';
 
 type ApiErrorResponse = {
   error?: string;
@@ -269,4 +282,235 @@ export async function fetchBookingByToken(token: string): Promise<PublicBookingS
   }
 
   return data.booking;
+}
+
+
+async function tenantFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const idToken = await getCurrentIdToken();
+  if (!idToken) throw new Error('Tenant authentication is required.');
+
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${idToken}`);
+
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
+
+export async function verifyTenantSession(): Promise<{
+  tenant: Pick<TenantUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
+}> {
+  const res = await tenantFetch('/api/tenant/session');
+  const data = (await res.json()) as {
+    tenant?: Pick<TenantUserRecord, 'id' | 'email' | 'displayName' | 'phone'>;
+    error?: string;
+  };
+  if (!res.ok || !data.tenant) {
+    throw new Error(data.error || 'This account is not authorised for the tenant portal.');
+  }
+  return { tenant: data.tenant };
+}
+
+export async function fetchTenantDashboard(): Promise<TenantPortalDashboard> {
+  const res = await tenantFetch('/api/tenant/dashboard');
+  const data = (await res.json()) as { dashboard?: TenantPortalDashboard; error?: string };
+  if (!res.ok || !data.dashboard) {
+    throw new Error(data.error || 'Unable to load the tenant portal.');
+  }
+  return data.dashboard;
+}
+
+export async function submitTenantRequest(
+  input: TenantRequestCreateInput
+): Promise<TenantRequest> {
+  const res = await tenantFetch('/api/tenant/requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { request?: TenantRequest; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Unable to submit the request.');
+  }
+  return data.request;
+}
+
+export async function uploadTenantRequestAttachment(
+  requestId: string,
+  file: File
+): Promise<TenantRequest> {
+  const res = await tenantFetch(
+    `/api/tenant/requests/${encodeURIComponent(requestId)}/attachments`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'X-File-Name': file.name,
+      },
+      body: file,
+    }
+  );
+  const data = (await res.json()) as { request?: TenantRequest; error?: string };
+  if (!res.ok || !data.request) {
+    throw new Error(data.error || 'Unable to upload the attachment.');
+  }
+  return data.request;
+}
+
+export async function getTenantDocumentDownloadUrl(documentId: string): Promise<string> {
+  const res = await tenantFetch(
+    `/api/tenant/documents/${encodeURIComponent(documentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || 'Unable to open the document.');
+  }
+  return data.url;
+}
+
+export async function getTenantAttachmentDownloadUrl(
+  requestId: string,
+  attachmentId: string
+): Promise<string> {
+  const res = await tenantFetch(
+    `/api/tenant/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(attachmentId)}/download`
+  );
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || 'Unable to open the attachment.');
+  }
+  return data.url;
+}
+
+export async function fetchAdminTenantPortal(): Promise<AdminTenantPortalSnapshot> {
+  const res = await adminFetch('/api/admin/tenant-portal');
+  const data = (await res.json()) as { snapshot?: AdminTenantPortalSnapshot; error?: string };
+  if (!res.ok || !data.snapshot) {
+    throw new Error(data.error || 'Unable to load tenant portal data.');
+  }
+  return data.snapshot;
+}
+
+export async function createAdminTenantProperty(input: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+  propertyType?: string;
+  clientName?: string;
+  clientReference?: string;
+}): Promise<TenantProperty> {
+  const res = await adminFetch('/api/admin/tenant-properties', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { property?: TenantProperty; error?: string };
+  if (!res.ok || !data.property) throw new Error(data.error || 'Unable to create property.');
+  return data.property;
+}
+
+export async function createAdminTenancy(input: {
+  propertyId: string;
+  startDate: string;
+  endDate?: string;
+  rentAmount?: number;
+  rentFrequency?: TenancyRecord['rentFrequency'];
+  bondReference?: string;
+  notes?: string;
+  status?: TenancyRecord['status'];
+}): Promise<TenancyRecord> {
+  const res = await adminFetch('/api/admin/tenancies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { tenancy?: TenancyRecord; error?: string };
+  if (!res.ok || !data.tenancy) throw new Error(data.error || 'Unable to create tenancy.');
+  return data.tenancy;
+}
+
+export async function createAdminTenantUser(input: {
+  email: string;
+  displayName: string;
+  phone?: string;
+  tenancyIds: string[];
+}): Promise<{ tenant: TenantUserRecord; portalUrl: string }> {
+  const res = await adminFetch('/api/admin/tenant-users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as {
+    tenant?: TenantUserRecord;
+    portalUrl?: string;
+    error?: string;
+  };
+  if (!res.ok || !data.tenant) throw new Error(data.error || 'Unable to create tenant user.');
+  return { tenant: data.tenant, portalUrl: data.portalUrl || '/tenant' };
+}
+
+export async function updateAdminTenantRequest(
+  requestId: string,
+  changes: { status?: TenantRequestStatus; adminNotes?: string }
+): Promise<TenantRequest> {
+  const res = await adminFetch(
+    `/api/admin/tenant-requests/${encodeURIComponent(requestId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    }
+  );
+  const data = (await res.json()) as { request?: TenantRequest; error?: string };
+  if (!res.ok || !data.request) throw new Error(data.error || 'Unable to update tenant request.');
+  return data.request;
+}
+
+export async function uploadAdminTenantDocument(params: {
+  tenancyId: string;
+  title: string;
+  category: TenantDocumentCategory;
+  file: File;
+}): Promise<TenantDocument> {
+  const res = await adminFetch(
+    `/api/admin/tenant-documents/${encodeURIComponent(params.tenancyId)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': params.file.type || 'application/octet-stream',
+        'X-File-Name': params.file.name,
+        'X-Document-Title': params.title,
+        'X-Document-Category': params.category,
+      },
+      body: params.file,
+    }
+  );
+  const data = (await res.json()) as { document?: TenantDocument; error?: string };
+  if (!res.ok || !data.document) throw new Error(data.error || 'Unable to upload document.');
+  return data.document;
+}
+
+export async function createAdminTenantInspection(input: {
+  tenancyId: string;
+  propertyId: string;
+  type: TenantInspection['type'];
+  scheduledStart: string;
+  scheduledEnd?: string;
+  noticeDocumentId?: string;
+  notes?: string;
+}): Promise<TenantInspection> {
+  const res = await adminFetch('/api/admin/tenant-inspections', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = (await res.json()) as { inspection?: TenantInspection; error?: string };
+  if (!res.ok || !data.inspection) throw new Error(data.error || 'Unable to create inspection.');
+  return data.inspection;
 }
