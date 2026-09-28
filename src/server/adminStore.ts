@@ -12,7 +12,7 @@ import type {
 } from '../types/admin.js';
 import type { BookingRecord } from '../types/booking.js';
 import type { DocumentRequestRecord } from '../types/documentRequest.js';
-import { adminAuth, adminDb } from './firebaseAdmin.js';
+import { adminDb } from './firebaseAdmin.js';
 import { listBookings } from './store.js';
 
 const ALL_PERMISSIONS: AdminPermission[] = [
@@ -180,8 +180,38 @@ export async function resolveAdminSession(input: {
   email: string;
   implicitAdministrator?: boolean;
 }): Promise<AdminSession | null> {
-  const snapshot = await adminDb.collection('adminUsers').doc(input.uid).get();
-  const data = snapshot.exists ? snapshot.data() || {} : {};
+  let snapshot = await adminDb.collection('adminUsers').doc(input.uid).get();
+  let data = snapshot.exists ? snapshot.data() || {} : {};
+
+  if (!snapshot.exists && !input.implicitAdministrator) {
+    const emailMatch = await adminDb
+      .collection('adminUsers')
+      .where('email', '==', input.email.trim().toLowerCase())
+      .limit(1)
+      .get();
+
+    if (!emailMatch.empty) {
+      const invited = emailMatch.docs[0];
+      data = invited.data() || {};
+      if (data.active !== false) {
+        const now = new Date().toISOString();
+        await adminDb.collection('adminUsers').doc(input.uid).set(
+          {
+            ...data,
+            email: input.email.trim().toLowerCase(),
+            boundAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+        if (invited.id !== input.uid) {
+          await invited.ref.delete();
+        }
+        snapshot = await adminDb.collection('adminUsers').doc(input.uid).get();
+        data = snapshot.data() || data;
+      }
+    }
+  }
 
   if (!input.implicitAdministrator) {
     if (!snapshot.exists || data.active === false) return null;
@@ -363,32 +393,36 @@ export async function createAdminStaff(input: {
   assignedServiceIds?: string[];
 }): Promise<AdminStaffUser> {
   const email = input.email.trim().toLowerCase();
-  let user;
-  try {
-    user = await adminAuth.getUserByEmail(email);
-  } catch {
-    user = await adminAuth.createUser({
-      email,
-      emailVerified: true,
-      displayName: input.displayName.trim() || email,
-      disabled: false,
-    });
-  }
+  const existing = await adminDb
+    .collection('adminUsers')
+    .where('email', '==', email)
+    .limit(1)
+    .get();
 
+  const ref = existing.empty
+    ? adminDb.collection('adminUsers').doc()
+    : existing.docs[0].ref;
   const now = new Date().toISOString();
+  const existingData = existing.empty ? {} : existing.docs[0].data();
+
   const record: Omit<AdminStaffUser, 'id'> = {
     email,
     displayName: input.displayName.trim() || email,
     role: input.role,
     active: true,
     assignedServiceIds: input.assignedServiceIds || [],
-    permissionGrants: [],
-    permissionRevokes: [],
-    createdAt: now,
+    permissionGrants: Array.isArray(existingData.permissionGrants)
+      ? existingData.permissionGrants
+      : [],
+    permissionRevokes: Array.isArray(existingData.permissionRevokes)
+      ? existingData.permissionRevokes
+      : [],
+    createdAt: existingData.createdAt || now,
     updatedAt: now,
   };
-  await adminDb.collection('adminUsers').doc(user.uid).set(record, { merge: true });
-  return { id: user.uid, ...record };
+
+  await ref.set(record, { merge: true });
+  return { id: ref.id, ...record };
 }
 
 export async function updateAdminStaff(
@@ -416,11 +450,6 @@ export async function updateAdminStaff(
   if (input.permissionRevokes !== undefined) safe.permissionRevokes = input.permissionRevokes;
 
   await ref.set(safe, { merge: true });
-  if (input.active === false) {
-    await adminAuth.updateUser(uid, { disabled: true }).catch(() => undefined);
-  } else if (input.active === true) {
-    await adminAuth.updateUser(uid, { disabled: false }).catch(() => undefined);
-  }
 
   const updated = await ref.get();
   const data = updated.data() || {};
