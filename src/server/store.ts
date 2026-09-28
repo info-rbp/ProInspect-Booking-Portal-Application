@@ -291,12 +291,19 @@ export function newDocumentRequestId(): string {
 export async function documentRequestReferenceExists(
   reference: string
 ): Promise<boolean> {
-  const snapshot = await adminDb
-    .collection('documentRequests')
-    .where('requestReference', '==', reference)
-    .limit(1)
-    .get();
-  return !snapshot.empty;
+  const [canonical, legacy] = await Promise.all([
+    adminDb
+      .collection('documentRequests')
+      .where('reference', '==', reference)
+      .limit(1)
+      .get(),
+    adminDb
+      .collection('documentRequests')
+      .where('requestReference', '==', reference)
+      .limit(1)
+      .get(),
+  ]);
+  return !canonical.empty || !legacy.empty;
 }
 
 export async function saveDocumentRequest(
@@ -306,6 +313,56 @@ export async function saveDocumentRequest(
   return request;
 }
 
+function canonicalDocumentRequestFromDocument(
+  id: string,
+  data: Record<string, unknown>
+): DocumentRequestRecord {
+  if (data.reference && data.requesterEmail && data.address) {
+    return { ...(data as unknown as DocumentRequestRecord), id };
+  }
+
+  const details =
+    data.details && typeof data.details === 'object'
+      ? (data.details as Record<string, unknown>)
+      : {};
+
+  return {
+    id,
+    reference: String(data.requestReference || id),
+    documentProductId: String(data.documentId || ''),
+    documentName: String(data.documentName || 'Document request'),
+    documentCategory:
+      data.documentCategory === 'commercial' ||
+      data.documentCategory === 'strata-building'
+        ? data.documentCategory
+        : 'residential',
+    pricingMode: 'fixed',
+    priceExGst:
+      typeof data.priceExGst === 'number'
+        ? data.priceExGst
+        : Number(data.priceExGst || 0),
+    requesterName: String(details.customerName || ''),
+    requesterEmail: String(details.customerEmail || ''),
+    requesterPhone: String(details.customerPhone || ''),
+    address: {
+      streetAddress: String(details.streetAddress || ''),
+      unit: details.unit ? String(details.unit) : undefined,
+      suburb: String(details.suburb || ''),
+      state: String(details.state || 'WA'),
+      postcode: String(details.postcode || ''),
+    },
+    notes: details.notes ? String(details.notes) : undefined,
+    status:
+      data.status === 'completed' || data.status === 'cancelled'
+        ? data.status
+        : data.status === 'in_review'
+          ? 'under_review'
+          : 'submitted',
+    createdAt: String(data.createdAt || new Date().toISOString()),
+    updatedAt: String(data.updatedAt || data.createdAt || new Date().toISOString()),
+  };
+}
+
 export async function listDocumentRequests(): Promise<DocumentRequestRecord[]> {
   const snapshot = await adminDb
     .collection('documentRequests')
@@ -313,10 +370,9 @@ export async function listDocumentRequests(): Promise<DocumentRequestRecord[]> {
     .limit(500)
     .get();
 
-  return snapshot.docs.map((doc) => ({
-    ...(doc.data() as DocumentRequestRecord),
-    id: doc.id,
-  }));
+  return snapshot.docs.map((doc) =>
+    canonicalDocumentRequestFromDocument(doc.id, doc.data() as Record<string, unknown>)
+  );
 }
 
 export async function getSettings(): Promise<BusinessSettings> {
