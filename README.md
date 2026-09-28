@@ -147,3 +147,58 @@ Staff capabilities include:
 Tenant browsers do not access Firestore or Firebase Storage directly. Firebase ID
 tokens are verified by the Express server and every tenant operation is scoped to
 the tenancy IDs assigned to the authenticated tenant record.
+
+
+## Shared client, property and document architecture
+
+The tenant portal branch uses a shared Firestore graph so a future Client Portal can
+consume the same property and document records rather than maintaining a separate
+client-only database.
+
+```text
+clients
+  |
+  +-- clientUsers
+  |
+  +-- clientPropertyLinks ---- properties
+                                |
+                                +-- tenancies ---- tenantUsers
+                                |
+                                +-- propertyDocuments
+                                |
+                                +-- tenantRequests
+                                |
+                                +-- tenantInspections
+```
+
+Canonical relationships:
+
+- `clients` stores the landlord, agency, commercial landlord, strata company,
+  asset manager or other ProInspect client.
+- `clientUsers` stores authenticated people who may later sign into a Client Portal
+  and references one or more `clientIds`.
+- `clientPropertyLinks` is the many-to-many relationship between clients and
+  properties, including relationship role and whether the client is primary.
+- `properties` is the canonical property record shared by Client, Tenant and Staff
+  workflows. `primaryClientId` is available as a convenient denormalised pointer,
+  while `clientPropertyLinks` remains the source of truth for access.
+- `tenancies` always belongs to a property and may retain the property's primary
+  `clientId` for reporting and workflow context.
+- `propertyDocuments` is the canonical document collection. A document always has
+  a `propertyId`, may have a tenancy-specific `tenancyId`, has one or more
+  `clientIds`, and has explicit `audiences` of `tenant`, `client` and/or
+  `staff`.
+
+This means an inspection report, PCR, maintenance invoice or correspondence file is
+stored once and can be surfaced in different portals based on audience and
+relationship permissions.
+
+The server already exposes protected client-read foundations:
+
+- `GET /api/client/session`
+- `GET /api/client/dashboard`
+- `GET /api/client/documents/:id/download`
+
+The Client Portal user interface itself is intentionally not implemented on this
+branch. A later Client Portal branch can authenticate a provisioned `clientUsers`
+record and consume these APIs without changing the Firestore data model.
