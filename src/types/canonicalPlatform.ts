@@ -25,7 +25,10 @@ export interface ClientRecord {
   name: string;
   clientType: ClientType;
   email?: string;
+  billingEmail?: string;
   phone?: string;
+  abn?: string;
+  acn?: string;
   externalReference?: string;
   status: 'active' | 'inactive';
   createdAt: string;
