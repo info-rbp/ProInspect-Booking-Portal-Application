@@ -17,6 +17,43 @@ const paymentMethods = [
   { value: 'other', label: 'Other' },
 ];
 
+function genericOperationalWorkflow(
+  documentId: string,
+  title: string
+): DocumentWorkflowDefinition {
+  return {
+    documentId,
+    version: 1,
+    title,
+    intro:
+      'Provide the core parties, timing and drafting instructions. ProInspect will review the request before any document is issued.',
+    allowedRequesterRoles: ['lessor', 'property-manager', 'tenant', 'other'],
+    minimumLessors: 0,
+    minimumTenants: 0,
+    sections: [
+      {
+        id: 'instructions',
+        title: 'Document instructions',
+        fields: [
+          { id: 'counterpartyName', label: 'Other party / counterparty', type: 'text' },
+          { id: 'effectiveDate', label: 'Proposed effective / issue date', type: 'date' },
+          { id: 'dueDate', label: 'Required by date', type: 'date' },
+          {
+            id: 'instructions',
+            label: 'Detailed drafting instructions',
+            type: 'textarea',
+            required: true,
+            help:
+              'Include the commercial, strata or building-specific terms, references, decisions, amounts and actions that must appear in the document.',
+          },
+        ],
+      },
+    ],
+    reviewNotice:
+      'This request is an instruction to prepare a document. ProInspect review is required before issue.',
+  };
+}
+
 export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
   string,
   DocumentWorkflowDefinition
@@ -1806,6 +1843,16 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
       },
     ],
   },
+  'commercial-lease': genericOperationalWorkflow('commercial-lease', 'Commercial Lease'),
+  'commercial-lease-variation': genericOperationalWorkflow('commercial-lease-variation', 'Commercial Lease Variation'),
+  'commercial-lease-renewal': genericOperationalWorkflow('commercial-lease-renewal', 'Commercial Lease Renewal / Extension'),
+  'commercial-notice-letter': genericOperationalWorkflow('commercial-notice-letter', 'Commercial Notice / Formal Letter'),
+  'commercial-authority-agreement': genericOperationalWorkflow('commercial-authority-agreement', 'Commercial Authority / Agreement'),
+  'strata-owner-notice': genericOperationalWorkflow('strata-owner-notice', 'Strata Owner / Occupier Notice'),
+  'strata-bylaw-document': genericOperationalWorkflow('strata-bylaw-document', 'By-law / Building Rule Document'),
+  'strata-meeting-document': genericOperationalWorkflow('strata-meeting-document', 'Meeting / Resolution Document'),
+  'strata-compliance-document': genericOperationalWorkflow('strata-compliance-document', 'Compliance / Contractor Document'),
+  'strata-correspondence': genericOperationalWorkflow('strata-correspondence', 'Strata / Building Correspondence'),
 };
 
 export function getDocumentWorkflowDefinition(
