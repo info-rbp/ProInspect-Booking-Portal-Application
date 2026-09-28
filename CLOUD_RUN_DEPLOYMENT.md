@@ -332,3 +332,102 @@ provisioned in `clientUsers`, clients are linked to canonical properties through
 When a Client Portal frontend is added, use the existing Firebase ID-token model and
 the protected `/api/client/*` routes. Do not permit browser-direct Firestore or
 Storage access and do not duplicate documents into a separate client collection.
+
+
+## Unified platform activation
+
+The consolidated portal branch adds operational collections and APIs on top of the
+shared client/property model.
+
+### New operational Firestore collections
+
+- `clientRequests`
+- `documentProducts`
+- `documentRequests`
+- `workOrders`
+- `contractors`
+- `clientApprovals`
+- `payments`
+- `auditEvents`
+- `portalNotifications`
+
+These collections remain server-only. Do not enable browser-direct Firestore
+access.
+
+### Property Report Tool integration
+
+Set `REPORT_INGEST_TOKEN` in Cloud Run and configure the same token in the report
+generator. Final reports are posted to:
+
+```text
+POST /api/integrations/reports
+X-Report-Ingest-Token: <secret>
+X-Property-Id: <canonical propertyId>
+X-Document-Title: <report title>
+X-File-Name: <filename.pdf>
+X-Document-Category: property_condition_report | inspection_report | property_report
+X-Document-Audiences: client,tenant
+X-Tenancy-Id: <optional>
+X-Booking-Id: <optional>
+Content-Type: application/pdf
+```
+
+The report is stored in the canonical `propertyDocuments` collection and inherits
+the selected portal audiences.
+
+### Payment adapter
+
+Fixed-fee document requests create a `payments` record automatically. If
+`PAYMENT_CHECKOUT_URL_TEMPLATE` is configured, the server expands
+`{paymentId}`, `{reference}` and `{totalAmount}` and exposes that checkout URL
+in the Client Portal.
+
+External payment providers can confirm payment state through:
+
+```text
+POST /api/integrations/payments/:paymentId/status
+X-Payment-Webhook-Token: <PAYMENT_WEBHOOK_TOKEN>
+Content-Type: application/json
+
+{"status":"paid"}
+```
+
+No payment provider credentials are stored in Firestore.
+
+### Portal migration
+
+Always run the migration in dry-run mode first:
+
+```bash
+npm run migrate:portal:dry
+```
+
+Review the counts, take a Firestore backup, then apply intentionally:
+
+```bash
+npm run migrate:portal
+```
+
+The migration is designed to be repeatable and uses stable IDs for booking-derived
+clients, properties and relationships.
+
+### Security smoke test
+
+Against a deployed non-production environment:
+
+```bash
+PORTAL_TEST_BASE_URL=https://... \
+PORTAL_TEST_TENANT_TOKEN=... \
+PORTAL_TEST_CLIENT_TOKEN=... \
+PORTAL_TEST_ADMIN_TOKEN=... \
+npm run test:e2e:portal-security
+```
+
+The test verifies anonymous isolation and, where tokens are supplied, confirms
+tenant/client payloads do not leak Storage paths or staff-only notes.
+
+### Firestore indexes
+
+Deploy `firestore.indexes.json` before relying on filtered audit-history queries.
+Use your standard Firebase/Google Cloud deployment process; committing the index
+file alone does not change production infrastructure.
