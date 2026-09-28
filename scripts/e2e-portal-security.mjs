@@ -31,6 +31,12 @@ async function main() {
   const unauthAdmin = await request('/api/admin/operations');
   await expect('Admin operations rejects anonymous access', [401,403].includes(unauthAdmin.response.status), `status ${unauthAdmin.response.status}`);
 
+  const unauthForms = await request('/api/tenant/forms');
+  await expect('Tenant forms reject anonymous access', [401,403].includes(unauthForms.response.status), `status ${unauthForms.response.status}`);
+
+  const unauthSensitive = await request('/api/admin/sensitive-tenant-forms');
+  await expect('Restricted tenancy forms reject anonymous access', [401,403].includes(unauthSensitive.response.status), `status ${unauthSensitive.response.status}`);
+
   const badReport = await request('/api/integrations/reports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/pdf' },
@@ -46,6 +52,13 @@ async function main() {
     const dashboard = tenant.parsed?.dashboard;
     await expect('Tenant dashboard never returns admin notes', !JSON.stringify(dashboard || {}).includes('adminNotes'), 'adminNotes found');
     await expect('Tenant dashboard never returns storage paths', !JSON.stringify(dashboard || {}).includes('storagePath'), 'storagePath found');
+
+    const forms = await request('/api/tenant/forms', {
+      headers: { Authorization: `Bearer ${tenantToken}` },
+    });
+    await expect('Tenant token opens statutory forms dashboard', forms.response.ok, `status ${forms.response.status}`);
+    await expect('Statutory forms dashboard never returns storage paths', !JSON.stringify(forms.parsed?.dashboard || {}).includes('storagePath'), 'storagePath found');
+    await expect('Tenant forms dashboard does not expose restricted evidence metadata', !JSON.stringify(forms.parsed?.dashboard || {}).includes('evidenceType'), 'restricted evidence metadata found');
   }
 
   if (clientToken) {
