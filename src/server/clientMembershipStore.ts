@@ -143,6 +143,9 @@ export async function onboardCanonicalClient(input: {
   email: string;
   displayName: string;
   phone?: string;
+  billingEmail?: string;
+  abn?: string;
+  acn?: string;
   clientName: string;
   clientType: ClientRecord['clientType'];
   externalReference?: string;
@@ -183,7 +186,10 @@ export async function onboardCanonicalClient(input: {
         name: input.clientName.trim(),
         clientType: input.clientType,
         email,
+        billingEmail: input.billingEmail?.trim().toLowerCase() || email,
         phone: input.phone?.trim() || undefined,
+        abn: input.abn?.replace(/\s+/g, '').trim() || undefined,
+        acn: input.acn?.replace(/\s+/g, '').trim() || undefined,
         externalReference: input.externalReference?.trim() || undefined,
         status: 'active',
         createdAt: now,
