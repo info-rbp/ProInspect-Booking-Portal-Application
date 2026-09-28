@@ -33,6 +33,7 @@ export type AdminPermission =
   | 'billing.read'
   | 'billing.manage'
   | 'reports.read'
+  | 'reports.manage'
   | 'integrations.read'
   | 'integrations.manage'
   | 'users.read'
