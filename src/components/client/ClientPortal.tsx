@@ -386,7 +386,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {[
                     ['/book', CalendarDays, 'Book a Service', 'Use the current ProInspect scheduling workflow.'],
-                    ['/request-document', FileText, 'Request a Document', 'Submit instructions and supporting files.'],
+                    ['/portal/requests/document', FileText, 'Request a Document', 'Submit detailed instructions, files and generate a working draft.'],
                     ['/portal/requests/maintenance', Wrench, 'Maintenance Request', 'Create a trackable property maintenance request.'],
                     ['/portal/properties', Home, 'Manage Properties', 'Add and review saved client properties.'],
                   ].map(([path, Icon, title, copy]) => {
@@ -471,7 +471,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => onBookProperty ? onBookProperty(selectedProperty) : onNavigate('/book')} className="px-3 py-2 rounded-lg bg-[#007F82] text-white text-xs font-bold">Book Service</button>
                     <button type="button" onClick={() => onNavigate(`/portal/requests/maintenance?propertyId=${encodeURIComponent(selectedProperty.id)}`)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Maintenance</button>
-                    <button type="button" onClick={() => onNavigate(`/request-document?propertyId=${encodeURIComponent(selectedProperty.id)}`)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Request Document</button>
+                    <button type="button" onClick={() => onNavigate(`/portal/requests/document?propertyId=${encodeURIComponent(selectedProperty.id)}`)} className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Request Document</button>
                   </div>
                 </div>
                 {selectedProperty.notes && <div className="mt-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{selectedProperty.notes}</div>}
@@ -524,7 +524,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               {data.membership.role !== 'viewer' && (
                 <div className="flex gap-2">
                   <button type="button" onClick={() => onNavigate('/portal/requests/maintenance')} className="px-3 py-2.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-700">Maintenance</button>
-                  <button type="button" onClick={() => onNavigate('/request-document')} className="px-3 py-2.5 rounded-lg bg-[#007F82] text-white text-xs font-bold">Document Request</button>
+                  <button type="button" onClick={() => onNavigate('/portal/requests/document')} className="px-3 py-2.5 rounded-lg bg-[#007F82] text-white text-xs font-bold">Document Request</button>
                 </div>
               )}
             </div>
