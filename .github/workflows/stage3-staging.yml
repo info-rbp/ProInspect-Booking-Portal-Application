@@ -1,0 +1,75 @@
+name: Deploy isolated Stage 3 staging
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/platform-unification]
+    paths: [deploy/staging.request.json]
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: proinspect-staging
+  cancel-in-progress: false
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/release/platform-unification' && github.repository_id == '1390107826'
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci
+      - name: Require ordinary successful exact-head verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          const url=`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/actions/workflows/verify.yml/runs?head_sha=${process.env.GITHUB_SHA}&per_page=30`;
+          let accepted=false;
+          for(let i=0;i<100;i++) {
+            const response=await fetch(url,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json'}});
+            if(!response.ok)throw new Error(`CI lookup failed: ${response.status}`);
+            const runs=(await response.json()).workflow_runs;
+            if(runs.some(r=>r.head_sha===process.env.GITHUB_SHA && r.head_branch==='release/platform-unification' && r.event==='push' && r.conclusion==='success')){accepted=true;break;}
+            if(runs.some(r=>r.head_sha===process.env.GITHUB_SHA && ['failure','cancelled','timed_out'].includes(r.conclusion)))throw new Error('Exact-head verification failed.');
+            await new Promise(r=>setTimeout(r,5000));
+          }
+          if(!accepted)throw new Error('No successful exact-head verification; deployment blocked.');
+          JS
+      - name: Validate staging inputs before cloud authentication
+        env:
+          PLATFORM_CONFIG: ${{ vars.STAGING_PLATFORM_CONFIG_JSON }}
+          FIREBASE_CONFIG: ${{ vars.STAGING_FIREBASE_WEB_CONFIG_JSON }}
+        run: |
+          mkdir -p .stage3
+          node --input-type=module <<'JS'
+          import {writeFileSync} from 'node:fs';
+          import {deploymentConfig} from './scripts/stage3/deploy-staging.mjs';
+          const c=JSON.parse(process.env.PLATFORM_CONFIG), f=JSON.parse(process.env.FIREBASE_CONFIG);
+          deploymentConfig(c.platform?.value||c,f);
+          writeFileSync('.stage3/platform.json',JSON.stringify(c),{mode:0o600});
+          writeFileSync('.stage3/firebase.json',JSON.stringify(f),{mode:0o600});
+          JS
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.STAGING_DEPLOY_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build immutable image, smoke candidate, promote staging only
+        run: npm run stage3:deploy -- --config .stage3/platform.json --firebase .stage3/firebase.json --out .stage3/staging-deployment.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stage3-staging-deployment-${{ github.sha }}
+          include-hidden-files: true
+          path: .stage3/staging-deployment.json
+          if-no-files-found: error
+          retention-days: 30
