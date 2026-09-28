@@ -316,6 +316,7 @@ export interface UnifiedClientDashboard {
     };
   }>;
   requests: ClientRequest[];
+  documentRequests: DocumentRequest[];
   documents: Array<{
     id: string;
     propertyId: string;
