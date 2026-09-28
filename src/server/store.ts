@@ -1035,6 +1035,27 @@ export async function getClientDocument(params: {
   return document.organisationId === params.organisationId ? document : null;
 }
 
+export async function getClientDocumentForAdmin(
+  documentId: string
+): Promise<ClientDocumentSummary | null> {
+  const doc = await adminDb.collection('clientDocuments').doc(documentId).get();
+  return doc.exists
+    ? ({ ...(doc.data() as ClientDocumentSummary), id: doc.id })
+    : null;
+}
+
+export async function listClientDocumentsForAdmin(): Promise<ClientDocumentSummary[]> {
+  const snapshot = await adminDb
+    .collection('clientDocuments')
+    .orderBy('updatedAt', 'desc')
+    .limit(1000)
+    .get();
+  return snapshot.docs.map((doc) => ({
+    ...(doc.data() as ClientDocumentSummary),
+    id: doc.id,
+  }));
+}
+
 export async function createClientApproval(params: {
   context: ClientContext;
   propertyId?: string;
