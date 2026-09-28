@@ -10,6 +10,11 @@ import type {
   PropertyDetails,
   ServiceCategory,
 } from '../types/booking';
+import type {
+  DocumentProduct,
+  DocumentRequestDetails,
+  PublicDocumentRequestSummary,
+} from '../types/documentRequest';
 import { getAdminIdToken } from './firebase';
 
 type ApiErrorResponse = {
@@ -34,6 +39,12 @@ type AdminServiceReorderResponse = { services: InspectionService[] } & ApiErrorR
 type PublicBookingResponse = { booking: PublicBookingSummary } & ApiErrorResponse;
 type AddressAutocompleteResponse = { suggestions: AddressSuggestion[] } & ApiErrorResponse;
 type AddressValidationResponse = { result: AddressValidationResult } & ApiErrorResponse;
+type DocumentProductsResponse = { documents: DocumentProduct[] } & ApiErrorResponse;
+type DocumentRequestCreateResponse = {
+  success: boolean;
+  request: PublicDocumentRequestSummary;
+  message?: string;
+} & ApiErrorResponse;
 
 export async function fetchServices(): Promise<InspectionService[]> {
   const res = await fetch('/api/services');
@@ -115,6 +126,41 @@ export async function submitBooking(payload: {
     const error = new Error(data.error || 'Failed to confirm booking.');
     (error as any).conflict = Boolean(data.conflict);
     throw error;
+  }
+
+  return data;
+}
+
+export async function fetchDocumentProducts(): Promise<DocumentProduct[]> {
+  const res = await fetch('/api/document-products');
+  const data = (await res.json()) as DocumentProductsResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to load document products.');
+  }
+
+  return data.documents || [];
+}
+
+export async function submitDocumentRequest(payload: {
+  documentId: string;
+  documentCategory: ServiceCategory;
+  details: DocumentRequestDetails;
+}): Promise<{
+  success: boolean;
+  request: PublicDocumentRequestSummary;
+  message?: string;
+}> {
+  const res = await fetch('/api/document-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = (await res.json()) as DocumentRequestCreateResponse;
+
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to submit document request.');
   }
 
   return data;
