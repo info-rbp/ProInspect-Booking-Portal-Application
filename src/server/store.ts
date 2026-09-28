@@ -972,7 +972,7 @@ export async function updateClientOrganisationMember(params: { context: ClientCo
     if (params.role && !['admin', 'member', 'viewer'].includes(params.role)) throw new Error('CLIENT_WRITE_FORBIDDEN');
     const updated: ClientMembership = { ...member, ...(params.role ? { role: params.role } : {}),
       ...(params.status ? { status: params.status === 'active' && !member.uid ? 'invited' : params.status } : {}), updatedAt: new Date().toISOString() };
-    tx.update(ref, updated);
+    tx.update(ref, { ...updated });
     return updated;
   });
 }
