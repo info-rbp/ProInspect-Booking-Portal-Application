@@ -15,7 +15,8 @@
     "migrate:portal:dry": "tsx scripts/migrate-unified-portal.ts",
     "migrate:portal": "tsx scripts/migrate-unified-portal.ts --apply",
     "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs",
-    "freeze:check": "node scripts/premerge-freeze-check.mjs"
+    "freeze:check": "node scripts/premerge-freeze-check.mjs",
+    "test:migration-preflight": "tsx scripts/verify-tenant-migration-preflight.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
