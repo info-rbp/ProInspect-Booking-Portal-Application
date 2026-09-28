@@ -314,6 +314,229 @@ function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+function clientContext(res: Response): Awaited<ReturnType<typeof ensureClientContext>> {
+  return res.locals.client.context as Awaited<ReturnType<typeof ensureClientContext>>;
+}
+
+const CLIENT_PROPERTY_TYPES = new Set<PropertyType>([
+  'House',
+  'Apartment / Unit',
+  'Townhouse',
+  'Commercial',
+  'Retail',
+  'Office',
+  'Industrial',
+  'Strata / Common Property',
+  'Other',
+]);
+
+const CLIENT_ENTITY_TYPES = new Set<ClientOnboardingInput['entityType']>([
+  'individual',
+  'company',
+  'trust',
+  'partnership',
+  'strata',
+  'agency',
+  'other',
+]);
+
+const CLIENT_DOCUMENT_TYPES = new Set<ClientDocumentRequestInput['documentType']>([
+  'Commercial Lease',
+  'Lease Variation',
+  'Lease Renewal / Extension',
+  'Notice / Letter',
+  'Authority / Agreement',
+  'Other',
+]);
+
+const CLIENT_MAINTENANCE_TYPES = new Set<ClientMaintenanceRequestInput['issueType']>([
+  'Plumbing',
+  'Electrical',
+  'Air Conditioning',
+  'Appliance',
+  'Door / Window',
+  'Security',
+  'Water Ingress',
+  'General Repair',
+  'Other',
+]);
+
+function sanitizeClientPropertyInput(
+  input: unknown
+): { value?: ClientPropertyInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Property details are required.' };
+  }
+
+  const raw = input as Record<string, unknown>;
+  const streetAddress = normalizeText(raw.streetAddress, 150);
+  const unit = normalizeText(raw.unit, 50);
+  const suburb = normalizeText(raw.suburb, 100);
+  const state = normalizeText(raw.state, 10).toUpperCase() || 'WA';
+  const postcode = normalizeText(raw.postcode, 10);
+  const propertyType = CLIENT_PROPERTY_TYPES.has(raw.propertyType as PropertyType)
+    ? (raw.propertyType as PropertyType)
+    : null;
+  const categories = Array.isArray(raw.categories)
+    ? Array.from(
+        new Set(
+          raw.categories.filter((item): item is ServiceCategory =>
+            isServiceCategory(item)
+          )
+        )
+      )
+    : [];
+
+  if (!streetAddress || !suburb || !/^\d{4}$/.test(postcode)) {
+    return { error: 'Enter a complete Australian property address.' };
+  }
+  if (!['WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'ACT', 'NT'].includes(state)) {
+    return { error: 'Select a valid Australian state or territory.' };
+  }
+  if (!propertyType) {
+    return { error: 'Select a valid property type.' };
+  }
+  if (categories.length === 0) {
+    return { error: 'Select at least one property service category.' };
+  }
+
+  return {
+    value: {
+      streetAddress,
+      unit: unit || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType,
+      nickname: normalizeText(raw.nickname, 100) || undefined,
+      clientReference: normalizeText(raw.clientReference, 100) || undefined,
+      categories,
+      notes: normalizeText(raw.notes, 2000) || undefined,
+    },
+  };
+}
+
+function sanitizeClientOnboarding(
+  input: unknown,
+  accountEmail: string
+): { value?: ClientOnboardingInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Onboarding information is required.' };
+  }
+
+  const raw = input as Record<string, unknown>;
+  const displayName = normalizeText(raw.displayName, 150);
+  const organisationName = normalizeText(raw.organisationName, 150);
+  const entityType = CLIENT_ENTITY_TYPES.has(raw.entityType as ClientOnboardingInput['entityType'])
+    ? (raw.entityType as ClientOnboardingInput['entityType'])
+    : null;
+  const billingEmail = normalizeText(raw.billingEmail, 120).toLowerCase() || accountEmail;
+  const abn = normalizeText(raw.abn, 20).replace(/\s+/g, '');
+  const acn = normalizeText(raw.acn, 20).replace(/\s+/g, '');
+
+  if (!displayName || !organisationName || !entityType) {
+    return { error: 'Your name, organisation name and entity type are required.' };
+  }
+  if (!isValidEmail(billingEmail)) {
+    return { error: 'Enter a valid billing email address.' };
+  }
+  if (abn && !/^\d{11}$/.test(abn)) {
+    return { error: 'ABN must contain 11 digits.' };
+  }
+  if (acn && !/^\d{9}$/.test(acn)) {
+    return { error: 'ACN must contain 9 digits.' };
+  }
+
+  let firstProperty: ClientPropertyInput | undefined;
+  if (raw.firstProperty) {
+    const property = sanitizeClientPropertyInput(raw.firstProperty);
+    if (!property.value) return { error: property.error };
+    firstProperty = property.value;
+  }
+
+  return {
+    value: {
+      displayName,
+      phone: normalizeText(raw.phone, 50) || undefined,
+      organisationName,
+      entityType,
+      abn: abn || undefined,
+      acn: acn || undefined,
+      billingEmail,
+      firstProperty,
+    },
+  };
+}
+
+function sanitizeClientDocumentRequest(
+  input: unknown
+): { value?: ClientDocumentRequestInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Document request details are required.' };
+  }
+  const raw = input as Record<string, unknown>;
+  const documentType = CLIENT_DOCUMENT_TYPES.has(raw.documentType as ClientDocumentRequestInput['documentType'])
+    ? (raw.documentType as ClientDocumentRequestInput['documentType'])
+    : null;
+  const instructions = normalizeText(raw.instructions, 5000);
+  if (!documentType || !instructions) {
+    return { error: 'Select a document type and provide drafting instructions.' };
+  }
+
+  return {
+    value: {
+      propertyId: normalizeText(raw.propertyId, 128) || undefined,
+      documentType,
+      title: normalizeText(raw.title, 200) || undefined,
+      counterpartyName: normalizeText(raw.counterpartyName, 200) || undefined,
+      commencementDate: normalizeText(raw.commencementDate, 50) || undefined,
+      term: normalizeText(raw.term, 100) || undefined,
+      rent: normalizeText(raw.rent, 100) || undefined,
+      permittedUse: normalizeText(raw.permittedUse, 250) || undefined,
+      specialConditions: normalizeText(raw.specialConditions, 3000) || undefined,
+      instructions,
+      dueDate: normalizeText(raw.dueDate, 50) || undefined,
+    },
+  };
+}
+
+function sanitizeClientMaintenanceRequest(
+  input: unknown
+): { value?: ClientMaintenanceRequestInput; error?: string } {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Maintenance request details are required.' };
+  }
+  const raw = input as Record<string, unknown>;
+  const issueType = CLIENT_MAINTENANCE_TYPES.has(raw.issueType as ClientMaintenanceRequestInput['issueType'])
+    ? (raw.issueType as ClientMaintenanceRequestInput['issueType'])
+    : null;
+  const priority = ['routine', 'priority', 'urgent'].includes(String(raw.priority))
+    ? (String(raw.priority) as ClientMaintenanceRequestInput['priority'])
+    : null;
+  const propertyId = normalizeText(raw.propertyId, 128);
+  const title = normalizeText(raw.title, 200);
+  const description = normalizeText(raw.description, 5000);
+
+  if (!propertyId || !issueType || !priority || !title || !description) {
+    return { error: 'Property, issue type, priority, title and description are required.' };
+  }
+
+  return {
+    value: {
+      propertyId,
+      issueType,
+      title,
+      description,
+      location: normalizeText(raw.location, 250) || undefined,
+      priority,
+      activeWater: raw.activeWater === true,
+      powerAffected: raw.powerAffected === true,
+      propertySecure: raw.propertySecure !== false,
+      accessNotes: normalizeText(raw.accessNotes, 2000) || undefined,
+    },
+  };
+}
+
 const SERVICE_CATEGORIES = new Set<ServiceCategory>([
   'residential',
   'commercial',
