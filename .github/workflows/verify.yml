@@ -55,14 +55,14 @@ jobs:
           FIREBASE_PROJECT_ID: demo-platform-stage2
           GCLOUD_PROJECT: demo-platform-stage2
           FIRESTORE_DATABASE_ID: '(default)'
-        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-platform-stage2 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
+        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-platform-stage2 --config firebase.ci.json 'npm run test:migration-preflight'
       - name: Atomic migration and integration regressions
         timeout-minutes: 8
         env:
           FIREBASE_PROJECT_ID: demo-stage3-atomic
           GCLOUD_PROJECT: demo-stage3-atomic
           FIRESTORE_DATABASE_ID: '(default)'
-        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-stage3-atomic --config scripts/stage1-firebase.json 'npm run stage3:test'
+        run: npx --yes firebase-tools@14.2.1 emulators:exec --only firestore --project demo-stage3-atomic --config firebase.ci.json 'npm run stage3:test'
       - name: Build application and production container
         run: |
           npm run build

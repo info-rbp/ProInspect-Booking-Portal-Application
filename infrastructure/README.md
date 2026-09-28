@@ -51,7 +51,7 @@ terraform -chdir=infrastructure init -backend=false -input=false -lockfile=reado
 terraform -chdir=infrastructure validate
 terraform -chdir=infrastructure test
 npx --yes firebase-tools@14.2.1 emulators:exec --only firestore \
-  --project demo-stage3-atomic --config scripts/stage1-firebase.json \
+  --project demo-stage3-atomic --config firebase.ci.json \
   'npm run stage3:test'
 npm run build
 ```
