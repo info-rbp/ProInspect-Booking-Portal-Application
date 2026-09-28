@@ -2404,8 +2404,8 @@ app.post('/api/client/team-users', clientRateLimit, requireClient, async (req, r
       portalUrl: `${publicBaseUrl(req)}/client`,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === 'CLIENT_USER_EMAIL_EXISTS') {
-      return res.status(409).json({ error: 'A Client Portal user already exists for that email address.' });
+    if (error instanceof Error && error.message === 'CLIENT_USER_ALREADY_LINKED') {
+      return res.status(409).json({ error: 'That person already has access to this client account.' });
     }
     if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
       return res.status(404).json({ error: 'Client account not found.' });
@@ -2916,8 +2916,8 @@ app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('c
       portalUrl: `${publicBaseUrl(req)}/client`,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === 'CLIENT_USER_EMAIL_EXISTS') {
-      return res.status(409).json({ error: 'A client portal user already exists for that email address.' });
+    if (error instanceof Error && error.message === 'CLIENT_USER_ALREADY_LINKED') {
+      return res.status(409).json({ error: 'That client portal user is already linked to the selected client account.' });
     }
     if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
       return res.status(404).json({ error: 'One or more selected clients no longer exist.' });
