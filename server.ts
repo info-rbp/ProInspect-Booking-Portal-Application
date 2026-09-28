@@ -32,6 +32,7 @@ import {
   getSettings,
   listBookings,
   listBookingsWithAccessSecrets,
+  restoreAccessSecretsForBookings,
   listDocumentProducts,
   getDocumentProduct,
   listServices,
@@ -1544,10 +1545,10 @@ app.get(
   async (_req, res) => {
     try {
       const session = adminSession(res);
-      const allBookings = hasAdminPermission(session, 'bookings.sensitive_access')
-        ? await listBookingsWithAccessSecrets()
-        : await listBookings();
-      const bookings = filterBookingsForSession(allBookings, session);
+      const scopedBookings = filterBookingsForSession(await listBookings(), session);
+      const bookings = hasAdminPermission(session, 'bookings.sensitive_access')
+        ? await restoreAccessSecretsForBookings(scopedBookings)
+        : scopedBookings;
       return res.json({ bookings });
     } catch (error) {
       console.error('Admin bookings load failed:', error);
