@@ -490,3 +490,9 @@ export async function createTenantInspection(input: {
   await ref.set(inspection);
   return inspection;
 }
+
+
+export async function getTenantUserById(tenantUserId: string): Promise<TenantUserRecord | null> {
+  const doc = await adminDb.collection('tenantUsers').doc(tenantUserId).get();
+  return doc.exists ? docWithId<TenantUserRecord>(doc) : null;
+}
