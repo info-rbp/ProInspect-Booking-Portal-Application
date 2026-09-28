@@ -54,12 +54,22 @@ async function main() {
     const dashboard = tenant.parsed?.dashboard;
     await expect('Tenant dashboard never returns admin notes', !JSON.stringify(dashboard || {}).includes('adminNotes'), 'adminNotes found');
     await expect('Tenant dashboard never returns storage paths', !JSON.stringify(dashboard || {}).includes('storagePath'), 'storagePath found');
+    await expect(
+      'Tenant dashboard contains only requests submitted by that tenant',
+      (dashboard?.requests || []).every((request) => request.tenantUserId === dashboard?.tenant?.id),
+      'another tenant request was visible'
+    );
 
     const forms = await request('/api/tenant/forms', {
       headers: { Authorization: `Bearer ${tenantToken}` },
     });
     await expect('Tenant token opens statutory forms dashboard', forms.response.ok, `status ${forms.response.status}`);
     await expect('Statutory forms dashboard never returns storage paths', !JSON.stringify(forms.parsed?.dashboard || {}).includes('storagePath'), 'storagePath found');
+    await expect(
+      'Statutory forms dashboard contains only forms submitted by that tenant',
+      (forms.parsed?.dashboard?.requests || []).every((request) => request.tenantUserId === dashboard?.tenant?.id),
+      'another tenant form was visible'
+    );
     await expect('Tenant forms dashboard does not expose restricted evidence metadata', !JSON.stringify(forms.parsed?.dashboard || {}).includes('evidenceType'), 'restricted evidence metadata found');
   }
 
