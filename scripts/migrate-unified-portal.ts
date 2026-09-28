@@ -116,8 +116,15 @@ async function main() {
   // Backfill explicit roles for client users created before clientRoles existed.
   for (const doc of clientUserSnapshot.docs) {
     const user = doc.data() as any;
-    const clientIds = Array.isArray(user.clientIds)
-      ? Array.from(new Set(user.clientIds.filter((id: unknown): id is string => typeof id === 'string' && id.trim())))
+    const clientIds: string[] = Array.isArray(user.clientIds)
+      ? Array.from(
+          new Set<string>(
+            (user.clientIds as unknown[]).filter(
+              (id: unknown): id is string =>
+                typeof id === 'string' && Boolean(id.trim())
+            )
+          )
+        )
       : [];
     if (clientIds.length === 0) continue;
 
