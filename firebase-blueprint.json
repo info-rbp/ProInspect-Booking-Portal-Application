@@ -99,6 +99,14 @@
           "type": "string",
           "enum": ["residential", "commercial", "strata-building"]
         },
+        "clientUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "propertyId": {
+          "type": "string",
+          "maxLength": 128
+        },
         "calendarEventId": {
           "type": "string",
           "maxLength": 256
@@ -163,6 +171,75 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ClientUser": {
+      "title": "ClientUser",
+      "description": "Authenticated ProInspect client profile keyed by Firebase UID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 120 },
+        "displayName": { "type": "string", "maxLength": 150 },
+        "organisationName": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid", "email", "displayName", "active", "createdAt", "updatedAt"]
+    },
+    "ClientProperty": {
+      "title": "ClientProperty",
+      "description": "Persistent client property record created from linked bookings and reused by the Client Portal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "clientUid": { "type": "string", "maxLength": 128 },
+        "clientEmail": { "type": "string", "maxLength": 120 },
+        "streetAddress": { "type": "string", "maxLength": 150 },
+        "unit": { "type": "string", "maxLength": 50 },
+        "suburb": { "type": "string", "maxLength": 100 },
+        "state": { "type": "string", "maxLength": 10 },
+        "postcode": { "type": "string", "maxLength": 10 },
+        "propertyType": { "type": "string", "maxLength": 100 },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 },
+        "lastBookingAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "clientUid", "clientEmail", "streetAddress", "suburb", "state", "postcode", "propertyType", "categories", "createdAt", "updatedAt"]
+    },
+    "ClientRequest": {
+      "title": "ClientRequest",
+      "description": "Future-facing request record for document, maintenance and operational workflows.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "clientUid": { "type": "string", "maxLength": 128 },
+        "propertyId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["document", "maintenance", "general"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["submitted", "in_progress", "waiting_client", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "clientUid", "type", "title", "status", "createdAt", "updatedAt"]
+    },
+    "ClientDocument": {
+      "title": "ClientDocument",
+      "description": "Client-visible metadata for reports, leases, notices and other property documents.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "clientUid": { "type": "string", "maxLength": 128 },
+        "propertyId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 250 },
+        "documentType": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["available", "draft", "archived"] },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "clientUid", "name", "documentType", "status", "createdAt", "updatedAt"]
     },
     "Settings": {
       "title": "Settings",
@@ -308,6 +385,22 @@
     "/bookings/{bookingId}": {
       "schema": "Booking",
       "description": "Persistent customer bookings and internal work orders."
+    },
+    "/clientUsers/{firebaseUid}": {
+      "schema": "ClientUser",
+      "description": "Verified client identity and profile record."
+    },
+    "/clientProperties/{propertyId}": {
+      "schema": "ClientProperty",
+      "description": "Properties linked to authenticated client accounts."
+    },
+    "/clientRequests/{requestId}": {
+      "schema": "ClientRequest",
+      "description": "Client request records used by future document and property-operation workflows."
+    },
+    "/clientDocuments/{documentId}": {
+      "schema": "ClientDocument",
+      "description": "Client-visible document metadata; file storage is handled separately."
     },
     "/settings/business": {
       "schema": "Settings",
