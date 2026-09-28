@@ -300,6 +300,7 @@ export async function getTenantFormsDashboard(
     .get();
 
   const requests = Array.from(normalMap.values())
+    .filter((request) => request.tenantUserId === tenant.id)
     .map(publicFormRequest)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
