@@ -206,6 +206,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
             label: 'Rent account BSB',
             type: 'text',
             required: true,
+            sensitive: true,
             showWhen: { fieldId: 'rentPaymentMethod', equals: 'bank-transfer' },
             placeholder: '000-000',
           },
@@ -222,6 +223,7 @@ export const DOCUMENT_WORKFLOW_DEFINITIONS: Record<
             label: 'Rent account name',
             type: 'text',
             required: true,
+            sensitive: true,
             showWhen: { fieldId: 'rentPaymentMethod', equals: 'bank-transfer' },
           },
           {
