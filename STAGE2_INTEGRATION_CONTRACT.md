@@ -19,8 +19,8 @@ Accepted Stage 2 Report Tool companion:
 
 - Repository: `info-rbp/Property-Report-Tool`
 - Branch: `integration/platform-handoff`
-- Commit: `11e518ac27d55aac8d6911655897df91a50b6df8`
-- Normal `Verify V1` run: `36413920304` - **success**
+- Commit: `247cc387a9e05fb1d93e5e3d4bdeb3fca6dfa707`
+- Normal `Verify V1` run: `36414569752` - **success**
 
 The Report Tool companion starts from the frozen Stage 1 Report Tool SHA and contains integration compatibility only. It is not merged into the core application repository.
 
@@ -146,7 +146,9 @@ The Report Tool:
 - retains canonical context in report data;
 - uses canonical Property ID as its stable local reference;
 - preserves its D1/R2/revision/PDF/finalisation architecture;
-- publishes the completed PDF server-to-server before immutable local completion.
+- completes its revision-aware immutable transition first so only the winning PDF revision can be published;
+- publishes that immutable PDF server-to-server to the canonical platform;
+- exposes an idempotent **Sync to ProInspect** retry action if platform publication is temporarily unavailable.
 
 The core ingest endpoint validates PDF bytes and canonical relationships and stores the issued report as a canonical property document. The Report Tool report ID provides idempotency across retries.
 
