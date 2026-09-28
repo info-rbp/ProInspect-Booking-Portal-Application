@@ -39,6 +39,32 @@ import type {
   TenantFormStatus,
 } from './src/types/tenantForms.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
+import type {
+  AdminPermission,
+  AdminResourceName,
+  AdminRole,
+  AdminSession,
+} from './src/types/admin.js';
+import {
+  ADMIN_RESOURCE_CONFIG,
+  archiveAdminResource,
+  canUpdateBookingForSession,
+  createAdminResource,
+  createAdminStaff,
+  filterBookingsForSession,
+  getAdminDashboard,
+  getAdminIntegrationStatuses,
+  getAdminReportSummary,
+  hasAdminPermission,
+  listAdminResource,
+  listAdminStaff,
+  listAuditEvents as listCanonicalAdminAuditEvents,
+  recordAuditEvent,
+  resolveAdminSession,
+  updateAdminResource,
+  updateAdminStaff,
+} from './src/server/adminStore.js';
+import { PlatformValidationError } from './src/server/canonicalPlatformStore.js';
 import {
   acquireScheduleLocks,
   activeBookingsForDate,
@@ -49,6 +75,7 @@ import {
   getBooking,
   getService,
   getSettings,
+  listBookings,
   listBookingsWithAccessSecrets,
   listServices,
   newBookingId,
@@ -282,6 +309,37 @@ function parseAdminEmails(): Set<string> {
   ]);
 }
 
+const ADMIN_READ_PERMISSION_ALIASES: Record<string, AdminPermission> = {
+  bookings: 'bookings.read',
+  services: 'services.read',
+  clients: 'clients.read',
+  tenants: 'tenants.read',
+  operations: 'maintenance.read',
+  documents: 'documents.read',
+  payments: 'billing.read',
+  settings: 'settings.read',
+  audit: 'audit.read',
+  tenant_forms: 'tenants.read',
+};
+
+const ADMIN_WRITE_PERMISSION_ALIASES: Record<string, AdminPermission> = {
+  bookings: 'bookings.update',
+  services: 'services.manage',
+  clients: 'clients.manage',
+  tenants: 'tenants.manage',
+  operations: 'maintenance.manage',
+  documents: 'documents.manage',
+  payments: 'billing.manage',
+  settings: 'settings.update',
+  audit: 'security.manage',
+  tenant_forms: 'tenants.manage',
+};
+
+function canonicalAdminPermission(permission: string, write = false): AdminPermission | null {
+  if (permission.includes('.')) return permission as AdminPermission;
+  return (write ? ADMIN_WRITE_PERMISSION_ALIASES : ADMIN_READ_PERMISSION_ALIASES)[permission] || null;
+}
+
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization || '';
@@ -297,36 +355,19 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'A verified administrator account is required.' });
     }
 
-    const configuredAdmins = parseAdminEmails();
-    let authorised = configuredAdmins.has(email);
-    let role = authorised ? 'super_admin' : 'operations_officer';
+    const session = await resolveAdminSession({
+      uid: decoded.uid,
+      email,
+      implicitAdministrator: parseAdminEmails().has(email),
+    });
 
-    if (!authorised) {
-      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
-      const data = adminUser.exists ? adminUser.data() : null;
-      authorised =
-        Boolean(data) &&
-        data?.active !== false &&
-        (!data?.email || String(data.email).trim().toLowerCase() === email);
-      if (authorised && data?.role) role = String(data.role);
+    if (!session) {
+      return res.status(403).json({
+        error: 'This account is not authorised for ProInspect administration.',
+      });
     }
 
-    if (!authorised) {
-      return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
-    }
-
-    const permissionMap: Record<string, string[]> = {
-      super_admin: ['*'],
-      operations_manager: ['bookings','services','clients','tenants','operations','documents','payments','settings','audit','tenant_forms'],
-      operations_officer: ['bookings','clients','tenants','operations','documents','tenant_forms'],
-      inspector: ['bookings','operations','documents'],
-      maintenance_coordinator: ['operations','clients','tenants','documents'],
-      document_administrator: ['documents','clients','operations'],
-      read_only: ['bookings','clients','tenants','operations','documents','audit'],
-    };
-    const permissions = permissionMap[role] || permissionMap.operations_officer;
-
-    res.locals.admin = { uid: decoded.uid, email, role, permissions };
+    res.locals.admin = session;
     return next();
   } catch (error) {
     console.error('Admin authentication failed:', error);
@@ -336,97 +377,39 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
 
 function requireAdminPermission(permission: string) {
   return (_req: Request, res: Response, next: NextFunction) => {
-    const permissions = Array.isArray(res.locals.admin?.permissions)
-      ? res.locals.admin.permissions as string[]
-      : [];
-    if (permissions.includes('*') || permissions.includes(permission)) {
-      return next();
-    }
+    const canonical = canonicalAdminPermission(permission, false);
+    const session = res.locals.admin as AdminSession | undefined;
+    if (canonical && hasAdminPermission(session, canonical)) return next();
     return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
   };
 }
 
 function requireAdminWritePermission(permission: string) {
   return (_req: Request, res: Response, next: NextFunction) => {
-    if (res.locals.admin?.role === 'read_only') {
-      return res.status(403).json({ error: 'This staff account has read-only access.' });
-    }
-    const permissions = Array.isArray(res.locals.admin?.permissions)
-      ? res.locals.admin.permissions as string[]
-      : [];
-    if (permissions.includes('*') || permissions.includes(permission)) {
-      return next();
-    }
+    const canonical = canonicalAdminPermission(permission, true);
+    const session = res.locals.admin as AdminSession | undefined;
+    if (canonical && hasAdminPermission(session, canonical)) return next();
     return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
   };
 }
 
-async function requireTenant(req: Request, res: Response, next: NextFunction) {
-  try {
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Tenant authentication is required.' });
-    }
-
-    const idToken = authHeader.slice(7).trim();
-    const decoded = await adminAuth.verifyIdToken(idToken, true);
-    const email = (decoded.email || '').trim().toLowerCase();
-
-    if (!email || decoded.email_verified !== true) {
-      return res.status(403).json({ error: 'A verified tenant email address is required.' });
-    }
-
-    const tenant = await findAndLinkTenantUser({
-      uid: decoded.uid,
-      email,
-    });
-
-    if (!tenant) {
-      return res.status(403).json({
-        error: 'This email address is not linked to an active ProInspect tenancy.',
-      });
-    }
-
-    res.locals.tenant = tenant;
-    return next();
-  } catch (error) {
-    console.error('Tenant authentication failed:', error);
-    return res.status(401).json({ error: 'Tenant session is invalid or has expired.' });
-  }
+function adminSession(res: Response): AdminSession {
+  return res.locals.admin as AdminSession;
 }
 
-async function requireClient(req: Request, res: Response, next: NextFunction) {
-  try {
-    const authHeader = req.headers.authorization || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Client authentication is required.' });
-    }
+function isAdminResourceName(value: string): value is AdminResourceName {
+  return Object.prototype.hasOwnProperty.call(ADMIN_RESOURCE_CONFIG, value);
+}
 
-    const idToken = authHeader.slice(7).trim();
-    const decoded = await adminAuth.verifyIdToken(idToken, true);
-    const email = (decoded.email || '').trim().toLowerCase();
-
-    if (!email || decoded.email_verified !== true) {
-      return res.status(403).json({ error: 'A verified client email address is required.' });
-    }
-
-    const clientUser = await findAndLinkClientUser({
-      uid: decoded.uid,
-      email,
-    });
-
-    if (!clientUser) {
-      return res.status(403).json({
-        error: 'This email address is not linked to an active ProInspect client account.',
-      });
-    }
-
-    res.locals.clientUser = clientUser;
-    return next();
-  } catch (error) {
-    console.error('Client authentication failed:', error);
-    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+function adminResourceFailure(res: Response, error: unknown, fallback: string) {
+  if (error instanceof PlatformValidationError) {
+    return res.status(error.status).json({ error: error.message, code: error.code });
   }
+  if (error instanceof Error && error.message === 'RESOURCE_SCOPE_FORBIDDEN') {
+    return res.status(403).json({ error: 'This record is outside your assigned resource scope.' });
+  }
+  console.error(fallback, error);
+  return res.status(500).json({ error: fallback });
 }
 
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
@@ -2575,16 +2558,189 @@ app.post('/api/client/notifications/:id/read', clientRateLimit, requireClient, a
 });
 
 app.get('/api/admin/session', requireAdmin, (_req, res) => {
+  const session = adminSession(res);
   return res.json({
     authorised: true,
-    role: res.locals.admin.role,
-    permissions: res.locals.admin.permissions,
+    session,
+    role: session.role,
+    permissions: session.permissions,
   });
+});
+
+
+app.get('/api/admin/dashboard', requireAdmin, requireAdminPermission('dashboard.read'), async (_req, res) => {
+  try {
+    return res.json({ summary: await getAdminDashboard(adminSession(res)) });
+  } catch (error) {
+    console.error('Admin dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the admin dashboard.' });
+  }
+});
+
+app.get('/api/admin/staff', requireAdmin, requireAdminPermission('users.read'), async (_req, res) => {
+  try {
+    return res.json({ staff: await listAdminStaff() });
+  } catch (error) {
+    console.error('Admin staff load failed:', error);
+    return res.status(500).json({ error: 'Unable to load staff.' });
+  }
+});
+
+app.post('/api/admin/staff', requireAdmin, requireAdminWritePermission('users.manage'), async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 120);
+    const role = req.body?.role as AdminRole;
+    if (!isValidEmail(email) || displayName.length < 2 ||
+        !['administrator','operations_manager','inspector','read_only'].includes(role)) {
+      return res.status(400).json({ error: 'Valid staff name, email and role are required.' });
+    }
+    const staff = await createAdminStaff({
+      email,
+      displayName,
+      role,
+      assignedServiceIds: Array.isArray(req.body?.assignedServiceIds) ? req.body.assignedServiceIds : [],
+      assignedPropertyIds: Array.isArray(req.body?.assignedPropertyIds) ? req.body.assignedPropertyIds : [],
+      assignedClientIds: Array.isArray(req.body?.assignedClientIds) ? req.body.assignedClientIds : [],
+    });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: 'staff.created',
+      resourceType: 'staff',
+      resourceId: staff.id,
+      summary: `Staff access created for ${staff.email}.`,
+    });
+    return res.status(201).json({ staff });
+  } catch (error) {
+    console.error('Admin staff creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create staff access.' });
+  }
+});
+
+app.patch('/api/admin/staff/:uid', requireAdmin, requireAdminWritePermission('users.manage'), async (req, res) => {
+  try {
+    const staff = await updateAdminStaff(req.params.uid, req.body || {});
+    if (!staff) return res.status(404).json({ error: 'Staff member not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: 'staff.updated',
+      resourceType: 'staff',
+      resourceId: staff.id,
+      summary: `Staff access updated for ${staff.email}.`,
+    });
+    return res.json({ staff });
+  } catch (error) {
+    console.error('Admin staff update failed:', error);
+    return res.status(500).json({ error: 'Unable to update staff access.' });
+  }
+});
+
+app.get('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!hasAdminPermission(adminSession(res), config.readPermission)) {
+    return res.status(403).json({ error: 'You do not have permission to read this resource.' });
+  }
+  try {
+    return res.json({ records: await listAdminResource(resource, adminSession(res)) });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to load records.');
+  }
+});
+
+app.post('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+    return res.status(403).json({ error: 'You do not have permission to create this resource.' });
+  }
+  try {
+    const record = await createAdminResource(resource, req.body || {}, adminSession(res));
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.created`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record created.`,
+      propertyId: typeof record.propertyId === 'string' ? record.propertyId : undefined,
+      clientId: typeof record.clientId === 'string' ? record.clientId : undefined,
+    });
+    return res.status(201).json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to create record.');
+  }
+});
+
+app.patch('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+    return res.status(403).json({ error: 'You do not have permission to update this resource.' });
+  }
+  try {
+    const record = await updateAdminResource(resource, req.params.id, req.body || {}, adminSession(res));
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.updated`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record updated.`,
+      propertyId: typeof record.propertyId === 'string' ? record.propertyId : undefined,
+      clientId: typeof record.clientId === 'string' ? record.clientId : undefined,
+    });
+    return res.json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to update record.');
+  }
+});
+
+app.delete('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.writePermission || !hasAdminPermission(adminSession(res), config.writePermission)) {
+    return res.status(403).json({ error: 'You do not have permission to archive this resource.' });
+  }
+  try {
+    const record = await archiveAdminResource(resource, req.params.id, adminSession(res));
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.archived`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record archived.`,
+    });
+    return res.json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to archive record.');
+  }
+});
+
+app.get('/api/admin/reports/summary', requireAdmin, requireAdminPermission('reports.read'), async (_req, res) => {
+  try {
+    return res.json({ report: await getAdminReportSummary(adminSession(res)) });
+  } catch (error) {
+    console.error('Admin reporting failed:', error);
+    return res.status(500).json({ error: 'Unable to load report summary.' });
+  }
+});
+
+app.get('/api/admin/integrations', requireAdmin, requireAdminPermission('integrations.read'), (_req, res) => {
+  return res.json({ integrations: getAdminIntegrationStatuses() });
 });
 
 app.get('/api/admin/bookings', requireAdmin, requireAdminPermission('bookings'), async (_req, res) => {
   try {
-    const bookings = await listBookingsWithAccessSecrets();
+    const session = adminSession(res);
+    const allBookings = hasAdminPermission(session, 'bookings.sensitive_access')
+      ? await listBookingsWithAccessSecrets()
+      : await listBookings();
+    const bookings = filterBookingsForSession(allBookings, session);
     return res.json({ bookings });
   } catch (error) {
     console.error('Admin bookings load failed:', error);
@@ -2898,6 +3054,10 @@ app.patch('/api/admin/bookings/:id', requireAdmin, requireAdminWritePermission('
     const booking = await getBooking(req.params.id);
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    if (!canUpdateBookingForSession(booking, adminSession(res))) {
+      return res.status(403).json({ error: 'This booking is outside your assigned work scope.' });
     }
 
     const status = req.body?.status;
