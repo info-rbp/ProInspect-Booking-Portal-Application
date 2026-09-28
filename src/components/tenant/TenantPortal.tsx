@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
+import { TenantStatutoryForms } from './TenantStatutoryForms';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,8 +14,6 @@ import {
   Loader2,
   LogOut,
   MessageSquareWarning,
-  PawPrint,
-  PenTool,
   Plus,
   RefreshCw,
   Send,
@@ -43,7 +42,7 @@ import {
   tenantEmailLinkIsActive,
 } from '../../services/firebase';
 
-type TenantTab = 'overview' | 'requests' | 'documents' | 'inspections' | 'tenancy';
+type TenantTab = 'overview' | 'forms' | 'requests' | 'documents' | 'inspections' | 'tenancy';
 
 interface TenantPortalProps {
   authUser: User | null;
@@ -63,18 +62,6 @@ const REQUEST_OPTIONS: Array<{
     label: 'Report Maintenance',
     description: 'Report repairs, damage or an issue requiring attention.',
     icon: Wrench,
-  },
-  {
-    type: 'pet',
-    label: 'Pet Request',
-    description: 'Request approval for a pet at the property.',
-    icon: PawPrint,
-  },
-  {
-    type: 'modification',
-    label: 'Modification Request',
-    description: 'Request a fixture, alteration or other property change.',
-    icon: PenTool,
   },
   {
     type: 'occupant',
@@ -492,6 +479,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
       <div className="flex gap-2 overflow-x-auto pb-1">
         {([
           ['overview', 'Overview'],
+          ['forms', 'Forms & Bond'],
           ['requests', 'Requests'],
           ['documents', 'Documents'],
           ['inspections', 'Inspections'],
@@ -534,6 +522,24 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
             })}
           </div>
 
+          <button
+            type="button"
+            onClick={() => setActiveTab('forms')}
+            className="w-full text-left rounded-xl border-2 border-[#00B5B8]/30 bg-[#F0FBFB] p-5 hover:border-[#00B5B8] transition-colors"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-lg bg-white text-[#007F82] flex items-center justify-center shrink-0">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="font-extrabold text-[#1A2B4A]">Forms, Pet / Modification & Bond Requests</div>
+                <div className="mt-1 text-xs text-slate-600 leading-relaxed">
+                  Submit Form 24, Form 25, Form 26, Form 27, bond variation/release, PCR responses and private tenancy support through guided online workflows.
+                </div>
+              </div>
+            </div>
+          </button>
+
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
@@ -566,6 +572,13 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {activeTab === 'forms' && (
+        <TenantStatutoryForms
+          tenancies={dashboard.tenancies}
+          documents={dashboard.documents}
+        />
       )}
 
       {activeTab === 'requests' && (
