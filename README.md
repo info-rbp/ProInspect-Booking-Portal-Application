@@ -125,27 +125,56 @@ See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration,
 
 ## Client Portal branch architecture
 
-The `client-portal` branch extends the same application rather than creating a separate client system.
+The `client-portal` branch extends the existing booking application into an authenticated client and property operations portal while keeping the public booking flow unchanged.
 
-Client routes:
+Client routes include:
 
 - `/signin` - verified Google/Firebase client sign-in
-- `/portal` - client dashboard
-- `/portal/properties` - linked properties
+- `/portal` - dashboard
+- `/portal/onboarding` - guided client and organisation onboarding
+- `/portal/properties` and `/portal/properties/:id` - saved property workspaces
 - `/portal/bookings` - linked booking history
-- `/portal/requests` - request workspace ready for later maintenance/document workflows
-- `/portal/documents` - document workspace ready for reports, leases and notices
+- `/portal/requests` - document and maintenance request tracking
+- `/portal/requests/maintenance` - maintenance intake
+- `/request-document` - structured document request intake
+- `/portal/documents` - uploaded and generated documents
+- `/portal/approvals` - client decisions and draft approvals
+- `/portal/account` - organisation details, roles and invited users
 
-The Client Portal uses the same Firebase Authentication project as the staff portal but a different authorisation boundary. Any verified Firebase user can establish a client profile unless that profile has been disabled. Staff access still requires the existing administrator allow-list.
+### Identity, organisations and memberships
 
-When a client first opens the portal, the trusted server:
+The Client Portal uses the same Firebase Authentication project as the staff portal but a separate authorisation boundary. Staff access still requires the existing administrator allow-list.
 
-1. creates or refreshes `clientUsers/{firebaseUid}`;
-2. finds historical bookings where `property.customerEmail` matches the verified Firebase email;
-3. links those bookings to the Firebase UID;
-4. creates stable `clientProperties` records from the linked booking addresses; and
-5. returns only a client-safe summary of bookings, properties, requests and documents.
+Client records are organisation based:
 
-When an authenticated client makes a future booking using the same verified email, the booking API automatically stores `clientUid` and `propertyId`. Public booking remains available without authentication.
+- `clientUsers` - identity/profile and active organisation
+- `clientOrganisations` - landlord, company, trust, strata or agency entity
+- `clientMemberships` - owner/admin/member/viewer access and invitations
+- `clientProperties` - persistent saved properties
+- `clientRequests` - document, maintenance and general requests
+- `clientDocuments` - metadata for uploaded and generated files
+- `clientApprovals` - recorded approvals, requested changes and declines
 
-Direct browser Firestore access remains denied. Client Portal reads are performed by authenticated Express endpoints using the trusted Firebase Admin SDK. Sensitive booking access data is not returned by Client Portal APIs.
+An invited email automatically claims its membership when that verified account signs in. One organisation can therefore have multiple authorised portal users, and one user can belong to more than one organisation.
+
+### Existing booking integration
+
+When a client first opens the portal, the trusted server matches historical bookings by the verified customer email, creates stable property records and adds `clientUid`, `clientOrganisationId` and `propertyId` links. Future authenticated bookings are linked at creation when the booking email matches the verified account.
+
+Saved properties can launch the existing booking wizard with the property address pre-filled, so the portal and booking engine remain one workflow rather than separate systems.
+
+### Requests, files and document drafts
+
+Maintenance requests and document requests are stored as first-class records linked to the active organisation and property. Supporting files are uploaded through authenticated server endpoints to the configured Firebase Storage bucket, with Firestore storing metadata only.
+
+The document-request workflow can generate a structured HTML working draft from approved portal fields. Generated output is always marked **DRAFT - REVIEW REQUIRED** and creates a client approval record. This provides an operational drafting workflow without treating automatically generated content as ready for execution.
+
+Client files are limited to 10 MB each and accepted formats are constrained server-side. Direct browser access to Firestore remains denied.
+
+### Staff integration
+
+The Staff Portal includes a Client Requests view so document and maintenance requests submitted by clients can be reviewed and progressed alongside existing bookings and work orders.
+
+### Cloud requirements
+
+In addition to the existing Firestore, Calendar, Maps and email permissions, Cloud Run requires object read/write access to the Firebase Storage bucket configured by `FIREBASE_STORAGE_BUCKET`. No client-side Firestore write access is introduced.
