@@ -1,0 +1,126 @@
+steps:
+  - id: terraform-fmt
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - terraform fmt -check -recursive
+
+  - id: terraform-init
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - >-
+        terraform init
+        -input=false
+        -backend-config="bucket=${_TF_STATE_BUCKET}"
+        -backend-config="prefix=${_TF_STATE_PREFIX}"
+
+  - id: terraform-validate
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - terraform validate
+
+  - id: terraform-plan
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - >-
+        terraform plan
+        -input=false
+        -lock-timeout=5m
+        -var-file="${_TF_VAR_FILE}"
+        -out=/workspace/proinspect.tfplan
+
+  - id: terraform-apply
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - >-
+        terraform apply
+        -input=false
+        -lock-timeout=5m
+        -auto-approve
+        /workspace/proinspect.tfplan
+
+  - id: export-terraform-outputs
+    name: hashicorp/terraform:1.9.8
+    entrypoint: sh
+    dir: infrastructure
+    args:
+      - -c
+      - |
+        terraform output -json runtime_environment > /workspace/runtime-environment.json
+        terraform output -raw access_data_encryption_secret_id > /workspace/access-secret.txt
+        terraform output -raw resend_api_key_secret_id > /workspace/resend-secret.txt
+        terraform output -raw google_maps_api_key_secret_id > /workspace/maps-secret.txt
+
+  - id: configure-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+
+        values = json.loads(Path('/workspace/runtime-environment.json').read_text())
+        lines = []
+        for key in sorted(values):
+            lines.append(f'{key}: {json.dumps(str(values[key]))}')
+        Path('/workspace/runtime-environment.yaml').write_text('\n'.join(lines) + '\n')
+        PY
+
+        gcloud run services describe "${_CLOUD_RUN_SERVICE}"           --project="$PROJECT_ID"           --region="${_REGION}" >/dev/null
+
+        gcloud run services update "${_CLOUD_RUN_SERVICE}"           --project="$PROJECT_ID"           --region="${_REGION}"           --service-account="${_RUNTIME_SERVICE_ACCOUNT}"           --env-vars-file=/workspace/runtime-environment.yaml           --quiet
+
+        ACCESS_SECRET="$(cat /workspace/access-secret.txt)"
+        RESEND_SECRET="$(cat /workspace/resend-secret.txt)"
+        MAPS_SECRET="$(cat /workspace/maps-secret.txt)"
+        SECRET_BINDINGS=()
+
+        if gcloud secrets versions list "$ACCESS_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("ACCESS_DATA_ENCRYPTION_KEY=$ACCESS_SECRET:latest")
+        fi
+
+        if gcloud secrets versions list "$RESEND_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("RESEND_API_KEY=$RESEND_SECRET:latest")
+        fi
+
+        if gcloud secrets versions list "$MAPS_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("GOOGLE_MAPS_API_KEY=$MAPS_SECRET:latest")
+        fi
+
+        if (( ${#SECRET_BINDINGS[@]} > 0 )); then
+          SECRET_LIST="$(IFS=,; echo "${SECRET_BINDINGS[*]}")"
+          gcloud run services update "${_CLOUD_RUN_SERVICE}"             --project="$PROJECT_ID"             --region="${_REGION}"             --update-secrets="$SECRET_LIST"             --quiet
+        fi
+
+substitutions:
+  _TF_STATE_BUCKET: business-plan-applicatio-17047-proinspect-terraform-state
+  _TF_STATE_PREFIX: booking-portal/production
+  _TF_VAR_FILE: environments/production.tfvars
+  _CLOUD_RUN_SERVICE: proinspect-booking-portal-application
+  _REGION: europe-west1
+  _RUNTIME_SERVICE_ACCOUNT: proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com
+
+serviceAccount: projects/business-plan-applicatio-17047/serviceAccounts/proinspect-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1200s
