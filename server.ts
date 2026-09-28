@@ -2952,6 +2952,9 @@ app.post('/api/client/onboarding', clientRateLimit, requireVerifiedClientIdentit
     const clientName = normalizeText(req.body?.clientName, 180);
     const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
     const phone = normalizeText(req.body?.phone, 40);
+    const billingEmail = normalizeText(req.body?.billingEmail, 254).toLowerCase();
+    const abn = normalizeText(req.body?.abn, 32);
+    const acn = normalizeText(req.body?.acn, 32);
     const externalReference = normalizeText(req.body?.externalReference, 100);
 
     if (displayName.length < 2 || clientName.length < 2 || !CLIENT_TYPES.has(clientType)) {
@@ -2965,6 +2968,9 @@ app.post('/api/client/onboarding', clientRateLimit, requireVerifiedClientIdentit
       email: identity.email,
       displayName,
       phone: phone || undefined,
+      billingEmail: billingEmail || identity.email,
+      abn: abn || undefined,
+      acn: acn || undefined,
       clientName,
       clientType,
       externalReference: externalReference || undefined,
