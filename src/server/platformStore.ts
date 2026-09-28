@@ -454,12 +454,22 @@ export async function createPaymentRecord(input: {
   checkoutUrl?: string;
   providerOrderId?: string;
 }): Promise<PaymentRecord> {
-  const gstAmount = Math.round(input.amountExGst * 0.1 * 100) / 100;
   const ref = adminDb.collection('payments').doc();
   const now = nowIso();
+  const paymentReference = reference('PAY');
+  const gstAmount = Math.round(input.amountExGst * 0.1 * 100) / 100;
+  const totalAmount = Math.round((input.amountExGst + gstAmount) * 100) / 100;
+  const template = process.env.PAYMENT_CHECKOUT_URL_TEMPLATE?.trim();
+  const generatedCheckoutUrl = input.checkoutUrl || (template
+    ? template
+        .replaceAll('{paymentId}', encodeURIComponent(ref.id))
+        .replaceAll('{reference}', encodeURIComponent(paymentReference))
+        .replaceAll('{totalAmount}', encodeURIComponent(totalAmount.toFixed(2)))
+    : undefined);
+
   const payment: PaymentRecord = {
     id: ref.id,
-    reference: reference('PAY'),
+    reference: paymentReference,
     clientId: input.clientId,
     propertyId: input.propertyId,
     sourceType: input.sourceType,
@@ -467,11 +477,11 @@ export async function createPaymentRecord(input: {
     description: input.description,
     amountExGst: input.amountExGst,
     gstAmount,
-    totalAmount: Math.round((input.amountExGst + gstAmount) * 100) / 100,
+    totalAmount,
     currency: 'AUD',
-    status: input.checkoutUrl ? 'payment_required' : 'pending',
-    provider: input.provider || 'manual',
-    checkoutUrl: input.checkoutUrl,
+    status: generatedCheckoutUrl ? 'payment_required' : 'pending',
+    provider: generatedCheckoutUrl ? (input.provider || 'external') : (input.provider || 'manual'),
+    checkoutUrl: generatedCheckoutUrl,
     providerOrderId: input.providerOrderId,
     createdAt: now,
     updatedAt: now,
