@@ -30,6 +30,7 @@ import {
   getBooking,
   getService,
   getSettings,
+  listBookings,
   listBookingsWithAccessSecrets,
   listDocumentProducts,
   getDocumentProduct,
@@ -74,6 +75,29 @@ import {
   isValidAustralianPhone,
   isValidAustralianPostcode,
 } from './src/utils/australianValidation.js';
+import type {
+  AdminPermission,
+  AdminResourceName,
+  AdminRole,
+  AdminSession,
+} from './src/types/admin.js';
+import {
+  ADMIN_RESOURCE_CONFIG,
+  archiveAdminResource,
+  createAdminResource,
+  createAdminStaff,
+  getAdminDashboard,
+  getAdminIntegrationStatuses,
+  getAdminReportSummary,
+  hasAdminPermission,
+  listAdminResource,
+  listAdminStaff,
+  listAuditEvents,
+  recordAuditEvent,
+  resolveAdminSession,
+  updateAdminResource,
+  updateAdminStaff,
+} from './src/server/adminStore.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -185,28 +209,40 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'A verified administrator account is required.' });
     }
 
-    const configuredAdmins = parseAdminEmails();
-    let authorised = configuredAdmins.has(email);
+    const session = await resolveAdminSession({
+      uid: decoded.uid,
+      email,
+      implicitAdministrator: parseAdminEmails().has(email),
+    });
 
-    if (!authorised) {
-      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
-      const data = adminUser.exists ? adminUser.data() : null;
-      authorised =
-        Boolean(data) &&
-        data?.active !== false &&
-        (!data?.email || String(data.email).trim().toLowerCase() === email);
-    }
-
-    if (!authorised) {
+    if (!session) {
       return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
     }
 
-    res.locals.admin = { uid: decoded.uid, email };
+    res.locals.admin = session;
     return next();
   } catch (error) {
     console.error('Admin authentication failed:', error);
     return res.status(401).json({ error: 'Administrator session is invalid or has expired.' });
   }
+}
+
+function requirePermission(permission: AdminPermission) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const session = res.locals.admin as AdminSession | undefined;
+    if (!hasAdminPermission(session, permission)) {
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    }
+    return next();
+  };
+}
+
+function adminSession(res: Response): AdminSession {
+  return res.locals.admin as AdminSession;
+}
+
+function isAdminResourceName(value: string): value is AdminResourceName {
+  return Object.prototype.hasOwnProperty.call(ADMIN_RESOURCE_CONFIG, value);
 }
 
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
