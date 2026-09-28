@@ -5,17 +5,20 @@ import type {
   ClientDocumentSummary,
   ClientRequestSummary,
 } from '../../types/clientPortal';
+import type { DocumentRequestRecord } from '../../types/documentRequest';
 
 export function AdminClientRequests({
   requests,
   approvals,
   documents,
+  publicDocumentRequests,
   onUpdateStatus,
   onDownloadDocument,
 }: {
   requests: ClientRequestSummary[];
   approvals: ClientApproval[];
   documents: ClientDocumentSummary[];
+  publicDocumentRequests: DocumentRequestRecord[];
   onUpdateStatus: (
     requestId: string,
     status: ClientRequestSummary['status']
@@ -40,7 +43,7 @@ export function AdminClientRequests({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           ['Open requests', requests.filter((item) => !['completed','cancelled'].includes(item.status)).length],
-          ['Document requests', requests.filter((item) => item.type === 'document').length],
+          ['Document requests', requests.filter((item) => item.type === 'document').length + publicDocumentRequests.length],
           ['Maintenance', requests.filter((item) => item.type === 'maintenance').length],
           ['Pending approvals', pendingApprovals.length],
         ].map(([label, value]) => (
@@ -85,6 +88,25 @@ export function AdminClientRequests({
                   <div className="mt-1 text-xs text-slate-500">
                     Request {request.id} · {new Date(request.createdAt).toLocaleDateString('en-AU')}
                   </div>
+                  {(request.organisationName ||
+                    request.propertyAddress ||
+                    request.submittedByEmail) && (
+                    <div className="mt-3 rounded-lg bg-slate-50 border border-slate-100 p-3 text-xs text-slate-600 space-y-1">
+                      {request.organisationName && (
+                        <div><span className="font-semibold">Organisation:</span> {request.organisationName}</div>
+                      )}
+                      {request.propertyAddress && (
+                        <div><span className="font-semibold">Property:</span> {request.propertyAddress}</div>
+                      )}
+                      {request.submittedByEmail && (
+                        <div>
+                          <span className="font-semibold">Submitted by:</span>{' '}
+                          {request.submittedByName || request.submittedByEmail}
+                          {request.submittedByName ? ` · ${request.submittedByEmail}` : ''}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {request.details && (
                     <div className="mt-3 text-xs text-slate-600 space-y-1">
                       {Object.entries(request.details).slice(0, 6).map(([key, value]) => (
@@ -144,6 +166,91 @@ export function AdminClientRequests({
           </div>
         )}
       </div>
+
+      {publicDocumentRequests.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5">
+          <div className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-[#007F82]" />
+            <div>
+              <h2 className="font-bold text-[#1A2B4A]">Public Document Catalogue Requests</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Guided document requests submitted through the public Request a Document workflow.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 divide-y divide-slate-100">
+            {publicDocumentRequests.map((request) => (
+              <div key={request.id} className="py-4">
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-[10px] font-black uppercase rounded bg-[#F0FBFB] px-2 py-1 text-[#006D70]">
+                        {request.requestReference}
+                      </span>
+                      <span className="text-[10px] font-black uppercase rounded bg-slate-100 px-2 py-1 text-slate-600">
+                        {request.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div className="mt-2 font-bold text-[#1A2B4A]">{request.documentName}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {request.details.unit ? `${request.details.unit}, ` : ''}
+                      {request.details.streetAddress}, {request.details.suburb} {request.details.state} {request.details.postcode}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {request.details.customerName} · {request.details.customerEmail} · {request.details.customerPhone}
+                    </div>
+                  </div>
+                  <div className="text-xs font-bold text-slate-600">
+                    $ {request.priceExGst.toFixed(2)} + GST
+                  </div>
+                </div>
+
+                <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-xs font-bold text-[#006D70]">
+                    View guided workflow details
+                  </summary>
+                  <div className="mt-3 text-xs text-slate-600 space-y-3">
+                    <div>
+                      <span className="font-semibold">Requester role:</span>{' '}
+                      {request.workflow.requesterRole.replace('-', ' ')}
+                    </div>
+                    {request.workflow.lessors.length > 0 && (
+                      <div>
+                        <div className="font-semibold mb-1">Landlord / lessor parties</div>
+                        {request.workflow.lessors.map((party) => (
+                          <div key={party.id} className="mb-1">
+                            {party.name}
+                            {party.email ? ` · ${party.email}` : ''}
+                            {party.phone ? ` · ${party.phone}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {request.workflow.tenants.length > 0 && (
+                      <div>
+                        <div className="font-semibold mb-1">Tenant parties</div>
+                        {request.workflow.tenants.map((party) => (
+                          <div key={party.id} className="mb-1">
+                            {party.name}
+                            {party.email ? ` · ${party.email}` : ''}
+                            {party.phone ? ` · ${party.phone}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-semibold mb-1">Workflow answers</div>
+                      <pre className="whitespace-pre-wrap break-words rounded bg-white border border-slate-200 p-3 text-[11px] leading-relaxed overflow-x-auto">
+                        {JSON.stringify(request.workflow.answers, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {pendingApprovals.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5">
