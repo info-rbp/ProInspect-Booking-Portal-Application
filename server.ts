@@ -51,6 +51,7 @@ import {
   listServices,
   activateClientOrganisation,
   completeClientOnboarding,
+  claimClientDocumentDraftGeneration,
   createClientApproval,
   createClientDocument,
   createClientProperty,
@@ -74,6 +75,7 @@ import {
   newBookingId,
   newDocumentRequestId,
   documentRequestReferenceExists,
+  releaseClientDocumentDraftGeneration,
   releaseScheduleLocks,
   reorderServices,
   saveBooking,
@@ -106,6 +108,7 @@ import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
   sendClientPortalInvitationEmail,
+  sendClientPortalRequestNotification,
   sendDocumentRequestEmails,
 } from './src/server/email.js';
 import {
@@ -483,6 +486,10 @@ function sanitizeClientOnboarding(
   if (!isValidEmail(billingEmail)) {
     return { error: 'Enter a valid billing email address.' };
   }
+  const phone = normalizeText(raw.phone, 50);
+  if (phone && !isValidAustralianPhone(phone)) {
+    return { error: 'Enter a valid Australian phone number.' };
+  }
   if (abn && !/^\d{11}$/.test(abn)) {
     return { error: 'ABN must contain 11 digits.' };
   }
@@ -500,7 +507,7 @@ function sanitizeClientOnboarding(
   return {
     value: {
       displayName,
-      phone: normalizeText(raw.phone, 50) || undefined,
+      phone: phone || undefined,
       organisationName,
       entityType,
       abn: abn || undefined,
@@ -1921,6 +1928,12 @@ app.post('/api/client/organisation/members', requireClient, async (req, res) => 
     if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_ADMIN_REQUIRED') {
       return res.status(403).json({ error: 'Owner or admin access is required to invite members.' });
     }
+    if (error instanceof Error && error.message === 'CLIENT_MEMBERSHIP_OWNER_PROTECTED') {
+      return res.status(409).json({ error: 'The organisation owner membership cannot be replaced by an invitation.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_MEMBERSHIP_ALREADY_EXISTS') {
+      return res.status(409).json({ error: 'That email already has a membership or invitation for this organisation.' });
+    }
     console.error('Client member invitation failed:', error);
     return res.status(500).json({ error: 'Unable to invite this organisation member.' });
   }
@@ -1987,6 +2000,39 @@ app.post('/api/client/requests/document', requireClient, async (req, res) => {
         ...(input.dueDate ? { dueDate: input.dueDate } : {}),
       },
     });
+
+    const context = clientContext(res);
+    const property = input.propertyId
+      ? await getClientProperty({
+          organisationId: context.organisation.id,
+          propertyId: input.propertyId,
+        })
+      : null;
+    const notification = await sendClientPortalRequestNotification({
+      requestId: request.id,
+      requestType: 'document',
+      title: request.title,
+      organisationName: context.organisation.name,
+      submittedByName: context.profile.displayName,
+      submittedByEmail: context.profile.email,
+      propertyAddress: property
+        ? [
+            property.unit
+              ? `${property.unit}, ${property.streetAddress}`
+              : property.streetAddress,
+            `${property.suburb} ${property.state} ${property.postcode}`,
+          ].join(', ')
+        : undefined,
+      priority: request.priority,
+      staffUrl: publicBaseUrl(req),
+    });
+    if (notification.status === 'failed') {
+      console.error(
+        `Client document request ${request.id} notification failed:`,
+        notification.error
+      );
+    }
+
     return res.status(201).json({ success: true, request });
   } catch (error) {
     if (error instanceof Error && error.message === 'CLIENT_PROPERTY_NOT_FOUND') {
@@ -2024,6 +2070,37 @@ app.post('/api/client/requests/maintenance', requireClient, async (req, res) => 
         ...(input.accessNotes ? { accessNotes: input.accessNotes } : {}),
       },
     });
+
+    const context = clientContext(res);
+    const property = await getClientProperty({
+      organisationId: context.organisation.id,
+      propertyId: input.propertyId,
+    });
+    const notification = await sendClientPortalRequestNotification({
+      requestId: request.id,
+      requestType: 'maintenance',
+      title: request.title,
+      organisationName: context.organisation.name,
+      submittedByName: context.profile.displayName,
+      submittedByEmail: context.profile.email,
+      propertyAddress: property
+        ? [
+            property.unit
+              ? `${property.unit}, ${property.streetAddress}`
+              : property.streetAddress,
+            `${property.suburb} ${property.state} ${property.postcode}`,
+          ].join(', ')
+        : undefined,
+      priority: request.priority,
+      staffUrl: publicBaseUrl(req),
+    });
+    if (notification.status === 'failed') {
+      console.error(
+        `Client maintenance request ${request.id} notification failed:`,
+        notification.error
+      );
+    }
+
     return res.status(201).json({ success: true, request });
   } catch (error) {
     if (error instanceof Error && error.message === 'CLIENT_PROPERTY_NOT_FOUND') {
@@ -2117,19 +2194,27 @@ app.post(
 );
 
 app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, res) => {
+  const context = clientContext(res);
+  let generationClaimed = false;
+
   try {
-    const context = clientContext(res);
     if (context.membership.role === 'viewer') {
       return res.status(403).json({ error: 'Your client role is read-only.' });
     }
 
-    const request = await getClientRequest({
+    const existingRequest = await getClientRequest({
       organisationId: context.organisation.id,
       requestId: req.params.id,
     });
-    if (!request || request.type !== 'document') {
+    if (!existingRequest || existingRequest.type !== 'document') {
       return res.status(404).json({ error: 'Document request not found.' });
     }
+
+    const request = await claimClientDocumentDraftGeneration({
+      context,
+      requestId: req.params.id,
+    });
+    generationClaimed = true;
 
     const details = request.details || {};
     const documentType = String(details.documentType || 'Other') as ClientDocumentRequestInput['documentType'];
@@ -2202,11 +2287,27 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, async (req, r
       changes: {
         status: 'waiting_client',
         generatedDocumentId: document.id,
+        draftGenerationStatus: 'generated',
       },
     });
 
     return res.status(201).json({ success: true, document, approval });
   } catch (error) {
+    if (generationClaimed) {
+      await releaseClientDocumentDraftGeneration({
+        context,
+        requestId: req.params.id,
+      }).catch((releaseError) => {
+        console.error('Failed to release document draft generation claim:', releaseError);
+      });
+    }
+
+    if (error instanceof Error && error.message === 'CLIENT_DRAFT_ALREADY_GENERATED') {
+      return res.status(409).json({
+        error: 'A draft has already been generated or is currently being generated for this request.',
+      });
+    }
+
     console.error('Client document draft generation failed:', error);
     return res.status(500).json({ error: 'Unable to generate this document draft.' });
   }
@@ -2230,6 +2331,14 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
       `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`
     );
     res.setHeader('Cache-Control', 'private, no-store');
+
+    if (!document.storagePath) {
+      return res.status(500).json({ error: 'This document is missing its storage reference.' });
+    }
+
+    if (!document.storagePath) {
+      return res.status(500).json({ error: 'This document is missing its storage reference.' });
+    }
 
     const stream = openClientFileStream(document.storagePath);
     stream.on('error', (error) => {
@@ -2267,6 +2376,9 @@ app.post('/api/client/approvals/:id/respond', requireClient, async (req, res) =>
   } catch (error) {
     if (error instanceof Error && error.message === 'CLIENT_APPROVAL_NOT_FOUND') {
       return res.status(404).json({ error: 'Approval not found.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_APPROVAL_ALREADY_RESPONDED') {
+      return res.status(409).json({ error: 'This approval has already been responded to.' });
     }
     if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
       return res.status(403).json({ error: 'Your client role is read-only.' });
