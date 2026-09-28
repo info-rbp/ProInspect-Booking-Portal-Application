@@ -82,6 +82,7 @@ export const AdminClientArchitecture: React.FC = () => {
     displayName: '',
     email: '',
     phone: '',
+    role: 'owner' as 'owner' | 'admin' | 'member' | 'viewer',
   });
 
   const [linkForm, setLinkForm] = useState<{
@@ -310,12 +311,14 @@ export const AdminClientArchitecture: React.FC = () => {
                 email: clientUserForm.email,
                 phone: clientUserForm.phone || undefined,
                 clientIds: [clientUserForm.clientId],
+                role: clientUserForm.role,
               });
               setClientUserForm({
                 ...clientUserForm,
                 displayName: '',
                 email: '',
                 phone: '',
+                role: 'owner',
               });
               setMessage(`Client portal user created. Future portal route: ${result.portalUrl}`);
             });
@@ -332,6 +335,12 @@ export const AdminClientArchitecture: React.FC = () => {
           <input required placeholder="User name" value={clientUserForm.displayName} onChange={(e) => setClientUserForm({ ...clientUserForm, displayName: e.target.value })} className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" />
           <input required type="email" placeholder="Portal email" value={clientUserForm.email} onChange={(e) => setClientUserForm({ ...clientUserForm, email: e.target.value })} className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" />
           <input placeholder="Phone (optional)" value={clientUserForm.phone} onChange={(e) => setClientUserForm({ ...clientUserForm, phone: e.target.value })} className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm" />
+          <select value={clientUserForm.role} onChange={(e) => setClientUserForm({ ...clientUserForm, role: e.target.value as 'owner' | 'admin' | 'member' | 'viewer' })} className="w-full h-10 rounded-lg border border-slate-300 px-3 text-sm">
+            <option value="owner">Owner</option>
+            <option value="admin">Admin</option>
+            <option value="member">Member</option>
+            <option value="viewer">Viewer</option>
+          </select>
           <button disabled={busy || snapshot.clients.length === 0} className="w-full h-10 rounded-lg bg-[#007F82] text-white text-sm font-bold disabled:opacity-50">
             Create Client Access
           </button>
