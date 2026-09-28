@@ -14,6 +14,15 @@ import type {
   InspectionService,
   ServiceCategory,
 } from './src/types/booking.js';
+import type {
+  TenantDocumentCategory,
+  TenantInspection,
+  TenantRequestCreateInput,
+  TenantRequestPriority,
+  TenantRequestStatus,
+  TenantRequestType,
+  TenantUserRecord,
+} from './src/types/tenant.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
 import {
   acquireScheduleLocks,
@@ -59,6 +68,30 @@ import {
   bookingEmailIsConfigured,
   sendBookingConfirmationEmail,
 } from './src/server/email.js';
+import {
+  addTenantRequestAttachment,
+  createTenancy,
+  createTenantDocumentRecord,
+  createTenantInspection,
+  createTenantProperty,
+  createTenantRequest,
+  createTenantUser,
+  findAndLinkTenantUser,
+  getTenantDocumentForUser,
+  getTenantPortalDashboard,
+  getTenantRequestAttachmentForUser,
+  getTenantRequestForUser,
+  getTenancyById,
+  listAdminTenantPortal,
+  updateTenantRequestAdmin,
+} from './src/server/tenantStore.js';
+import {
+  deleteTenantFile,
+  saveTenantDocumentFile,
+  saveTenantRequestAttachment,
+  signedTenantFileUrl,
+  tenantStorageIsConfigured,
+} from './src/server/tenantFiles.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -136,6 +169,23 @@ const manageRateLimit = rateLimit({
   prefix: 'manage',
 });
 
+const tenantRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  prefix: 'tenant',
+});
+
+const tenantWriteRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  prefix: 'tenant-write',
+});
+
+const tenantFileBody = express.raw({
+  type: () => true,
+  limit: '20mb',
+});
+
 function parseAdminEmails(): Set<string> {
   const configured = (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -188,6 +238,40 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+async function requireTenant(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Tenant authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified tenant email address is required.' });
+    }
+
+    const tenant = await findAndLinkTenantUser({
+      uid: decoded.uid,
+      email,
+    });
+
+    if (!tenant) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect tenancy.',
+      });
+    }
+
+    res.locals.tenant = tenant;
+    return next();
+  } catch (error) {
+    console.error('Tenant authentication failed:', error);
+    return res.status(401).json({ error: 'Tenant session is invalid or has expired.' });
+  }
+}
+
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
   const hours = Math.floor(minutesAfterMidnight / 60);
   const minutes = minutesAfterMidnight % 60;
@@ -237,6 +321,106 @@ function isServiceCategory(value: unknown): value is ServiceCategory {
     typeof value === 'string' &&
     SERVICE_CATEGORIES.has(value as ServiceCategory)
   );
+}
+
+const TENANT_REQUEST_TYPES = new Set<TenantRequestType>([
+  'maintenance',
+  'emergency_maintenance',
+  'pet',
+  'modification',
+  'occupant',
+  'inspection_access',
+  'lease',
+  'vacate',
+  'complaint',
+  'keys_access',
+  'other',
+]);
+
+const TENANT_REQUEST_PRIORITIES = new Set<TenantRequestPriority>([
+  'normal',
+  'urgent',
+  'emergency',
+]);
+
+const TENANT_REQUEST_STATUSES = new Set<TenantRequestStatus>([
+  'submitted',
+  'under_review',
+  'action_required',
+  'approved',
+  'declined',
+  'in_progress',
+  'completed',
+  'closed',
+]);
+
+const TENANT_DOCUMENT_CATEGORIES = new Set<TenantDocumentCategory>([
+  'tenancy_agreement',
+  'property_condition_report',
+  'bond',
+  'inspection_notice',
+  'rent_notice',
+  'breach_notice',
+  'variation',
+  'pet_modification',
+  'termination',
+  'correspondence',
+  'other',
+]);
+
+const TENANT_INSPECTION_TYPES = new Set<TenantInspection['type']>([
+  'routine',
+  'entry',
+  'exit',
+  'maintenance',
+  'other',
+]);
+
+function sanitizeTenantRequestInput(input: unknown): {
+  request?: TenantRequestCreateInput;
+  error?: string;
+} {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Request details are required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const tenancyId = normalizeText(value.tenancyId, 128);
+  const requestType = normalizeText(value.requestType, 64) as TenantRequestType;
+  const title = normalizeText(value.title, 160);
+  const details = normalizeText(value.details, 5000);
+  const priority = (normalizeText(value.priority, 32) || 'normal') as TenantRequestPriority;
+  const preferredAccessNotes = normalizeText(value.preferredAccessNotes, 1000);
+
+  if (!tenancyId) return { error: 'Select a tenancy.' };
+  if (!TENANT_REQUEST_TYPES.has(requestType)) return { error: 'Select a valid request type.' };
+  if (title.length < 3) return { error: 'Request title must contain at least 3 characters.' };
+  if (details.length < 5) return { error: 'Provide some details about the request.' };
+  if (!TENANT_REQUEST_PRIORITIES.has(priority)) return { error: 'Select a valid priority.' };
+
+  const payload: Record<string, string | number | boolean | null> = {};
+  if (value.payload && typeof value.payload === 'object' && !Array.isArray(value.payload)) {
+    for (const [key, raw] of Object.entries(value.payload as Record<string, unknown>)) {
+      const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      if (!safeKey) continue;
+      if (typeof raw === 'string') payload[safeKey] = raw.trim().slice(0, 1000);
+      else if (typeof raw === 'number' && Number.isFinite(raw)) payload[safeKey] = raw;
+      else if (typeof raw === 'boolean' || raw === null) payload[safeKey] = raw;
+    }
+  }
+
+  return {
+    request: {
+      tenancyId,
+      requestType,
+      title,
+      details,
+      priority,
+      accessPermission: typeof value.accessPermission === 'boolean' ? value.accessPermission : undefined,
+      preferredAccessNotes: preferredAccessNotes || undefined,
+      payload,
+    },
+  };
 }
 
 const SERVICE_ICON_NAMES = new Set([
@@ -545,6 +729,7 @@ app.get('/api/health', (_req, res) => {
     bookingEmailConfigured: bookingEmailIsConfigured(),
     sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
     addressValidationMode: addressValidationMode(),
+    tenantStorageConfigured: tenantStorageIsConfigured(),
     timezone: TIMEZONE,
   });
 });
@@ -1193,6 +1378,153 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
   }
 });
 
+app.get('/api/tenant/session', tenantRateLimit, requireTenant, (_req, res) => {
+  const tenant = res.locals.tenant as TenantUserRecord;
+  return res.json({
+    authorised: true,
+    tenant: {
+      id: tenant.id,
+      email: tenant.email,
+      displayName: tenant.displayName,
+      phone: tenant.phone,
+    },
+  });
+});
+
+app.get('/api/tenant/dashboard', tenantRateLimit, requireTenant, async (_req, res) => {
+  try {
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const dashboard = await getTenantPortalDashboard(tenant);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Tenant dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the tenant portal.' });
+  }
+});
+
+app.post('/api/tenant/requests', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const parsed = sanitizeTenantRequestInput(req.body);
+
+    if (!parsed.request) {
+      return res.status(400).json({ error: parsed.error || 'Invalid tenant request.' });
+    }
+
+    const request = await createTenantRequest(tenant, parsed.request);
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_ENDED') {
+      return res.status(409).json({ error: 'Requests cannot be submitted against an ended tenancy.' });
+    }
+    console.error('Tenant request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the request.' });
+  }
+});
+
+app.post(
+  '/api/tenant/requests/:id/attachments',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const tenant = res.locals.tenant as TenantUserRecord;
+      const request = await getTenantRequestForUser(tenant, req.params.id);
+      if (!request) {
+        return res.status(404).json({ error: 'Tenant request not found.' });
+      }
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) {
+        return res.status(400).json({ error: 'File name is required.' });
+      }
+
+      const stored = await saveTenantRequestAttachment({
+        requestId: request.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const updated = await addTenantRequestAttachment(request.id, {
+        id: randomBytes(12).toString('hex'),
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        uploadedAt: new Date().toISOString(),
+        storagePath: stored.storagePath,
+      });
+
+      return res.status(201).json({ success: true, request: updated });
+    } catch (error) {
+      if (savedPath) {
+        await deleteTenantFile(savedPath).catch(() => undefined);
+      }
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Tenant attachment upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the attachment.' });
+    }
+  }
+);
+
+app.get(
+  '/api/tenant/requests/:requestId/attachments/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const tenant = res.locals.tenant as TenantUserRecord;
+      const attachment = await getTenantRequestAttachmentForUser(
+        tenant,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment) {
+        return res.status(404).json({ error: 'Attachment not found.' });
+      }
+      const url = await signedTenantFileUrl(attachment.storagePath);
+      return res.json({ url });
+    } catch (error) {
+      console.error('Tenant attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
+
+app.get('/api/tenant/documents/:id/download', tenantRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const document = await getTenantDocumentForUser(tenant, req.params.id);
+    if (!document?.storagePath) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    const url = await signedTenantFileUrl(document.storagePath);
+    return res.json({ url });
+  } catch (error) {
+    console.error('Tenant document download failed:', error);
+    return res.status(500).json({ error: 'Unable to open the document.' });
+  }
+});
+
 app.get('/api/admin/session', requireAdmin, (_req, res) => {
   return res.json({ authorised: true });
 });
@@ -1375,6 +1707,259 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Admin booking update failed:', error);
     return res.status(500).json({ error: 'Unable to update booking.' });
+  }
+});
+
+app.get('/api/admin/tenant-portal', requireAdmin, async (_req, res) => {
+  try {
+    const snapshot = await listAdminTenantPortal();
+    return res.json({ snapshot });
+  } catch (error) {
+    console.error('Admin tenant portal load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenant portal data.' });
+  }
+});
+
+app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
+  try {
+    const streetAddress = normalizeText(req.body?.streetAddress, 160);
+    const suburb = normalizeText(req.body?.suburb, 100);
+    const state = normalizeText(req.body?.state, 10).toUpperCase();
+    const postcode = normalizeText(req.body?.postcode, 10);
+
+    if (!streetAddress || !suburb || !/^[A-Z]{2,3}$/.test(state) || !/^\d{4}$/.test(postcode)) {
+      return res.status(400).json({ error: 'A valid Australian property address is required.' });
+    }
+
+    const property = await createTenantProperty({
+      streetAddress,
+      unit: normalizeText(req.body?.unit, 40) || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType: normalizeText(req.body?.propertyType, 80) || undefined,
+      clientName: normalizeText(req.body?.clientName, 160) || undefined,
+      clientReference: normalizeText(req.body?.clientReference, 100) || undefined,
+    });
+
+    return res.status(201).json({ success: true, property });
+  } catch (error) {
+    console.error('Admin tenant property creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the property.' });
+  }
+});
+
+app.post('/api/admin/tenancies', requireAdmin, async (req, res) => {
+  try {
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const startDate = normalizeText(req.body?.startDate, 20);
+    const endDate = normalizeText(req.body?.endDate, 20);
+    const rentAmount =
+      req.body?.rentAmount === undefined || req.body?.rentAmount === ''
+        ? undefined
+        : Number(req.body.rentAmount);
+
+    if (!propertyId || !isValidDateKey(startDate) || (endDate && !isValidDateKey(endDate))) {
+      return res.status(400).json({ error: 'Property and valid tenancy dates are required.' });
+    }
+
+    if (rentAmount !== undefined && (!Number.isFinite(rentAmount) || rentAmount < 0)) {
+      return res.status(400).json({ error: 'Rent amount must be a valid positive number.' });
+    }
+
+    const frequency = normalizeText(req.body?.rentFrequency, 20) as
+      | 'weekly'
+      | 'fortnightly'
+      | 'monthly'
+      | '';
+    if (frequency && !['weekly', 'fortnightly', 'monthly'].includes(frequency)) {
+      return res.status(400).json({ error: 'Invalid rent frequency.' });
+    }
+
+    const tenancy = await createTenancy({
+      propertyId,
+      startDate,
+      endDate: endDate || undefined,
+      rentAmount,
+      rentFrequency: frequency || undefined,
+      bondReference: normalizeText(req.body?.bondReference, 100) || undefined,
+      notes: normalizeText(req.body?.notes, 2000) || undefined,
+      status: ['pending', 'active', 'ended'].includes(req.body?.status)
+        ? req.body.status
+        : 'active',
+    });
+
+    return res.status(201).json({ success: true, tenancy });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    console.error('Admin tenancy creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the tenancy.' });
+  }
+});
+
+app.post('/api/admin/tenant-users', requireAdmin, async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const tenancyIds = Array.isArray(req.body?.tenancyIds)
+      ? req.body.tenancyIds
+          .filter((id: unknown): id is string => typeof id === 'string')
+          .map((id: string) => id.trim())
+          .filter(Boolean)
+      : [];
+
+    if (!isValidEmail(email) || displayName.length < 2 || tenancyIds.length === 0) {
+      return res.status(400).json({
+        error: 'Tenant name, valid email address and at least one tenancy are required.',
+      });
+    }
+
+    const tenant = await createTenantUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      tenancyIds,
+    });
+
+    return res.status(201).json({
+      success: true,
+      tenant,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANT_EMAIL_EXISTS') {
+      return res.status(409).json({ error: 'A tenant portal user already exists for that email address.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected tenancies no longer exist.' });
+    }
+    console.error('Admin tenant user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the tenant user.' });
+  }
+});
+
+app.patch('/api/admin/tenant-requests/:id', requireAdmin, async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 40);
+    const status = rawStatus ? (rawStatus as TenantRequestStatus) : undefined;
+    if (status && !TENANT_REQUEST_STATUSES.has(status)) {
+      return res.status(400).json({ error: 'Invalid tenant request status.' });
+    }
+
+    const request = await updateTenantRequestAdmin(req.params.id, {
+      status,
+      adminNotes:
+        req.body?.adminNotes === undefined
+          ? undefined
+          : normalizeText(req.body.adminNotes, 3000),
+    });
+
+    if (!request) return res.status(404).json({ error: 'Tenant request not found.' });
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin tenant request update failed:', error);
+    return res.status(500).json({ error: 'Unable to update the tenant request.' });
+  }
+});
+
+app.post(
+  '/api/admin/tenant-documents/:tenancyId',
+  requireAdmin,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const tenancy = await getTenancyById(req.params.tenancyId);
+      if (!tenancy) return res.status(404).json({ error: 'Tenancy not found.' });
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const title = normalizeText(req.headers['x-document-title'], 180);
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      const category = normalizeText(req.headers['x-document-category'], 64) as TenantDocumentCategory;
+
+      if (!title || !fileName || !TENANT_DOCUMENT_CATEGORIES.has(category)) {
+        return res.status(400).json({ error: 'Document title, category and file name are required.' });
+      }
+
+      const stored = await saveTenantDocumentFile({
+        tenancyId: tenancy.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const document = await createTenantDocumentRecord({
+        tenancyId: tenancy.id,
+        propertyId: tenancy.propertyId,
+        title,
+        category,
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        storagePath: stored.storagePath,
+        uploadedBy: res.locals.admin.email,
+      });
+
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Admin tenant document upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the tenant document.' });
+    }
+  }
+);
+
+app.post('/api/admin/tenant-inspections', requireAdmin, async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const type = normalizeText(req.body?.type, 40) as TenantInspection['type'];
+    const scheduledStart = normalizeText(req.body?.scheduledStart, 80);
+    const scheduledEnd = normalizeText(req.body?.scheduledEnd, 80);
+
+    if (
+      !tenancyId ||
+      !propertyId ||
+      !TENANT_INSPECTION_TYPES.has(type) ||
+      !scheduledStart ||
+      Number.isNaN(Date.parse(scheduledStart)) ||
+      (scheduledEnd && Number.isNaN(Date.parse(scheduledEnd)))
+    ) {
+      return res.status(400).json({ error: 'Valid tenancy, property, inspection type and schedule are required.' });
+    }
+
+    const inspection = await createTenantInspection({
+      tenancyId,
+      propertyId,
+      type,
+      scheduledStart,
+      scheduledEnd: scheduledEnd || undefined,
+      noticeDocumentId: normalizeText(req.body?.noticeDocumentId, 128) || undefined,
+      notes: normalizeText(req.body?.notes, 2000) || undefined,
+    });
+
+    return res.status(201).json({ success: true, inspection });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_PROPERTY_MISMATCH') {
+      return res.status(400).json({ error: 'The selected property does not belong to that tenancy.' });
+    }
+    console.error('Admin tenant inspection creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the inspection.' });
   }
 });
 
