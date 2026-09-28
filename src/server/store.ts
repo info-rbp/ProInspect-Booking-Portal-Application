@@ -1,4 +1,5 @@
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+import { authoriseClientWrite, assertClientWrite } from './clientAuthority.js';
 import type { BookingRecord, BusinessSettings, InspectionService, PropertyDetails, ServiceCategory } from '../types/booking.js';
 import type {
   DocumentProduct,
@@ -600,83 +601,48 @@ async function activeMembershipsForUid(uid: string): Promise<ClientMembership[]>
     .filter((membership) => membership.status === 'active');
 }
 
-async function claimInvitations(params: {
-  uid: string;
-  email: string;
-  displayName?: string;
-}): Promise<void> {
-  const snapshot = await adminDb
-    .collection('clientMemberships')
-    .where('email', '==', normaliseEmail(params.email))
-    .get();
-
-  const batch = adminDb.batch();
-  let changed = false;
-  const now = new Date().toISOString();
-
-  snapshot.docs.forEach((doc) => {
-    const membership = doc.data() as ClientMembership;
-    if (membership.status !== 'invited') return;
-    if (membership.uid && membership.uid !== params.uid) return;
-
-    batch.set(
-      doc.ref,
-      {
-        uid: params.uid,
-        displayName: params.displayName || membership.displayName,
-        status: 'active',
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-    changed = true;
-  });
-
-  if (changed) await batch.commit();
+async function claimInvitations(params: { uid: string; email: string; displayName?: string }): Promise<void> {
+  const email = normaliseEmail(params.email);
+  const snapshot = await adminDb.collection('clientMemberships').where('email', '==', email).get();
+  for (const candidate of snapshot.docs) {
+    await adminDb.runTransaction(async tx => {
+      const [profile, doc] = await Promise.all([
+        tx.get(adminDb.collection('clientUsers').doc(params.uid)), tx.get(candidate.ref),
+      ]);
+      if (profile.data()?.active === false) throw new Error('CLIENT_ACCOUNT_DISABLED');
+      const membership = doc.data() as ClientMembership | undefined;
+      if (!membership || membership.email !== email || membership.status !== 'invited' ||
+          (membership.uid && membership.uid !== params.uid)) return;
+      tx.update(candidate.ref, { uid: params.uid, displayName: params.displayName || membership.displayName || email,
+        status: 'active', updatedAt: new Date().toISOString() });
+    });
+  }
 }
 
-async function createDefaultClientOrganisation(params: {
-  uid: string;
-  email: string;
-  displayName?: string;
-}): Promise<{ organisation: ClientOrganisation; membership: ClientMembership }> {
-  const now = new Date().toISOString();
+async function createDefaultClientOrganisation(params: { uid: string; email: string; displayName?: string }): Promise<{ organisation: ClientOrganisation; membership: ClientMembership }> {
   const organisationId = clientOrganisationIdFor(params.uid);
-  const organisationRef = adminDb.collection('clientOrganisations').doc(organisationId);
-  const membershipId = clientMembershipIdFor(organisationId, params.email);
-  const membershipRef = adminDb.collection('clientMemberships').doc(membershipId);
-  const existingOrganisation = await organisationRef.get();
-
-  const organisation: ClientOrganisation = existingOrganisation.exists
-    ? ({ ...(existingOrganisation.data() as ClientOrganisation), id: organisationId })
-    : {
-        id: organisationId,
-        name: params.displayName?.trim() || params.email,
-        entityType: 'individual',
-        billingEmail: normaliseEmail(params.email),
-        createdByUid: params.uid,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-  const membership: ClientMembership = {
-    id: membershipId,
-    organisationId,
-    email: normaliseEmail(params.email),
-    uid: params.uid,
-    displayName: params.displayName,
-    role: 'owner',
-    status: 'active',
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const batch = adminDb.batch();
-  if (!existingOrganisation.exists) batch.set(organisationRef, organisation);
-  batch.set(membershipRef, membership, { merge: true });
-  await batch.commit();
-
-  return { organisation, membership };
+  const orgRef = adminDb.collection('clientOrganisations').doc(organisationId);
+  const memberId = clientMembershipIdFor(organisationId, params.email);
+  const memberRef = adminDb.collection('clientMemberships').doc(memberId);
+  return adminDb.runTransaction(async tx => {
+    const [orgDoc, memberDoc, profileDoc] = await Promise.all([
+      tx.get(orgRef), tx.get(memberRef), tx.get(adminDb.collection('clientUsers').doc(params.uid)),
+    ]);
+    if (profileDoc.data()?.active === false) throw new Error('CLIENT_ACCOUNT_DISABLED');
+    if (memberDoc.exists) {
+      const membership = { ...memberDoc.data(), id: memberId } as ClientMembership;
+      if (membership.status !== 'active' || membership.uid !== params.uid || !orgDoc.exists) throw new Error('CLIENT_MEMBERSHIP_REVOKED');
+      return { membership, organisation: { ...orgDoc.data(), id: organisationId } as ClientOrganisation };
+    }
+    if (orgDoc.exists || profileDoc.exists) throw new Error('CLIENT_MEMBERSHIP_REVOKED');
+    const now = new Date().toISOString();
+    const organisation: ClientOrganisation = { id: organisationId, name: params.displayName?.trim() || params.email,
+      entityType: 'individual', billingEmail: normaliseEmail(params.email), createdByUid: params.uid, createdAt: now, updatedAt: now };
+    const membership: ClientMembership = { id: memberId, organisationId, email: normaliseEmail(params.email), uid: params.uid,
+      displayName: params.displayName, role: 'owner', status: 'active', createdAt: now, updatedAt: now };
+    tx.create(orgRef, organisation); tx.create(memberRef, membership);
+    return { organisation, membership };
+  });
 }
 
 export async function ensureClientContext(params: {
@@ -702,7 +668,7 @@ export async function ensureClientContext(params: {
     displayName: params.displayName,
   });
 
-  let memberships = await activeMembershipsForUid(params.uid);
+  let memberships = (await activeMembershipsForUid(params.uid)).filter(item => item.email === email);
   if (memberships.length === 0) {
     const created = await createDefaultClientOrganisation({
       uid: params.uid,
@@ -749,8 +715,20 @@ export async function ensureClientContext(params: {
     updatedAt: now,
   };
 
-  await profileRef.set(profile, { merge: true });
-  return { profile, organisation, membership };
+  const finalMembership = await adminDb.runTransaction(async tx => {
+    const [liveProfile, liveMembership] = await Promise.all([
+      tx.get(profileRef), tx.get(adminDb.collection('clientMemberships').doc(membership.id)),
+    ]);
+    if (liveProfile.data()?.active === false) throw new Error('CLIENT_ACCOUNT_DISABLED');
+    const active = liveMembership.data() as ClientMembership | undefined;
+    if (!active || active.status !== 'active' || active.uid !== params.uid || active.email !== email ||
+        active.organisationId !== organisation.id) throw new Error('CLIENT_MEMBERSHIP_REVOKED');
+    profile.phone = liveProfile.data()?.phone || profile.phone;
+    profile.onboardingStatus = liveProfile.data()?.onboardingStatus || profile.onboardingStatus;
+    tx.set(profileRef, profile, { merge: true });
+    return { ...active, id: membership.id };
+  });
+  return { profile, organisation, membership: finalMembership };
 }
 
 export async function ensureClientProfile(params: {
@@ -848,6 +826,7 @@ export async function createClientProperty(params: {
   context: ClientContext;
   input: ClientPropertyInput;
 }): Promise<ClientProperty> {
+  await assertClientWrite(params.context);
   if (params.context.membership.role === 'viewer') {
     throw new Error('CLIENT_WRITE_FORBIDDEN');
   }
@@ -889,6 +868,7 @@ export async function updateClientProperty(params: {
   propertyId: string;
   changes: Partial<Pick<ClientProperty, 'nickname' | 'clientReference' | 'categories' | 'notes' | 'status'>>;
 }): Promise<ClientProperty> {
+  await assertClientWrite(params.context);
   if (params.context.membership.role === 'viewer') {
     throw new Error('CLIENT_WRITE_FORBIDDEN');
   }
@@ -918,9 +898,7 @@ export async function completeClientOnboarding(params: {
   context: ClientContext;
   input: ClientOnboardingInput;
 }): Promise<ClientContext> {
-  if (!['owner', 'admin'].includes(params.context.membership.role)) {
-    throw new Error('CLIENT_ORGANISATION_ADMIN_REQUIRED');
-  }
+  await assertClientWrite(params.context, ['owner', 'admin']);
 
   const now = new Date().toISOString();
   const organisationPatch: Partial<ClientOrganisation> = {
@@ -966,125 +944,62 @@ export async function completeClientOnboarding(params: {
   });
 }
 
-export async function inviteClientOrganisationMember(params: {
-  context: ClientContext;
-  email: string;
-  role: Exclude<ClientOrganisationRole, 'owner'>;
-}): Promise<ClientMembership> {
-  if (!['owner', 'admin'].includes(params.context.membership.role)) {
-    throw new Error('CLIENT_ORGANISATION_ADMIN_REQUIRED');
-  }
-
+export async function inviteClientOrganisationMember(params: { context: ClientContext; email: string; role: Exclude<ClientOrganisationRole, 'owner'> }): Promise<ClientMembership> {
   const email = normaliseEmail(params.email);
   const id = clientMembershipIdFor(params.context.organisation.id, email);
   const ref = adminDb.collection('clientMemberships').doc(id);
-  const existing = await ref.get();
-  const now = new Date().toISOString();
-  const current = existing.exists
-    ? (existing.data() as Partial<ClientMembership>)
-    : {};
-
-  if (existing.exists) {
-    if (current.role === 'owner') {
-      throw new Error('CLIENT_MEMBERSHIP_OWNER_PROTECTED');
-    }
-    throw new Error('CLIENT_MEMBERSHIP_ALREADY_EXISTS');
-  }
-
-  const membership: ClientMembership = {
-    id,
-    organisationId: params.context.organisation.id,
-    email,
-    uid: current.uid,
-    displayName: current.displayName,
-    role: params.role,
-    status: current.uid ? 'active' : 'invited',
-    invitedByUid: params.context.profile.uid,
-    createdAt: current.createdAt || now,
-    updatedAt: now,
-  };
-
-  await ref.set(membership, { merge: true });
-  return membership;
+  if (!['admin', 'member', 'viewer'].includes(params.role)) throw new Error('CLIENT_WRITE_FORBIDDEN');
+  return adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context, ['owner', 'admin']);
+    const existing = await tx.get(ref);
+    if (existing.exists) throw new Error('CLIENT_MEMBERSHIP_ALREADY_EXISTS');
+    const now = new Date().toISOString();
+    const membership: ClientMembership = { id, organisationId: params.context.organisation.id, email,
+      role: params.role, status: 'invited', invitedByUid: params.context.profile.uid, createdAt: now, updatedAt: now };
+    tx.create(ref, membership);
+    return membership;
+  });
 }
 
-export async function updateClientOrganisationMember(params: {
-  context: ClientContext;
-  membershipId: string;
-  role?: Exclude<ClientOrganisationRole, 'owner'>;
-  status?: 'active' | 'revoked';
-}): Promise<ClientMembership> {
-  if (params.context.membership.role !== 'owner') {
-    throw new Error('CLIENT_ORGANISATION_OWNER_REQUIRED');
-  }
-
+export async function updateClientOrganisationMember(params: { context: ClientContext; membershipId: string; role?: Exclude<ClientOrganisationRole, 'owner'>; status?: 'active' | 'revoked' }): Promise<ClientMembership> {
   const ref = adminDb.collection('clientMemberships').doc(params.membershipId);
-  const doc = await ref.get();
-  if (!doc.exists) throw new Error('CLIENT_MEMBERSHIP_NOT_FOUND');
-  const membership = { ...(doc.data() as ClientMembership), id: doc.id };
-
-  if (
-    membership.organisationId !== params.context.organisation.id ||
-    membership.role === 'owner'
-  ) {
-    throw new Error('CLIENT_MEMBERSHIP_FORBIDDEN');
-  }
-
-  const updated: ClientMembership = {
-    ...membership,
-    ...(params.role ? { role: params.role } : {}),
-    ...(params.status ? { status: params.status } : {}),
-    updatedAt: new Date().toISOString(),
-  };
-  await ref.set(updated, { merge: true });
-  return updated;
+  return adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context, ['owner']);
+    const doc = await tx.get(ref);
+    if (!doc.exists) throw new Error('CLIENT_MEMBERSHIP_NOT_FOUND');
+    const member = { ...doc.data(), id: doc.id } as ClientMembership;
+    if (member.organisationId !== params.context.organisation.id || member.role === 'owner') throw new Error('CLIENT_MEMBERSHIP_FORBIDDEN');
+    if (params.role && !['admin', 'member', 'viewer'].includes(params.role)) throw new Error('CLIENT_WRITE_FORBIDDEN');
+    const updated: ClientMembership = { ...member, ...(params.role ? { role: params.role } : {}),
+      ...(params.status ? { status: params.status === 'active' && !member.uid ? 'invited' : params.status } : {}), updatedAt: new Date().toISOString() };
+    tx.update(ref, updated);
+    return updated;
+  });
 }
 
-export async function linkHistoricalBookingsToClient(params: {
-  context: ClientContext;
-}): Promise<void> {
-  const email = normaliseEmail(params.context.profile.email);
-  const snapshot = await adminDb
-    .collection('bookings')
-    .where('property.customerEmail', '==', email)
-    .limit(500)
-    .get();
-
-  if (snapshot.empty) return;
-
-  for (const doc of snapshot.docs) {
-    const booking = { ...(doc.data() as BookingRecord), id: doc.id };
-    if (
-      booking.clientOrganisationId &&
-      booking.clientOrganisationId !== params.context.organisation.id
-    ) {
-      continue;
-    }
-
-    const property = await upsertClientProperty({
-      organisationId: params.context.organisation.id,
-      createdByUid: params.context.profile.uid,
-      property: booking.property,
-      category: booking.serviceCategory,
-      lastBookingAt: booking.appointment.start,
-    });
-
-    if (
-      booking.clientUid !== params.context.profile.uid ||
-      booking.clientOrganisationId !== params.context.organisation.id ||
-      booking.propertyId !== property.id
-    ) {
-      await doc.ref.set(
-        {
-          clientUid: params.context.profile.uid,
-          clientOrganisationId: params.context.organisation.id,
-          propertyId: property.id,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    }
-  }
+/** Linking a historical booking requires its secure management token, not email alone. */
+export async function claimClientBooking(params: { context: ClientContext; managementToken: string }): Promise<void> {
+  const matches = await adminDb.collection('bookings').where('managementToken', '==', params.managementToken).limit(1).get();
+  if (matches.empty) throw new Error('CLIENT_BOOKING_NOT_FOUND');
+  const ref = matches.docs[0].ref;
+  await adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context, ['owner', 'admin']);
+    const doc = await tx.get(ref);
+    const booking = doc.data() as BookingRecord | undefined;
+    if (!booking || booking.managementToken !== params.managementToken ||
+        normaliseEmail(booking.property.customerEmail) !== params.context.profile.email ||
+        (booking.clientOrganisationId && booking.clientOrganisationId !== params.context.organisation.id) ||
+        (booking.clientUid && booking.clientUid !== params.context.profile.uid)) throw new Error('CLIENT_BOOKING_NOT_FOUND');
+    const id = clientPropertyKey(params.context.organisation.id, booking.property);
+    const propertyRef = adminDb.collection('clientProperties').doc(id);
+    const existing = await tx.get(propertyRef);
+    const now = new Date().toISOString();
+    if (!existing.exists) tx.create(propertyRef, { id, organisationId: params.context.organisation.id, createdByUid: params.context.profile.uid,
+      streetAddress: booking.property.streetAddress, unit: booking.property.unit, suburb: booking.property.suburb, state: booking.property.state,
+      postcode: booking.property.postcode, propertyType: booking.property.propertyType,
+      categories: booking.serviceCategory ? [booking.serviceCategory] : [], status: 'active', createdAt: now, updatedAt: now, lastBookingAt: booking.appointment.start });
+    tx.update(ref, { clientUid: params.context.profile.uid, clientOrganisationId: params.context.organisation.id, propertyId: id, updatedAt: now });
+  });
 }
 
 export async function linkBookingToClient(params: {
@@ -1095,6 +1010,7 @@ export async function linkBookingToClient(params: {
   clientOrganisationId: string;
   propertyId: string;
 }> {
+  await assertClientWrite(params.context);
   const property = await upsertClientProperty({
     organisationId: params.context.organisation.id,
     createdByUid: params.context.profile.uid,
@@ -1146,6 +1062,7 @@ export async function createClientRequest(params: {
   priority?: 'routine' | 'priority' | 'urgent';
   details?: Record<string, string | number | boolean | string[]>;
 }): Promise<ClientRequestSummary> {
+  await assertClientWrite(params.context);
   if (params.context.membership.role === 'viewer') {
     throw new Error('CLIENT_WRITE_FORBIDDEN');
   }
@@ -1194,6 +1111,7 @@ export async function updateClientRequest(params: {
   requestId: string;
   changes: Partial<Pick<ClientRequestSummary, 'status' | 'attachmentDocumentIds' | 'generatedDocumentId' | 'draftGenerationStatus'>>;
 }): Promise<ClientRequestSummary> {
+  await assertClientWrite(params.context);
   const ref = adminDb.collection('clientRequests').doc(params.requestId);
   const doc = await ref.get();
   if (!doc.exists) throw new Error('CLIENT_REQUEST_NOT_FOUND');
@@ -1212,139 +1130,91 @@ export async function updateClientRequest(params: {
   return updated;
 }
 
-export async function claimClientDocumentDraftGeneration(params: {
-  context: ClientContext;
-  requestId: string;
-}): Promise<ClientRequestSummary> {
+export async function claimClientDocumentDraftGeneration(params: { context: ClientContext; requestId: string }): Promise<ClientRequestSummary> {
   const ref = adminDb.collection('clientRequests').doc(params.requestId);
-  let claimed: ClientRequestSummary | null = null;
-
-  await adminDb.runTransaction(async (transaction) => {
-    const doc = await transaction.get(ref);
+  const token = randomUUID();
+  return adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context);
+    const doc = await tx.get(ref);
     if (!doc.exists) throw new Error('CLIENT_REQUEST_NOT_FOUND');
-
-    const request = {
-      ...(doc.data() as ClientRequestSummary),
-      id: doc.id,
-    };
-
-    if (
-      request.organisationId !== params.context.organisation.id ||
-      request.type !== 'document'
-    ) {
-      throw new Error('CLIENT_REQUEST_FORBIDDEN');
-    }
-
-    if (
-      request.generatedDocumentId ||
-      request.draftGenerationStatus === 'generating' ||
-      request.draftGenerationStatus === 'generated'
-    ) {
-      throw new Error('CLIENT_DRAFT_ALREADY_GENERATED');
-    }
-
-    const updatedAt = new Date().toISOString();
-    transaction.set(
-      ref,
-      {
-        draftGenerationStatus: 'generating',
-        updatedAt,
-      },
-      { merge: true }
-    );
-
-    claimed = {
-      ...request,
-      draftGenerationStatus: 'generating',
-      updatedAt,
-    };
+    const request = { ...doc.data(), id: doc.id } as ClientRequestSummary;
+    if (request.organisationId !== params.context.organisation.id || request.type !== 'document') throw new Error('CLIENT_REQUEST_FORBIDDEN');
+    if (request.status === 'cancelled' || request.status === 'completed') throw new Error('CLIENT_REQUEST_CLOSED');
+    const expires = Date.parse(request.draftGenerationExpiresAt || '') || (Date.parse(request.updatedAt) + 10 * 60_000);
+    if (request.generatedDocumentId || request.draftGenerationStatus === 'generated' ||
+        (request.draftGenerationStatus === 'generating' && expires > Date.now())) throw new Error('CLIENT_DRAFT_ALREADY_GENERATED');
+    const patch = { draftGenerationStatus: 'generating' as const, draftGenerationToken: token,
+      draftGenerationExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), updatedAt: new Date().toISOString() };
+    tx.update(ref, patch);
+    return { ...request, ...patch };
   });
-
-  if (!claimed) throw new Error('CLIENT_REQUEST_NOT_FOUND');
-  return claimed;
 }
 
-export async function releaseClientDocumentDraftGeneration(params: {
-  context: ClientContext;
-  requestId: string;
-}): Promise<void> {
-  const request = await getClientRequest({
-    organisationId: params.context.organisation.id,
-    requestId: params.requestId,
+export async function releaseClientDocumentDraftGeneration(params: { context: ClientContext; requestId: string; generationToken: string }): Promise<void> {
+  const ref = adminDb.collection('clientRequests').doc(params.requestId);
+  await adminDb.runTransaction(async tx => {
+    const doc = await tx.get(ref);
+    const request = doc.data() as ClientRequestSummary | undefined;
+    if (!request || request.organisationId !== params.context.organisation.id || request.generatedDocumentId ||
+        request.draftGenerationStatus !== 'generating' || request.draftGenerationToken !== params.generationToken) return;
+    tx.update(ref, { draftGenerationStatus: 'failed', draftGenerationToken: '', draftGenerationExpiresAt: '', updatedAt: new Date().toISOString() });
   });
-  if (!request || request.generatedDocumentId) return;
-
-  await adminDb.collection('clientRequests').doc(params.requestId).set(
-    {
-      draftGenerationStatus: 'failed',
-      updatedAt: new Date().toISOString(),
-    },
-    { merge: true }
-  );
 }
 
-export async function createClientDocument(params: {
-  context: ClientContext;
-  propertyId?: string;
-  requestId?: string;
-  name: string;
-  documentType: string;
-  status: 'available' | 'draft' | 'archived';
-  storagePath: string;
-  contentType?: string;
-  sizeBytes?: number;
-  generated?: boolean;
-}): Promise<ClientDocumentSummary> {
-  if (params.propertyId) {
-    const property = await getClientProperty({
-      organisationId: params.context.organisation.id,
-      propertyId: params.propertyId,
-    });
-    if (!property) throw new Error('CLIENT_PROPERTY_NOT_FOUND');
-  }
-
+export async function createClientDocument(params: { context: ClientContext; propertyId?: string; requestId?: string; name: string; documentType: string;
+  status: 'available' | 'draft' | 'archived'; storagePath: string; contentType?: string; sizeBytes?: number; generated?: boolean }): Promise<ClientDocumentSummary> {
   const ref = adminDb.collection('clientDocuments').doc();
-  const now = new Date().toISOString();
-  const document: ClientDocumentSummary = {
-    id: ref.id,
-    organisationId: params.context.organisation.id,
-    clientUid: params.context.profile.uid,
-    propertyId: params.propertyId,
-    requestId: params.requestId,
-    name: params.name,
-    documentType: params.documentType,
-    status: params.status,
-    storagePath: params.storagePath,
-    contentType: params.contentType,
-    sizeBytes: params.sizeBytes,
-    generated: params.generated,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  await ref.set(document);
-
-  if (params.requestId) {
-    const requestRef = adminDb.collection('clientRequests').doc(params.requestId);
-    const requestDoc = await requestRef.get();
-    if (requestDoc.exists) {
-      const request = requestDoc.data() as ClientRequestSummary;
-      if (request.organisationId === params.context.organisation.id) {
-        const attachments = Array.from(
-          new Set([...(request.attachmentDocumentIds || []), document.id])
-        );
-        await requestRef.set(
-          {
-            attachmentDocumentIds: attachments,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
-      }
+  return adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context);
+    const requestRef = params.requestId ? adminDb.collection('clientRequests').doc(params.requestId) : undefined;
+    const requestDoc = requestRef ? await tx.get(requestRef) : undefined;
+    const request = requestDoc?.data() as ClientRequestSummary | undefined;
+    if (requestRef && (!request || request.organisationId !== params.context.organisation.id)) throw new Error('CLIENT_REQUEST_FORBIDDEN');
+    if (request && ['cancelled', 'completed'].includes(request.status)) throw new Error('CLIENT_REQUEST_CLOSED');
+    if (params.propertyId && request?.propertyId && params.propertyId !== request.propertyId) throw new Error('CLIENT_ATTACHMENT_PROPERTY_MISMATCH');
+    const propertyId = params.propertyId || request?.propertyId;
+    if (propertyId) {
+      const property = await tx.get(adminDb.collection('clientProperties').doc(propertyId));
+      if (!property.exists || property.data()?.organisationId !== params.context.organisation.id || property.data()?.status === 'inactive') throw new Error('CLIENT_PROPERTY_NOT_FOUND');
     }
-  }
+    const now = new Date().toISOString();
+    const document: ClientDocumentSummary = { id: ref.id, organisationId: params.context.organisation.id, clientUid: params.context.profile.uid,
+      propertyId, requestId: params.requestId, name: params.name, documentType: params.documentType, status: params.status,
+      storagePath: params.storagePath, contentType: params.contentType, sizeBytes: params.sizeBytes, generated: params.generated, createdAt: now, updatedAt: now };
+    tx.create(ref, document);
+    if (requestRef && request) tx.update(requestRef, { attachmentDocumentIds: [...new Set([...(request.attachmentDocumentIds || []), ref.id])], updatedAt: now });
+    return document;
+  });
+}
 
-  return document;
+/** Publish the file metadata, approval and request transition together, under the attempt's lease. */
+export async function completeClientDocumentDraftGeneration(params: { context: ClientContext; requestId: string; generationToken: string;
+  name: string; documentType: string; storagePath: string; contentType: string; sizeBytes: number }): Promise<{ document: ClientDocumentSummary; approval: ClientApproval }> {
+  const requestRef = adminDb.collection('clientRequests').doc(params.requestId);
+  const docRef = adminDb.collection('clientDocuments').doc();
+  const approvalRef = adminDb.collection('clientApprovals').doc();
+  return adminDb.runTransaction(async tx => {
+    await authoriseClientWrite(tx, params.context);
+    const snapshot = await tx.get(requestRef);
+    const request = snapshot.data() as ClientRequestSummary | undefined;
+    if (!request || request.organisationId !== params.context.organisation.id || request.type !== 'document') throw new Error('CLIENT_REQUEST_FORBIDDEN');
+    const expires = Date.parse(request.draftGenerationExpiresAt || '');
+    if (request.generatedDocumentId || request.draftGenerationStatus !== 'generating' || request.draftGenerationToken !== params.generationToken ||
+        !Number.isFinite(expires) || expires <= Date.now()) throw new Error('CLIENT_DRAFT_LEASE_LOST');
+    if (['cancelled', 'completed'].includes(request.status)) throw new Error('CLIENT_REQUEST_CLOSED');
+    const now = new Date().toISOString();
+    const document: ClientDocumentSummary = { id: docRef.id, organisationId: params.context.organisation.id, clientUid: params.context.profile.uid,
+      propertyId: request.propertyId, requestId: params.requestId, name: params.name, documentType: params.documentType, status: 'draft',
+      storagePath: params.storagePath, contentType: params.contentType, sizeBytes: params.sizeBytes, generated: true, createdAt: now, updatedAt: now };
+    const approval: ClientApproval = { id: approvalRef.id, organisationId: params.context.organisation.id, propertyId: request.propertyId,
+      requestId: params.requestId, documentId: docRef.id, type: 'document', title: `Confirm ${params.documentType} drafting instructions`,
+      summary: 'Review the preparation summary. Approval confirms instructions only; it does not issue or execute a completed document.',
+      status: 'pending', requestedByUid: params.context.profile.uid, requestedAt: now, updatedAt: now };
+    tx.create(docRef, document); tx.create(approvalRef, approval);
+    tx.update(requestRef, { status: 'waiting_client', generatedDocumentId: docRef.id, draftGenerationStatus: 'generated',
+      draftGenerationToken: '', draftGenerationExpiresAt: '', attachmentDocumentIds: [...new Set([...(request.attachmentDocumentIds || []), docRef.id])], updatedAt: now });
+    return { document, approval };
+  });
 }
 
 function clientDocumentView(
@@ -1361,7 +1231,7 @@ export async function getClientDocument(params: {
   const doc = await adminDb.collection('clientDocuments').doc(params.documentId).get();
   if (!doc.exists) return null;
   const document = { ...(doc.data() as ClientDocumentSummary), id: doc.id };
-  return document.organisationId === params.organisationId ? document : null;
+  return document.organisationId === params.organisationId && document.status !== 'archived' ? document : null;
 }
 
 export async function getClientDocumentForAdmin(
@@ -1396,6 +1266,7 @@ export async function createClientApproval(params: {
   title: string;
   summary?: string;
 }): Promise<ClientApproval> {
+  await assertClientWrite(params.context);
   const ref = adminDb.collection('clientApprovals').doc();
   const now = new Date().toISOString();
   const approval: ClientApproval = {
@@ -1430,6 +1301,7 @@ export async function respondToClientApproval(params: {
   let updatedApproval: ClientApproval | null = null;
 
   await adminDb.runTransaction(async (transaction) => {
+    await authoriseClientWrite(transaction, params.context);
     const approvalDoc = await transaction.get(approvalRef);
     if (!approvalDoc.exists) throw new Error('CLIENT_APPROVAL_NOT_FOUND');
 
@@ -1497,13 +1369,7 @@ export async function getClientPortalDashboard(params: {
   const context = await ensureClientContext(params);
   const memberships = await activeMembershipsForUid(params.uid);
 
-  // Automatic historical-email reconciliation is safe only when the client has
-  // one organisation. With multiple organisations the email alone is ambiguous,
-  // so existing unlinked bookings remain untouched instead of being assigned to
-  // whichever organisation happens to be active first.
-  if (memberships.length === 1) {
-    await linkHistoricalBookingsToClient({ context });
-  }
+  // Historical bookings are linked only by an explicit secure-token claim.
 
   const organisationDocs = await Promise.all(
     memberships.map((membership) =>
@@ -1576,10 +1442,11 @@ export async function getClientPortalDashboard(params: {
     );
 
   const requests = requestsSnapshot.docs
-    .map((doc) => ({ ...(doc.data() as ClientRequestSummary), id: doc.id }))
+    .map((doc) => { const { draftGenerationToken: _token, ...safe } = doc.data() as ClientRequestSummary; return { ...safe, id: doc.id }; })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const documents = documentsSnapshot.docs
+    .filter(doc => doc.data().status !== 'archived')
     .map((doc) =>
       clientDocumentView({
         ...(doc.data() as ClientDocumentSummary),

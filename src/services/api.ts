@@ -665,3 +665,7 @@ export async function fetchBookingByToken(token: string): Promise<PublicBookingS
 
   return data.booking;
 }
+
+export async function claimClientBooking(managementToken: string): Promise<void> {
+  await clientJson('/api/client/bookings/claim', { method: 'POST', body: JSON.stringify({ managementToken }) });
+}

@@ -125,6 +125,8 @@ export interface ClientRequestSummary {
   attachmentDocumentIds?: string[];
   generatedDocumentId?: string;
   draftGenerationStatus?: 'generating' | 'generated' | 'failed';
+  draftGenerationToken?: string;
+  draftGenerationExpiresAt?: string;
   organisationName?: string;
   propertyAddress?: string;
   submittedByName?: string;

@@ -95,3 +95,8 @@ export async function clientFileExists(storagePath: string): Promise<boolean> {
   const [exists] = await adminStorageBucket.file(storagePath).exists();
   return exists;
 }
+
+export async function deleteClientFile(storagePath: string): Promise<void> {
+  if (!storagePath.startsWith('client-files/') || storagePath.includes('..')) throw new Error('Invalid file cleanup path.');
+  await adminStorageBucket.file(storagePath).delete({ ignoreNotFound: true });
+}

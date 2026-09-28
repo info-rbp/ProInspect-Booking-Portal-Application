@@ -22,6 +22,7 @@ import type {
   ClientProperty,
 } from '../../types/clientPortal';
 import {
+  claimClientBooking,
   downloadClientDocument,
   fetchClientDashboard,
   generateClientDocumentDraft,
@@ -108,6 +109,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [addingProperty, setAddingProperty] = useState(false);
   const [editingProperty, setEditingProperty] = useState(false);
+  const [bookingClaimToken, setBookingClaimToken] = useState('');
   const [actionId, setActionId] = useState<string | null>(null);
   const [approvalComments, setApprovalComments] = useState<Record<string, string>>({});
 
@@ -525,6 +527,19 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               <div><h1 className="text-2xl sm:text-3xl font-extrabold text-[#1A2B4A]">Bookings</h1><p className="mt-2 text-sm text-slate-600">Your ProInspect booking history.</p></div>
               <button type="button" onClick={() => onNavigate('/book')} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#007F82] text-white text-sm font-bold"><Plus className="w-4 h-4" /> Book a Service</button>
             </div>
+            {['owner', 'admin'].includes(data.membership.role) && (
+              <form className="rounded-xl border border-slate-200 bg-white p-4 space-y-3" onSubmit={async event => {
+                event.preventDefault(); setActionId('booking-claim'); setError(null);
+                try { await claimClientBooking(bookingClaimToken.trim()); setBookingClaimToken(''); await load(); }
+                catch (err: any) { setError(err?.message || 'Unable to link booking.'); }
+                finally { setActionId(null); }
+              }}>
+                <label htmlFor="booking-claim" className="block font-semibold text-sm">Link an existing booking</label>
+                <p className="text-sm text-slate-600">Use the secure management code from a booking made with your verified email. This will share the booking with this organisation.</p>
+                <input id="booking-claim" type="password" autoComplete="off" required minLength={20} maxLength={200} value={bookingClaimToken} onChange={event => setBookingClaimToken(event.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2" />
+                <button type="submit" disabled={actionId === 'booking-claim'} className="rounded-lg bg-[#007F82] text-white px-4 py-2 disabled:opacity-50">{actionId === 'booking-claim' ? 'Linking...' : 'Link Booking'}</button>
+              </form>
+            )}
             <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
               {data.bookings.map((booking) => (
                 <div key={booking.id} className="p-4 sm:p-5 border-b last:border-b-0 border-slate-100">

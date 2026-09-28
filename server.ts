@@ -51,6 +51,8 @@ import {
   listServices,
   activateClientOrganisation,
   completeClientOnboarding,
+  claimClientBooking,
+  completeClientDocumentDraftGeneration,
   claimClientDocumentDraftGeneration,
   createClientApproval,
   createClientDocument,
@@ -115,6 +117,7 @@ import {
 } from './src/server/email.js';
 import {
   openClientFileStream,
+  deleteClientFile,
   saveClientFile,
   saveGeneratedClientFile,
   validateClientUpload,
@@ -164,6 +167,7 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next(); });
 app.use(express.json({ limit: '256kb' }));
 
 type RateBucket = { count: number; resetAt: number };
@@ -305,13 +309,21 @@ async function requireClient(req: Request, res: Response, next: NextFunction) {
     };
     return next();
   } catch (error) {
-    if (error instanceof Error && error.message === 'CLIENT_ACCOUNT_DISABLED') {
+    if (error instanceof Error && ['CLIENT_ACCOUNT_DISABLED', 'CLIENT_MEMBERSHIP_REVOKED'].includes(error.message)) {
       return res.status(403).json({ error: 'This client portal account has been disabled.' });
     }
 
     console.error('Client authentication failed:', error);
     return res.status(401).json({ error: 'Client session is invalid or has expired.' });
   }
+}
+
+function clientFailure(error: unknown, res: Response): boolean {
+  const code = error instanceof Error ? error.message : '';
+  if (res.headersSent || !code.startsWith('CLIENT_')) return false;
+  const status = /MISMATCH/.test(code) ? 400 : /ALREADY|LEASE|CLOSED/.test(code) ? 409 : /NOT_FOUND|FORBIDDEN/.test(code) && !/WRITE/.test(code) ? 404 : 403;
+  res.status(status).json({ error: status === 409 ? 'This request has changed or is already being processed. Refresh and try again.' : status === 400 ? 'The selected records do not belong together.' : 'This action is not available for the current account or record.', code });
+  return true;
 }
 
 async function optionalClientIdentity(req: Request): Promise<{
@@ -1798,6 +1810,18 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
   }
 });
 
+app.post('/api/client/bookings/claim', requireClient, clientMutationRateLimit, async (req, res) => {
+  const managementToken = typeof req.body?.managementToken === 'string' ? req.body.managementToken.trim() : '';
+  if (!/^[A-Za-z0-9_-]{20,200}$/.test(managementToken)) return res.status(400).json({ error: 'Enter the secure management code from your booking confirmation.' });
+  try {
+    await claimClientBooking({ context: clientContext(res), managementToken });
+    return res.json({ success: true });
+  } catch (error) {
+    if (clientFailure(error, res)) return;
+    return res.status(500).json({ error: 'Unable to link this booking.' });
+  }
+});
+
 app.get('/api/client/session', requireClient, (_req, res) => {
   const context = clientContext(res);
   return res.json({
@@ -1818,6 +1842,7 @@ app.get('/api/client/dashboard', requireClient, async (_req, res) => {
     const dashboard = await getClientPortalDashboard(client);
     return res.json({ dashboard });
   } catch (error) {
+    if (clientFailure(error, res)) return;
     console.error('Client portal dashboard load failed:', error);
     return res.status(500).json({ error: 'Unable to load the client portal.' });
   }
@@ -1837,6 +1862,7 @@ app.post('/api/client/onboarding', requireClient, clientMutationRateLimit, async
     });
     return res.json({ success: true, context: updatedContext });
   } catch (error) {
+    if (clientFailure(error, res)) return;
     console.error('Client onboarding failed:', error);
     return res.status(500).json({ error: 'Unable to complete client onboarding.' });
   }
@@ -1858,6 +1884,7 @@ app.post('/api/client/properties', requireClient, clientMutationRateLimit, async
     if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
       return res.status(403).json({ error: 'Your client role is read-only.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client property creation failed:', error);
     return res.status(500).json({ error: 'Unable to add this property.' });
   }
@@ -1911,6 +1938,7 @@ app.patch('/api/client/properties/:id', requireClient, clientMutationRateLimit, 
     if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
       return res.status(403).json({ error: 'Your client role is read-only.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client property update failed:', error);
     return res.status(500).json({ error: 'Unable to update this property.' });
   }
@@ -1929,6 +1957,7 @@ app.post('/api/client/organisations/:id/activate', requireClient, clientMutation
     if (error instanceof Error && error.message === 'CLIENT_ORGANISATION_FORBIDDEN') {
       return res.status(403).json({ error: 'You do not have access to this organisation.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client organisation switch failed:', error);
     return res.status(500).json({ error: 'Unable to switch organisation.' });
   }
@@ -1979,6 +2008,7 @@ app.post('/api/client/organisation/members', requireClient, clientMutationRateLi
     if (error instanceof Error && error.message === 'CLIENT_MEMBERSHIP_ALREADY_EXISTS') {
       return res.status(409).json({ error: 'That email already has a membership or invitation for this organisation.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client member invitation failed:', error);
     return res.status(500).json({ error: 'Unable to invite this organisation member.' });
   }
@@ -2014,6 +2044,7 @@ app.patch('/api/client/organisation/members/:id', requireClient, clientMutationR
     if (error instanceof Error && error.message === 'CLIENT_MEMBERSHIP_NOT_FOUND') {
       return res.status(404).json({ error: 'Organisation member not found.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client member update failed:', error);
     return res.status(500).json({ error: 'Unable to update this organisation member.' });
   }
@@ -2165,6 +2196,7 @@ app.post(
   clientUploadRateLimit,
   express.raw({ type: () => true, limit: '10mb' }),
   async (req, res) => {
+    let pendingStoragePath: string | undefined;
     try {
       const context = clientContext(res);
       if (context.membership.role === 'viewer') {
@@ -2219,6 +2251,7 @@ app.post(
         bytes,
       });
 
+      pendingStoragePath = stored.storagePath;
       const document = await createClientDocument({
         context,
         propertyId,
@@ -2231,9 +2264,13 @@ app.post(
         sizeBytes: stored.sizeBytes,
       });
 
+      pendingStoragePath = undefined;
       const { storagePath: _storagePath, ...clientDocument } = document;
       return res.status(201).json({ success: true, document: clientDocument });
     } catch (error) {
+      if (pendingStoragePath) await deleteClientFile(pendingStoragePath).catch(() => undefined);
+      if (error instanceof URIError) return res.status(400).json({ error: 'Invalid file name.' });
+      if (clientFailure(error, res)) return;
       console.error('Client file upload failed:', error);
       return res.status(500).json({ error: 'Unable to upload this file.' });
     }
@@ -2242,7 +2279,8 @@ app.post(
 
 app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutationRateLimit, async (req, res) => {
   const context = clientContext(res);
-  let generationClaimed = false;
+  let generationToken = '';
+  let pendingStoragePath: string | undefined;
 
   try {
     if (context.membership.role === 'viewer') {
@@ -2278,7 +2316,8 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
       context,
       requestId: req.params.id,
     });
-    generationClaimed = true;
+    generationToken = request.draftGenerationToken || '';
+    if (!generationToken) throw new Error('CLIENT_DRAFT_LEASE_LOST');
 
     const details = request.details || {};
     const input: ClientDocumentRequestInput = {
@@ -2317,38 +2356,13 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
       bytes: generated.bytes,
     });
 
-    const document = await createClientDocument({
-      context,
-      propertyId: request.propertyId,
-      requestId: request.id,
-      name: stored.fileName,
-      documentType: input.documentType,
-      status: 'draft',
-      storagePath: stored.storagePath,
-      contentType: generated.contentType,
-      sizeBytes: stored.sizeBytes,
-      generated: true,
+    pendingStoragePath = stored.storagePath;
+    const { document, approval } = await completeClientDocumentDraftGeneration({
+      context, requestId: request.id, generationToken, name: stored.fileName,
+      documentType: input.documentType, storagePath: stored.storagePath,
+      contentType: generated.contentType, sizeBytes: stored.sizeBytes,
     });
-
-    const approval = await createClientApproval({
-      context,
-      propertyId: request.propertyId,
-      requestId: request.id,
-      documentId: document.id,
-      type: 'document',
-      title: `Confirm ${input.documentType} drafting instructions`,
-      summary: 'Review the preparation summary and confirm the drafting instructions or request changes. Approval does not issue or execute the completed document.',
-    });
-
-    await updateClientRequest({
-      context,
-      requestId: request.id,
-      changes: {
-        status: 'waiting_client',
-        generatedDocumentId: document.id,
-        draftGenerationStatus: 'generated',
-      },
-    });
+    pendingStoragePath = undefined;
 
     const { storagePath: _storagePath, ...clientDocument } = document;
     return res.status(201).json({
@@ -2357,10 +2371,12 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
       approval,
     });
   } catch (error) {
-    if (generationClaimed) {
+    if (pendingStoragePath) await deleteClientFile(pendingStoragePath).catch(() => undefined);
+    if (generationToken) {
       await releaseClientDocumentDraftGeneration({
         context,
         requestId: req.params.id,
+        generationToken,
       }).catch((releaseError) => {
         console.error('Failed to release document draft generation claim:', releaseError);
       });
@@ -2372,6 +2388,7 @@ app.post('/api/client/requests/:id/generate-draft', requireClient, clientMutatio
       });
     }
 
+    if (clientFailure(error, res)) return;
     console.error('Client document draft generation failed:', error);
     return res.status(500).json({ error: 'Unable to generate this document draft.' });
   }
@@ -2396,13 +2413,7 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
     );
     res.setHeader('Cache-Control', 'private, no-store');
 
-    if (!document.storagePath) {
-      return res.status(500).json({ error: 'This document is missing its storage reference.' });
-    }
 
-    if (!document.storagePath) {
-      return res.status(500).json({ error: 'This document is missing its storage reference.' });
-    }
 
     if (!document.storagePath) {
       return res.status(500).json({ error: 'This document is missing its storage reference.' });
@@ -2410,6 +2421,7 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
 
     const stream = openClientFileStream(document.storagePath);
     stream.on('error', (error) => {
+      if (clientFailure(error, res)) return;
       console.error('Client document stream failed:', error);
       if (!res.headersSent) {
         res.status(500).json({ error: 'Unable to download this document.' });
@@ -2419,6 +2431,7 @@ app.get('/api/client/documents/:id/download', requireClient, async (req, res) =>
     });
     stream.pipe(res);
   } catch (error) {
+    if (clientFailure(error, res)) return;
     console.error('Client document download failed:', error);
     return res.status(500).json({ error: 'Unable to download this document.' });
   }
@@ -2451,6 +2464,7 @@ app.post('/api/client/approvals/:id/respond', requireClient, clientMutationRateL
     if (error instanceof Error && error.message === 'CLIENT_WRITE_FORBIDDEN') {
       return res.status(403).json({ error: 'Your client role is read-only.' });
     }
+    if (clientFailure(error, res)) return;
     console.error('Client approval response failed:', error);
     return res.status(500).json({ error: 'Unable to save this approval response.' });
   }
@@ -2736,7 +2750,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
         booking.propertyId = clientLink.propertyId;
       } catch (clientLinkError) {
         // Booking confirmation must not fail because the optional portal linkage
-        // could not be written. The next portal load can reconcile by verified email.
+        // could not be written. The client can explicitly link using the management code.
         console.error('Client portal booking linkage failed:', clientLinkError);
       }
     }
@@ -3212,6 +3226,12 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
     console.error('Admin booking update failed:', error);
     return res.status(500).json({ error: 'Unable to update booking.' });
   }
+});
+
+app.use((error: any, _req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) return next(error);
+  const status = error?.type === 'entity.too.large' ? 413 : error instanceof SyntaxError || error instanceof URIError ? 400 : 500;
+  return res.status(status).json({ error: status === 413 ? 'The request exceeds the permitted size.' : status === 400 ? 'The request could not be parsed.' : 'The request could not be completed.' });
 });
 
 async function startServer() {
