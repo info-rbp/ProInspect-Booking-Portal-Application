@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { logoutAdmin, signInWithGoogle } from '../../services/firebase';
+import { signInWithGoogle } from '../../services/firebase';
 import { verifyAdminSession } from '../../services/api';
 import { Shield, X, AlertCircle, Loader2 } from 'lucide-react';
 import { User } from 'firebase/auth';
@@ -25,12 +25,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setError(null);
     try {
       const result = await signInWithGoogle();
-      try {
-        await verifyAdminSession();
-      } catch (authorisationError) {
-        await logoutAdmin();
-        throw authorisationError;
-      }
+      await verifyAdminSession();
       onLoginSuccess(result.user);
       onClose();
     } catch (err: any) {
