@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import type { BookingRecord, BusinessSettings, InspectionService } from '../types/booking.js';
 import type { DocumentProduct, DocumentRequestRecord } from '../types/documentRequest.js';
+import type { EncryptedDocumentRequestSecrets } from './documentRequestSecrets.js';
 import { DEFAULT_SERVICES, DEFAULT_SETTINGS } from '../services/defaultServices.js';
 import { DEFAULT_DOCUMENT_PRODUCTS } from '../documents/defaultDocumentProducts.js';
 import { adminDb } from './firebaseAdmin.js';
@@ -300,9 +301,21 @@ export async function documentRequestReferenceExists(
 }
 
 export async function saveDocumentRequest(
-  request: DocumentRequestRecord
+  request: DocumentRequestRecord,
+  encryptedSecrets?: EncryptedDocumentRequestSecrets
 ): Promise<DocumentRequestRecord> {
-  await adminDb.collection('documentRequests').doc(request.id).set(request);
+  const requestRef = adminDb.collection('documentRequests').doc(request.id);
+  const batch = adminDb.batch();
+  batch.set(requestRef, request);
+
+  if (encryptedSecrets) {
+    batch.set(
+      adminDb.collection('documentRequestSecrets').doc(request.id),
+      encryptedSecrets
+    );
+  }
+
+  await batch.commit();
   return request;
 }
 
