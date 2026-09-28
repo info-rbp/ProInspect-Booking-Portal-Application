@@ -1910,6 +1910,9 @@ app.post('/api/tenant/forms', tenantWriteRateLimit, requireTenant, async (req, r
     if (error instanceof Error && error.message === 'BOND_DISTRIBUTION_MISMATCH') {
       return res.status(400).json({ error: 'The proposed bond payments must equal the total bond amount.' });
     }
+    if (error instanceof Error && error.message === 'PCR_DISAGREEMENT_COMMENT_REQUIRED') {
+      return res.status(400).json({ error: 'Add a comment for each Property Condition Report item you disagree with.' });
+    }
     console.error('Tenant form creation failed:', error);
     return res.status(500).json({ error: 'Unable to submit the tenancy form.' });
   }
