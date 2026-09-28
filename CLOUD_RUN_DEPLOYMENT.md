@@ -431,3 +431,45 @@ tenant/client payloads do not leak Storage paths or staff-only notes.
 Deploy `firestore.indexes.json` before relying on filtered audit-history queries.
 Use your standard Firebase/Google Cloud deployment process; committing the index
 file alone does not change production infrastructure.
+
+
+## WA tenant form workflow deployment
+
+The consolidated portal uses these additional Firestore collections:
+
+- `formDefinitions`
+- `tenantFormRequests`
+- `sensitiveTenantForms`
+- `sensitiveAuditEvents`
+
+and these Storage prefixes:
+
+- `tenant-portal/forms/` for normal supporting material
+- `tenant-sensitive/forms/` for restricted Form 2 evidence
+
+Direct browser Firestore and Storage access must remain denied. Files are only
+served via authenticated short-lived signed URLs.
+
+### Sensitive-tenancy access
+
+The `sensitive_tenancy` permission is intentionally not assigned to standard
+operations roles. `super_admin` receives it via the wildcard permission. If a
+dedicated restricted role is introduced later, grant this permission explicitly
+only to personnel authorised to handle family-violence information.
+
+Do not add `sensitiveTenantForms`, its payloads or its evidence to the general
+Operations queue, client notifications, client approvals, analytics exports or
+ordinary audit feeds.
+
+### Official form maintenance
+
+Before production releases that affect statutory forms, verify the current WA
+Consumer Protection source links and prescribed form versions against:
+
+```text
+https://www.consumerprotection.wa.gov.au/rental-forms-and-notices
+```
+
+Prescribed-form content should not be recreated as a modified ProInspect legal form.
+The portal collects structured data and workflow evidence; official statutory output
+must continue to use the current approved form/template and official bond process.
