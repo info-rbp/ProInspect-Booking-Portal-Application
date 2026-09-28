@@ -117,3 +117,33 @@ Sensitive lockbox/alarm values are not stored in the normal `bookings` document 
 The application fails closed for new lockbox/alarm bookings when `ACCESS_DATA_ENCRYPTION_KEY` is not configured.
 
 See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration, encryption secret and production verification procedure.
+
+
+## Tenant portal module
+
+The `tenant-portal` branch extends the booking application into a shared
+Client / Tenant / Staff platform without changing the existing booking data model.
+
+Tenant-facing capabilities include:
+
+- passwordless email sign-in tied to provisioned tenant records
+- property and tenancy overview
+- maintenance and general tenancy requests
+- photo, PDF and supported video attachments
+- request status tracking
+- tenancy document access through short-lived signed URLs
+- inspection and access schedule visibility
+- request receipt and status-update emails
+
+Staff capabilities include:
+
+- create properties
+- create tenancies
+- provision tenant portal users
+- review and update tenant requests
+- upload tenancy documents
+- add inspections visible in the tenant portal
+
+Tenant browsers do not access Firestore or Firebase Storage directly. Firebase ID
+tokens are verified by the Express server and every tenant operation is scoped to
+the tenancy IDs assigned to the authenticated tenant record.
