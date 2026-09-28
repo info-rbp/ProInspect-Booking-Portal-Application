@@ -205,6 +205,7 @@ import {
   createDocumentRequest,
   getDocumentProduct,
   listDocumentProducts,
+  listDocumentRequestsForClient,
   updateDocumentRequest,
 } from './src/server/documentStore.js';
 import {
@@ -3016,13 +3017,17 @@ app.get('/api/client/session', clientRateLimit, requireClient, (_req, res) => {
 app.get('/api/client/dashboard', clientRateLimit, requireClient, async (_req, res) => {
   try {
     const clientUser = res.locals.clientUser as ClientUserRecord;
-    const base = await getClientPortalDashboard(clientUser);
+    const [base, documentRequests] = await Promise.all([
+      getClientPortalDashboard(clientUser),
+      listDocumentRequestsForClient(clientUser.clientIds),
+    ]);
     const dashboard = await buildUnifiedClientDashboard({
       user: clientUser,
       clients: base.clients,
       properties: base.properties,
       propertyLinks: base.propertyLinks,
       documents: base.documents,
+      documentRequests,
     });
     return res.json({ dashboard });
   } catch (error) {
@@ -3248,6 +3253,141 @@ app.post('/api/client/requests', clientRateLimit, requireClient, async (req, res
     }
     console.error('Client request creation failed:', error);
     return res.status(500).json({ error: 'Unable to submit the request.' });
+  }
+});
+
+
+app.post('/api/client/document-requests', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const user = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const documentProductId = normalizeText(req.body?.documentProductId, 160);
+    const instructions = normalizeText(req.body?.instructions, 5000);
+    const counterpartyName = normalizeText(req.body?.counterpartyName, 240);
+    const effectiveDate = normalizeText(req.body?.effectiveDate, 32);
+    const dueDate = normalizeText(req.body?.dueDate, 32);
+
+    const role =
+      user.clientRoles?.[clientId] ||
+      (user.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !role || role === 'viewer') {
+      return res.status(403).json({
+        error: 'Your client role is not authorised to request documents for this account.',
+      });
+    }
+    if (!propertyId || !documentProductId || instructions.length < 5) {
+      return res.status(400).json({
+        error: 'Property, document type and drafting instructions are required.',
+      });
+    }
+
+    const linkSnapshot = await adminDb
+      .collection('clientPropertyLinks')
+      .where('clientId', '==', clientId)
+      .get();
+    const authorisedProperty = linkSnapshot.docs.some((doc) => {
+      const link = doc.data() as { propertyId?: string; active?: boolean };
+      return link.propertyId === propertyId && link.active !== false;
+    });
+    if (!authorisedProperty) {
+      return res.status(403).json({
+        error: 'The selected property is not linked to this client account.',
+      });
+    }
+
+    const [propertyDoc, product] = await Promise.all([
+      adminDb.collection('properties').doc(propertyId).get(),
+      getDocumentProduct(documentProductId),
+    ]);
+    if (!propertyDoc.exists) {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    if (!product || !product.active || !product.publiclyRequestable) {
+      return res.status(400).json({ error: 'The selected document is not available.' });
+    }
+
+    const category = product.categories.find(
+      (value) => value === 'commercial' || value === 'strata-building'
+    );
+    if (!category) {
+      return res.status(400).json({
+        error:
+          'Residential prescribed forms must use the guided Residential document workflow.',
+      });
+    }
+
+    const definition = getDocumentWorkflowDefinition(product.id);
+    if (!definition) {
+      return res.status(503).json({
+        error: 'The guided workflow for this document is not configured.',
+      });
+    }
+
+    const workflowValidation = sanitizeDocumentWorkflow(
+      {
+        version: 1,
+        requesterRole: 'property-manager',
+        lessors: [],
+        tenants: [],
+        answers: {
+          counterpartyName,
+          effectiveDate,
+          dueDate,
+          instructions,
+        },
+      },
+      definition
+    );
+    if (!workflowValidation.workflow) {
+      return res.status(400).json({
+        error:
+          workflowValidation.error ||
+          'Complete the required document instructions.',
+      });
+    }
+
+    const property = propertyDoc.data() as {
+      streetAddress?: string;
+      unit?: string;
+      suburb?: string;
+      state?: string;
+      postcode?: string;
+    };
+    const request = await createDocumentRequest({
+      product,
+      category,
+      propertyId,
+      clientId,
+      clientUserId: user.id,
+      requesterName: user.displayName,
+      requesterEmail: user.email,
+      requesterPhone: user.phone || '',
+      address: {
+        streetAddress: String(property.streetAddress || ''),
+        unit: property.unit ? String(property.unit) : undefined,
+        suburb: String(property.suburb || ''),
+        state: String(property.state || 'WA'),
+        postcode: String(property.postcode || ''),
+      },
+      notes: instructions,
+      workflow: workflowValidation.workflow,
+    });
+
+    await createNotification({
+      audience: 'client',
+      clientUserId: user.id,
+      clientId,
+      propertyId,
+      title: 'Document request submitted',
+      message: `${request.reference} · ${request.documentName}`,
+      link: '/client',
+    });
+
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    console.error('Client document request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the document request.' });
   }
 });
 
