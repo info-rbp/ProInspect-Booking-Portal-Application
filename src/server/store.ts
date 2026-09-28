@@ -800,6 +800,21 @@ export async function createClientProperty(params: {
   });
 }
 
+export async function findClientPropertyByAddress(params: {
+  organisationId: string;
+  unit?: string;
+  streetAddress: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): Promise<ClientProperty | null> {
+  const propertyId = clientPropertyKey(params.organisationId, params);
+  return getClientProperty({
+    organisationId: params.organisationId,
+    propertyId,
+  });
+}
+
 export async function getClientProperty(params: {
   organisationId: string;
   propertyId: string;
