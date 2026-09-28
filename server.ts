@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import {
   formatAustralianDate,
   formatAustralianTime,
@@ -448,6 +448,17 @@ function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+function safeSecretEquals(expected: string | undefined, supplied: unknown): boolean {
+  const expectedValue = expected?.trim() || '';
+  const suppliedValue = normalizeText(supplied, 1000);
+  if (!expectedValue || !suppliedValue) return false;
+
+  const expectedBuffer = Buffer.from(expectedValue);
+  const suppliedBuffer = Buffer.from(suppliedValue);
+  if (expectedBuffer.length !== suppliedBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, suppliedBuffer);
+}
+
 const SERVICE_CATEGORIES = new Set<ServiceCategory>([
   'residential',
   'commercial',
@@ -563,6 +574,11 @@ function sanitizeTenantRequestInput(input: unknown): {
 
   if (!tenancyId) return { error: 'Select a tenancy.' };
   if (!TENANT_REQUEST_TYPES.has(requestType)) return { error: 'Select a valid request type.' };
+  if (requestType === 'pet' || requestType === 'modification') {
+    return {
+      error: 'Pet and modification requests must be submitted through Forms & Bond so the prescribed WA workflow is used.',
+    };
+  }
   if (title.length < 3) return { error: 'Request title must contain at least 3 characters.' };
   if (details.length < 5) return { error: 'Provide some details about the request.' };
   if (!TENANT_REQUEST_PRIORITIES.has(priority)) return { error: 'Select a valid priority.' };
@@ -922,9 +938,7 @@ function publicBookingView(
 
 app.post('/api/integrations/payments/:id/status', async (req, res) => {
   try {
-    const expected = process.env.PAYMENT_WEBHOOK_TOKEN?.trim();
-    const supplied = normalizeText(req.headers['x-payment-webhook-token'], 500);
-    if (!expected || !supplied || supplied !== expected) {
+    if (!safeSecretEquals(process.env.PAYMENT_WEBHOOK_TOKEN, req.headers['x-payment-webhook-token'])) {
       return res.status(401).json({ error: 'Payment integration authentication failed.' });
     }
     const status = normalizeText(req.body?.status, 32) as PaymentStatus;
@@ -946,9 +960,7 @@ app.post('/api/integrations/payments/:id/status', async (req, res) => {
 app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
   let savedPath: string | null = null;
   try {
-    const expected = process.env.REPORT_INGEST_TOKEN?.trim();
-    const supplied = normalizeText(req.headers['x-report-ingest-token'], 500);
-    if (!expected || !supplied || supplied !== expected) {
+    if (!safeSecretEquals(process.env.REPORT_INGEST_TOKEN, req.headers['x-report-ingest-token'])) {
       return res.status(401).json({ error:'Report integration authentication failed.' });
     }
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
@@ -966,6 +978,11 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
 
     if (!propertyId || !title || !fileName || !['property_condition_report','inspection_report','property_report'].includes(category)) {
       return res.status(400).json({ error:'Property, title, file name and supported report category are required.' });
+    }
+    if (audiences.includes('tenant') && !tenancyId) {
+      return res.status(400).json({
+        error:'Tenant-visible reports must include X-Tenancy-Id so former or future tenants cannot receive the wrong report.',
+      });
     }
 
     const stored = await saveTenantDocumentFile({
@@ -1004,6 +1021,12 @@ app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
     return res.status(201).json({ success:true, document });
   } catch (error) {
     if (savedPath) await deleteTenantFile(savedPath).catch(()=>undefined);
+    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH'].includes(error.message)) {
+      return res.status(400).json({ error:'The report property, tenancy or client relationship is invalid.' });
+    }
+    if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+      return res.status(503).json({ error:'Report storage is not configured.' });
+    }
     console.error('Report ingest failed:', error);
     return res.status(500).json({ error:'Unable to ingest report.' });
   }
@@ -1020,6 +1043,7 @@ app.get('/api/health', (_req, res) => {
     tenantPortalEmailConfigured: tenantPortalEmailIsConfigured(),
     reportIngestConfigured: Boolean(process.env.REPORT_INGEST_TOKEN?.trim()),
     paymentCheckoutConfigured: Boolean(process.env.PAYMENT_CHECKOUT_URL_TEMPLATE?.trim()),
+    paymentWebhookConfigured: Boolean(process.env.PAYMENT_WEBHOOK_TOKEN?.trim()),
     timezone: TIMEZONE,
   });
 });
@@ -2178,6 +2202,13 @@ app.get('/api/tenant/documents/:id/download', tenantRateLimit, requireTenant, as
   }
 });
 
+app.post('/api/tenant/notifications/:id/read', tenantRateLimit, requireTenant, async (req, res) => {
+  const tenant = res.locals.tenant as TenantUserRecord;
+  const notification = await markNotificationRead(req.params.id, tenant.id);
+  if (!notification) return res.status(404).json({ error: 'Notification not found.' });
+  return res.json({ success: true, notification });
+});
+
 app.get('/api/client/session', clientRateLimit, requireClient, (_req, res) => {
   const clientUser = res.locals.clientUser as ClientUserRecord;
   return res.json({
@@ -2268,6 +2299,9 @@ app.post('/api/client/properties', clientRateLimit, requireClient, async (req, r
     if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
       return res.status(404).json({ error: 'Client account not found.' });
     }
+    if (error instanceof Error && error.message === 'PROPERTY_ADDRESS_EXISTS') {
+      return res.status(409).json({ error: 'That property already exists in ProInspect. Use the existing property record instead.' });
+    }
     console.error('Client property creation failed:', error);
     return res.status(500).json({ error: 'Unable to add the property.' });
   }
@@ -2350,8 +2384,8 @@ app.post('/api/client/requests', clientRateLimit, requireClient, async (req, res
     });
     return res.status(201).json({ success: true, request });
   } catch (error) {
-    if (error instanceof Error && ['CLIENT_NOT_AUTHORISED','PROPERTY_NOT_AUTHORISED'].includes(error.message)) {
-      return res.status(403).json({ error: 'This request is not authorised for the selected client or property.' });
+    if (error instanceof Error && ['CLIENT_NOT_AUTHORISED','PROPERTY_NOT_AUTHORISED','CLIENT_ROLE_FORBIDDEN'].includes(error.message)) {
+      return res.status(403).json({ error: 'Your client role is not authorised to submit this request for the selected client or property.' });
     }
     console.error('Client request creation failed:', error);
     return res.status(500).json({ error: 'Unable to submit the request.' });
@@ -2360,21 +2394,32 @@ app.post('/api/client/requests', clientRateLimit, requireClient, async (req, res
 
 app.post('/api/client/approvals/:id/respond', clientRateLimit, requireClient, async (req, res) => {
   try {
-    const status = normalizeText(req.body?.status, 32) as 'approved' | 'changes_requested' | 'declined';
-    if (!['approved','changes_requested','declined'].includes(status)) {
+    const status = normalizeText(req.body?.status, 32) as
+      | 'approved'
+      | 'approved_with_conditions'
+      | 'changes_requested'
+      | 'declined';
+    if (!['approved','approved_with_conditions','changes_requested','declined'].includes(status)) {
       return res.status(400).json({ error: 'Select a valid approval response.' });
+    }
+    const comment = normalizeText(req.body?.comment, 3000) || undefined;
+    if (status === 'approved_with_conditions' && !comment) {
+      return res.status(400).json({ error: 'Describe the proposed conditions before submitting.' });
     }
     const approval = await respondApproval({
       approvalId: req.params.id,
       user: res.locals.clientUser as ClientUserRecord,
       status,
-      comment: normalizeText(req.body?.comment, 3000) || undefined,
+      comment,
     });
     if (!approval) return res.status(404).json({ error: 'Approval not found.' });
     return res.json({ success: true, approval });
   } catch (error) {
-    if (error instanceof Error && error.message === 'CLIENT_NOT_AUTHORISED') {
-      return res.status(403).json({ error: 'This approval is not available to this account.' });
+    if (error instanceof Error && ['CLIENT_NOT_AUTHORISED','CLIENT_APPROVAL_FORBIDDEN'].includes(error.message)) {
+      return res.status(403).json({ error: 'Only authorised client owners or administrators can respond to this approval.' });
+    }
+    if (error instanceof Error && error.message === 'APPROVAL_CONDITIONS_REQUIRED') {
+      return res.status(400).json({ error: 'Describe the proposed conditions before submitting.' });
     }
     console.error('Client approval response failed:', error);
     return res.status(500).json({ error: 'Unable to save the approval response.' });
@@ -2396,7 +2441,7 @@ app.get('/api/admin/session', requireAdmin, (_req, res) => {
   });
 });
 
-app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
+app.get('/api/admin/bookings', requireAdmin, requireAdminPermission('bookings'), async (_req, res) => {
   try {
     const bookings = await listBookingsWithAccessSecrets();
     return res.json({ bookings });
@@ -2579,7 +2624,7 @@ app.get('/api/admin/audit', requireAdmin, requireAdminPermission('audit'), async
   }
 });
 
-app.get('/api/admin/services', requireAdmin, async (_req, res) => {
+app.get('/api/admin/services', requireAdmin, requireAdminPermission('services'), async (_req, res) => {
   try {
     const services = await listServices(false);
     return res.json({ services });
@@ -2589,7 +2634,7 @@ app.get('/api/admin/services', requireAdmin, async (_req, res) => {
   }
 });
 
-app.post('/api/admin/services', requireAdmin, async (req, res) => {
+app.post('/api/admin/services', requireAdmin, requireAdminPermission('services'), async (req, res) => {
   try {
     const existingServices = await listServices(false);
     const nextOrder =
@@ -2622,7 +2667,7 @@ app.post('/api/admin/services', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/services/:id', requireAdmin, requireAdminPermission('services'), async (req, res) => {
   try {
     const serviceId = req.params.id;
     const existing = await getService(serviceId);
@@ -2656,7 +2701,7 @@ app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
+app.post('/api/admin/services/reorder', requireAdmin, requireAdminPermission('services'), async (req, res) => {
   try {
     const rawServiceIds: unknown = req.body?.serviceIds;
 
@@ -2692,7 +2737,7 @@ app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
+app.get('/api/admin/settings', requireAdmin, requireAdminPermission('settings'), async (_req, res) => {
   try {
     const settings = await getSettings();
     return res.json({
@@ -2707,7 +2752,7 @@ app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
   }
 });
 
-app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/bookings/:id', requireAdmin, requireAdminPermission('bookings'), async (req, res) => {
   try {
     const booking = await getBooking(req.params.id);
     if (!booking) {
@@ -2750,7 +2795,7 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/tenant-portal', requireAdmin, async (_req, res) => {
+app.get('/api/admin/tenant-portal', requireAdmin, requireAdminPermission('tenants'), async (_req, res) => {
   try {
     const snapshot = await listAdminTenantPortal();
     return res.json({ snapshot });
@@ -2760,7 +2805,7 @@ app.get('/api/admin/tenant-portal', requireAdmin, async (_req, res) => {
   }
 });
 
-app.post('/api/admin/clients', requireAdmin, async (req, res) => {
+app.post('/api/admin/clients', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
   try {
     const name = normalizeText(req.body?.name, 180);
     const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
@@ -2784,7 +2829,7 @@ app.post('/api/admin/clients', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/client-users', requireAdmin, async (req, res) => {
+app.post('/api/admin/client-users', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
   try {
     const email = normalizeText(req.body?.email, 254).toLowerCase();
     const displayName = normalizeText(req.body?.displayName, 160);
@@ -2825,7 +2870,7 @@ app.post('/api/admin/client-users', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/client-property-links', requireAdmin, async (req, res) => {
+app.post('/api/admin/client-property-links', requireAdmin, requireAdminPermission('clients'), async (req, res) => {
   try {
     const clientId = normalizeText(req.body?.clientId, 128);
     const propertyId = normalizeText(req.body?.propertyId, 128);
@@ -2990,7 +3035,7 @@ app.get(
   }
 );
 
-app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
+app.post('/api/admin/tenant-properties', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const streetAddress = normalizeText(req.body?.streetAddress, 160);
     const suburb = normalizeText(req.body?.suburb, 100);
@@ -3018,12 +3063,15 @@ app.post('/api/admin/tenant-properties', requireAdmin, async (req, res) => {
     if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
       return res.status(404).json({ error: 'Client not found.' });
     }
+    if (error instanceof Error && error.message === 'PROPERTY_ADDRESS_EXISTS') {
+      return res.status(409).json({ error: 'That property already exists. Link or use the existing property record instead.' });
+    }
     console.error('Admin tenant property creation failed:', error);
     return res.status(500).json({ error: 'Unable to create the property.' });
   }
 });
 
-app.post('/api/admin/tenancies', requireAdmin, async (req, res) => {
+app.post('/api/admin/tenancies', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const propertyId = normalizeText(req.body?.propertyId, 128);
     const startDate = normalizeText(req.body?.startDate, 20);
@@ -3073,7 +3121,7 @@ app.post('/api/admin/tenancies', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/tenant-users', requireAdmin, async (req, res) => {
+app.post('/api/admin/tenant-users', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const email = normalizeText(req.body?.email, 254).toLowerCase();
     const displayName = normalizeText(req.body?.displayName, 160);
@@ -3114,7 +3162,7 @@ app.post('/api/admin/tenant-users', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/tenancies/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/tenancies/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const rawStatus = normalizeText(req.body?.status, 20);
     const status = rawStatus
@@ -3149,7 +3197,7 @@ app.patch('/api/admin/tenancies/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/tenant-users/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/tenant-users/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const tenancyIds = req.body?.tenancyIds === undefined
       ? undefined
@@ -3188,7 +3236,7 @@ app.patch('/api/admin/tenant-users/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/tenant-requests/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/tenant-requests/:id', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const rawStatus = normalizeText(req.body?.status, 40);
     const status = rawStatus ? (rawStatus as TenantRequestStatus) : undefined;
@@ -3229,6 +3277,7 @@ app.patch('/api/admin/tenant-requests/:id', requireAdmin, async (req, res) => {
 app.post(
   '/api/admin/property-documents/:propertyId',
   requireAdmin,
+  requireAdminPermission('documents'),
   tenantFileBody,
   async (req, res) => {
     let savedPath: string | null = null;
@@ -3311,6 +3360,7 @@ app.post(
 app.post(
   '/api/admin/tenant-documents/:tenancyId',
   requireAdmin,
+  requireAdminPermission('documents'),
   tenantFileBody,
   async (req, res) => {
     let savedPath: string | null = null;
@@ -3370,7 +3420,7 @@ app.post(
   }
 );
 
-app.post('/api/admin/tenant-inspections', requireAdmin, async (req, res) => {
+app.post('/api/admin/tenant-inspections', requireAdmin, requireAdminPermission('tenants'), async (req, res) => {
   try {
     const tenancyId = normalizeText(req.body?.tenancyId, 128);
     const propertyId = normalizeText(req.body?.propertyId, 128);
