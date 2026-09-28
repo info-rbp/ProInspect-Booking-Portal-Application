@@ -763,6 +763,7 @@ function BookingsPanel({
   const [working, setWorking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canUpdate = hasPermission(session, 'bookings.update');
+  const canAssign = canUpdate && session.resourceScope === 'global';
   const canCancel = hasPermission(session, 'bookings.cancel');
 
   const filtered = bookings.filter((booking) =>
@@ -810,7 +811,7 @@ function BookingsPanel({
                   <td className="p-3 max-w-[220px]">{booking.property.unit ? `${booking.property.unit}, ` : ''}{booking.property.streetAddress}<div className="text-slate-500">{booking.property.suburb}</div></td>
                   <td className="p-3">{booking.serviceName}</td>
                   <td className="p-3 min-w-[180px]">
-                    {canUpdate ? (
+                    {canAssign ? (
                       <select
                         disabled={working === booking.id}
                         value={booking.assignedStaffId || ''}
@@ -820,7 +821,9 @@ function BookingsPanel({
                         <option value="">Unassigned</option>
                         {staff.filter((member) => member.active).map((member) => <option key={member.id} value={member.id}>{member.displayName}</option>)}
                       </select>
-                    ) : valueText(staff.find((member) => member.id === booking.assignedStaffId)?.displayName)}
+                    ) : booking.assignedStaffId === session.uid
+                      ? 'Assigned to you'
+                      : valueText(staff.find((member) => member.id === booking.assignedStaffId)?.displayName || booking.assignedStaffId)}
                   </td>
                   <td className="p-3 min-w-[140px]">
                     {canUpdate ? (
