@@ -27,6 +27,101 @@ export interface DocumentRequestDetails {
   notes?: string;
 }
 
+export interface DocumentParty {
+  id: string;
+  name: string;
+  address?: string;
+  postcode?: string;
+  email?: string;
+  phone?: string;
+}
+
+export type DocumentRequesterRole =
+  | 'lessor'
+  | 'property-manager'
+  | 'tenant'
+  | 'other';
+
+export type DocumentWorkflowAnswer =
+  | string
+  | number
+  | boolean
+  | string[]
+  | Record<string, unknown>
+  | Array<Record<string, unknown>>
+  | null;
+
+export interface DocumentWorkflowData {
+  version: 1;
+  requesterRole: DocumentRequesterRole;
+  lessors: DocumentParty[];
+  tenants: DocumentParty[];
+  answers: Record<string, DocumentWorkflowAnswer>;
+}
+
+export type DocumentWorkflowFieldType =
+  | 'text'
+  | 'email'
+  | 'phone'
+  | 'textarea'
+  | 'date'
+  | 'number'
+  | 'currency'
+  | 'select'
+  | 'radio'
+  | 'checkbox'
+  | 'multiselect'
+  | 'tenant-select'
+  | 'party-electronic-consents'
+  | 'party-payouts';
+
+export interface DocumentWorkflowOption {
+  value: string;
+  label: string;
+}
+
+export interface DocumentWorkflowCondition {
+  fieldId: string;
+  equals?: string | number | boolean;
+  notEquals?: string | number | boolean;
+  includes?: string;
+}
+
+export interface DocumentWorkflowField {
+  id: string;
+  label: string;
+  type: DocumentWorkflowFieldType;
+  required?: boolean;
+  help?: string;
+  placeholder?: string;
+  options?: DocumentWorkflowOption[];
+  showWhen?: DocumentWorkflowCondition;
+  sensitive?: boolean;
+  min?: number;
+  max?: number;
+  step?: string;
+}
+
+export interface DocumentWorkflowSection {
+  id: string;
+  title: string;
+  description?: string;
+  notice?: string;
+  fields: DocumentWorkflowField[];
+}
+
+export interface DocumentWorkflowDefinition {
+  documentId: string;
+  version: 1;
+  title: string;
+  intro?: string;
+  allowedRequesterRoles?: DocumentRequesterRole[];
+  minimumLessors?: number;
+  minimumTenants?: number;
+  reviewNotice?: string;
+  sections: DocumentWorkflowSection[];
+}
+
 export type DocumentRequestStatus =
   | 'submitted'
   | 'in_review'
@@ -41,6 +136,7 @@ export interface DocumentRequestRecord {
   documentCategory: ServiceCategory;
   priceExGst: number;
   details: DocumentRequestDetails;
+  workflow: DocumentWorkflowData;
   status: DocumentRequestStatus;
   createdAt: string;
   updatedAt: string;
