@@ -1849,14 +1849,20 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       authenticatedClient &&
       authenticatedClient.email === validatedProperty.customerEmail
     ) {
-      await ensureClientProfile(authenticatedClient);
-      const clientLink = await linkBookingToClient({
-        uid: authenticatedClient.uid,
-        email: authenticatedClient.email,
-        booking,
-      });
-      booking.clientUid = clientLink.clientUid;
-      booking.propertyId = clientLink.propertyId;
+      try {
+        const context = await ensureClientContext(authenticatedClient);
+        const clientLink = await linkBookingToClient({
+          context,
+          booking,
+        });
+        booking.clientUid = clientLink.clientUid;
+        booking.clientOrganisationId = clientLink.clientOrganisationId;
+        booking.propertyId = clientLink.propertyId;
+      } catch (clientLinkError) {
+        // Booking confirmation must not fail because the optional portal linkage
+        // could not be written. The next portal load can reconcile by verified email.
+        console.error('Client portal booking linkage failed:', clientLinkError);
+      }
     }
 
     let encryptedAccessSecrets;
