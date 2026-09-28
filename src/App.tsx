@@ -13,7 +13,6 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import { ClientHub } from './components/hub/ClientHub';
-import { PlaceholderPage } from './components/hub/PlaceholderPage';
 import { ClientSignIn } from './components/client/ClientSignIn';
 import { ClientPortal, ClientPortalSection } from './components/client/ClientPortal';
 import {
@@ -36,9 +35,14 @@ type PublicRoute =
   | 'signin'
   | 'portal-dashboard'
   | 'portal-properties'
+  | 'portal-property'
   | 'portal-bookings'
   | 'portal-requests'
-  | 'portal-documents';
+  | 'portal-documents'
+  | 'portal-approvals'
+  | 'portal-account'
+  | 'portal-onboarding'
+  | 'portal-maintenance-request';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
@@ -52,12 +56,22 @@ function publicRouteFromPath(): PublicRoute {
   if (pathname === '/book') return 'book';
   if (pathname === '/request-document') return 'request-document';
   if (pathname === '/signin') return 'signin';
+  if (/^\/portal\/properties\/[^/]+$/.test(pathname)) return 'portal-property';
   if (pathname === '/portal/properties') return 'portal-properties';
   if (pathname === '/portal/bookings') return 'portal-bookings';
+  if (pathname === '/portal/requests/maintenance') return 'portal-maintenance-request';
   if (pathname === '/portal/requests') return 'portal-requests';
   if (pathname === '/portal/documents') return 'portal-documents';
+  if (pathname === '/portal/approvals') return 'portal-approvals';
+  if (pathname === '/portal/account') return 'portal-account';
+  if (pathname === '/portal/onboarding') return 'portal-onboarding';
   if (pathname === '/portal') return 'portal-dashboard';
   return 'hub';
+}
+
+function clientPropertyIdFromPath(): string | undefined {
+  const match = window.location.pathname.match(/^\/portal\/properties\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : undefined;
 }
 
 export default function App() {
@@ -381,15 +395,48 @@ export default function App() {
   const clientPortalSection: ClientPortalSection =
     publicRoute === 'portal-properties'
       ? 'properties'
-      : publicRoute === 'portal-bookings'
-        ? 'bookings'
-        : publicRoute === 'portal-requests'
-          ? 'requests'
-          : publicRoute === 'portal-documents'
-            ? 'documents'
-            : 'dashboard';
+      : publicRoute === 'portal-property'
+        ? 'property'
+        : publicRoute === 'portal-bookings'
+          ? 'bookings'
+          : publicRoute === 'portal-requests'
+            ? 'requests'
+            : publicRoute === 'portal-maintenance-request'
+              ? 'maintenance-request'
+              : publicRoute === 'portal-documents'
+                ? 'documents'
+                : publicRoute === 'portal-approvals'
+                  ? 'approvals'
+                  : publicRoute === 'portal-account'
+                    ? 'account'
+                    : publicRoute === 'portal-onboarding'
+                      ? 'onboarding'
+                      : 'dashboard';
 
   const isClientPortalRoute = publicRoute.startsWith('portal-');
+
+  const handleBookClientProperty = (property: import('./types/clientPortal').ClientProperty) => {
+    const singleCategory = property.categories.length === 1 ? property.categories[0] : null;
+    setPropertyData((current) => ({
+      ...current,
+      streetAddress: property.streetAddress,
+      unit: property.unit || '',
+      suburb: property.suburb,
+      state: property.state,
+      postcode: property.postcode,
+      propertyType: property.propertyType,
+      clientName: property.clientName || '',
+      clientReference: property.clientReference || '',
+      customerName: current.customerName || authUser?.displayName || '',
+      customerEmail: current.customerEmail || authUser?.email || '',
+    }));
+    setSelectedCategory(singleCategory);
+    setSelectedServiceId(null);
+    setSelectedSlot(null);
+    setCompletedSteps(singleCategory ? ['service-type'] : []);
+    setCurrentStep(singleCategory ? 'service' : 'service-type');
+    navigatePublic('/book');
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
@@ -414,7 +461,23 @@ export default function App() {
         ) : publicRoute === 'hub' ? (
           <ClientHub onNavigate={navigatePublic} />
         ) : publicRoute === 'request-document' ? (
-          <PlaceholderPage type="document" onBack={() => navigatePublic('/')} />
+          authUser ? (
+            <ClientPortal
+              user={authUser}
+              section="document-request"
+              onNavigate={navigatePublic}
+              onSignOut={handleClientLogout}
+              onBookProperty={handleBookClientProperty}
+            />
+          ) : (
+            <ClientSignIn
+              onSignedIn={(user) => {
+                setAuthUser(user);
+                navigatePublic('/request-document');
+              }}
+              onBack={() => navigatePublic('/')}
+            />
+          )
         ) : publicRoute === 'signin' ? (
           authUser ? (
             <ClientPortal
@@ -422,6 +485,7 @@ export default function App() {
               section="dashboard"
               onNavigate={navigatePublic}
               onSignOut={handleClientLogout}
+              onBookProperty={handleBookClientProperty}
             />
           ) : (
             <ClientSignIn
@@ -437,8 +501,10 @@ export default function App() {
             <ClientPortal
               user={authUser}
               section={clientPortalSection}
+              propertyId={clientPropertyIdFromPath()}
               onNavigate={navigatePublic}
               onSignOut={handleClientLogout}
+              onBookProperty={handleBookClientProperty}
             />
           ) : (
             <ClientSignIn
