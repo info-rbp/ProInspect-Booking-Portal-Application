@@ -43,12 +43,14 @@ import {
   createClientRequest,
   ensureClientContext,
   getClientDocument,
+  getClientDocumentForAdmin,
   getClientPortalDashboard,
   getClientProperty,
   getClientRequest,
   inviteClientOrganisationMember,
   linkBookingToClient,
   listClientApprovalsForAdmin,
+  listClientDocumentsForAdmin,
   listClientRequestsForAdmin,
   respondToClientApproval,
   updateClientOrganisationMember,
@@ -2087,6 +2089,46 @@ app.get('/api/admin/client-approvals', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Admin client approvals load failed:', error);
     return res.status(500).json({ error: 'Unable to load client approvals.' });
+  }
+});
+
+app.get('/api/admin/client-documents', requireAdmin, async (_req, res) => {
+  try {
+    const documents = await listClientDocumentsForAdmin();
+    return res.json({ documents });
+  } catch (error) {
+    console.error('Admin client documents load failed:', error);
+    return res.status(500).json({ error: 'Unable to load client documents.' });
+  }
+});
+
+app.get('/api/admin/client-documents/:id/download', requireAdmin, async (req, res) => {
+  try {
+    const document = await getClientDocumentForAdmin(req.params.id);
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    res.setHeader('Content-Type', document.contentType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    const stream = openClientFileStream(document.storagePath);
+    stream.on('error', (error) => {
+      console.error('Admin client document stream failed:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Unable to download this document.' });
+      } else {
+        res.destroy(error as Error);
+      }
+    });
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Admin client document download failed:', error);
+    return res.status(500).json({ error: 'Unable to download this document.' });
   }
 });
 
