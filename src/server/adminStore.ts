@@ -54,6 +54,7 @@ const ALL_PERMISSIONS: AdminPermission[] = [
   'billing.read',
   'billing.manage',
   'reports.read',
+  'reports.manage',
   'integrations.read',
   'integrations.manage',
   'users.read',
@@ -83,6 +84,8 @@ const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     'maintenance.manage',
     'communications.read',
     'communications.manage',
+    'reports.read',
+    'reports.manage',
   ],
   read_only: [
     'dashboard.read',
