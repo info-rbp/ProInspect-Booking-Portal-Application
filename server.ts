@@ -120,6 +120,8 @@ import {
   tenantStorageIsConfigured,
 } from './src/server/tenantFiles.js';
 import {
+  sendTenantFormReceiptEmail,
+  sendTenantFormStatusEmail,
   sendTenantRequestReceiptEmail,
   sendTenantRequestStatusEmail,
   tenantPortalEmailIsConfigured,
@@ -1869,14 +1871,24 @@ app.post('/api/tenant/forms', tenantWriteRateLimit, requireTenant, async (req, r
       return res.status(400).json({ error: 'Tenancy and form are required.' });
     }
 
+    const tenant = res.locals.tenant as TenantUserRecord;
     const request = await createTenantFormRequest(
-      res.locals.tenant as TenantUserRecord,
+      tenant,
       {
         tenancyId,
         formDefinitionId,
         payload: sanitizeTenantFormPayload(req.body?.payload),
       }
     );
+
+    sendTenantFormReceiptEmail({
+      tenant,
+      request,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    }).catch((emailError) => {
+      console.error('Tenant statutory form receipt email failed:', emailError);
+    });
+
     return res.status(201).json({ success: true, request });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('FORM_FIELD_REQUIRED:')) {
@@ -3018,6 +3030,20 @@ app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminWritePermissi
       { id: res.locals.admin.uid, email: res.locals.admin.email }
     );
     if (!request) return res.status(404).json({ error: 'Tenant form request not found.' });
+
+    if (status) {
+      const tenant = await getTenantUserById(request.tenantUserId);
+      if (tenant?.active) {
+        sendTenantFormStatusEmail({
+          tenant,
+          request,
+          portalUrl: `${publicBaseUrl(req)}/tenant`,
+        }).catch((emailError) => {
+          console.error('Tenant statutory form status email failed:', emailError);
+        });
+      }
+    }
+
     return res.json({ success: true, request });
   } catch (error) {
     console.error('Admin tenant form update failed:', error);
