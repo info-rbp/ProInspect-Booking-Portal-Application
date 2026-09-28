@@ -86,6 +86,7 @@ import {
   isWorkflowAnswerPresent,
   isWorkflowFieldVisible,
   sensitiveWorkflowFieldIds,
+  validateDocumentWorkflowRules,
 } from './src/documents/documentWorkflowDefinitions.js';
 import {
   documentRequestEncryptionIsConfigured,
@@ -835,6 +836,14 @@ function sanitizeDocumentWorkflow(
       workflow
     );
     if (validationError) return { error: validationError };
+  }
+
+  const ruleErrors = validateDocumentWorkflowRules(
+    definition.documentId,
+    answers
+  );
+  if (ruleErrors.length > 0) {
+    return { error: ruleErrors[0].message };
   }
 
   const sensitiveIds = sensitiveWorkflowFieldIds(definition);
