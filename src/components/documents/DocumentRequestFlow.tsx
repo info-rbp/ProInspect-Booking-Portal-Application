@@ -592,6 +592,25 @@ export const DocumentRequestFlow: React.FC<DocumentRequestFlowProps> = ({
       useRequesterForFirstParty('tenants');
     }
 
+    if (
+      documentId === 'residential-tenancy-lease-agreement-form-1aa' &&
+      requesterRole === 'property-manager'
+    ) {
+      setAnswers((current) => ({
+        ...current,
+        propertyManagerIncluded:
+          current.propertyManagerIncluded || 'yes',
+        propertyManagerName:
+          current.propertyManagerName ||
+          details.clientName ||
+          details.customerName,
+        propertyManagerPhone:
+          current.propertyManagerPhone || details.customerPhone,
+        propertyManagerEmail:
+          current.propertyManagerEmail || details.customerEmail,
+      }));
+    }
+
     setStep('parties');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
