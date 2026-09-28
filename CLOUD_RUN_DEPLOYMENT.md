@@ -225,3 +225,82 @@ The smoke test verifies, in sequence:
 9. Persisted Firestore cancelled status.
 
 Because this is a live-write test, run it only after the production encryption, email and address-validation configuration is complete. If the script exits after a booking was created but before cancellation, it prints the secure management URL needed for manual cleanup.
+
+
+## Tenant portal branch deployment requirements
+
+The `tenant-portal` branch adds tenant authentication, tenancy/property records,
+tenant requests, document storage and staff-side tenant operations. Keep this branch
+out of production until it has been reviewed and intentionally merged.
+
+### Firebase Authentication
+
+Enable **Email/Password** in Firebase Authentication and enable **Email link
+(passwordless sign-in)** for tenant access. Keep Google sign-in enabled for staff.
+
+Add every tenant-portal hostname to Firebase Authentication authorised domains,
+including the active Cloud Run hostname during testing and the final custom domain.
+
+Tenant access is invitation/provisioning based: staff must first create a property,
+tenancy and tenant user in **Staff Portal > Tenant Portal**. A Firebase-authenticated
+email receives no tenancy data unless its verified email matches an active
+`tenantUsers` record.
+
+### Firebase Storage
+
+The tenant portal stores request attachments and tenancy documents in the Firebase
+Storage bucket. Configure:
+
+```text
+FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047.firebasestorage.app
+```
+
+The Cloud Run runtime service account needs permission to create, read, sign and
+delete objects in that bucket. Grant only the bucket-level permissions required by
+the runtime identity.
+
+The browser never reads or writes Storage directly. Uploads and download-link
+generation pass through the authenticated Express API. Deploy `storage.rules`
+with direct client access denied.
+
+### Tenant email notifications
+
+Tenant request receipts and status updates reuse Resend. You may optionally set:
+
+```text
+TENANT_EMAIL_FROM=ProInspect <tenants@proinspect.systems>
+TENANT_EMAIL_REPLY_TO=info@proinspect.systems
+```
+
+When omitted, the tenant portal falls back to `BOOKING_EMAIL_FROM` and
+`BOOKING_EMAIL_REPLY_TO`.
+
+### Tenant portal Firestore collections
+
+The tenant module uses:
+
+- `properties`
+- `tenancies`
+- `tenantUsers`
+- `tenantRequests`
+- `tenantDocuments`
+- `tenantInspections`
+
+Direct browser access to Firestore remains denied by `firestore.rules`; all
+tenant and staff data access is mediated by the Express API and Firebase ID-token
+verification.
+
+### Tenant portal production verification
+
+Before exposing the tenant portal publicly:
+
+1. Confirm `/api/health` reports `tenantStorageConfigured: true`.
+2. Confirm `tenantPortalEmailConfigured: true` when email notifications are required.
+3. Create a controlled property, tenancy and tenant user in the Staff Portal.
+4. Send a passwordless tenant sign-in link and sign in using the provisioned email.
+5. Confirm the tenant only sees the tenancy linked to that account.
+6. Submit a maintenance request with an attachment.
+7. Confirm staff can view the request and change its status.
+8. Confirm the tenant sees the updated status and receives the notification email.
+9. Upload a tenant document from the Staff Portal and confirm the tenant can open it.
+10. Create an inspection entry and confirm it appears under Inspections & Access.
