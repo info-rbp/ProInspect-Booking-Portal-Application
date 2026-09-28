@@ -12,6 +12,8 @@ import { StepConfirmation } from './components/wizard/StepConfirmation';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
+import { ClientHub } from './components/hub/ClientHub';
+import { PlaceholderPage } from './components/hub/PlaceholderPage';
 import {
   InspectionService,
   ServiceCategory,
@@ -23,16 +25,30 @@ import {
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin } from './services/firebase';
 import { User } from 'firebase/auth';
-import { Search, ShieldAlert, CalendarClock } from 'lucide-react';
+import { Search } from 'lucide-react';
+
+type PublicRoute = 'hub' | 'book' | 'request-document' | 'signin';
+type PublicPath = '/' | '/book' | '/request-document' | '/signin';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+function publicRouteFromPath(): PublicRoute {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+
+  if (pathname.startsWith('/manage/')) return 'book';
+  if (pathname === '/book') return 'book';
+  if (pathname === '/request-document') return 'request-document';
+  if (pathname === '/signin') return 'signin';
+  return 'hub';
+}
+
 export default function App() {
   // Navigation / View State
   const [activeView, setActiveView] = useState<'booking' | 'admin'>('booking');
+  const [publicRoute, setPublicRoute] = useState<PublicRoute>(() => publicRouteFromPath());
   const [currentStep, setCurrentStep] = useState<WizardStepId>('service-type');
   const [completedSteps, setCompletedSteps] = useState<WizardStepId[]>([]);
 
@@ -82,6 +98,33 @@ export default function App() {
   const [isManageModalOpen, setIsManageModalOpen] = useState(
     () => Boolean(manageTokenFromPath())
   );
+
+  const navigatePublic = (path: PublicPath, replace = false) => {
+    if (replace) {
+      window.history.replaceState({}, '', path);
+    } else if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+
+    setActiveView('booking');
+    setDirectManageToken(null);
+    setIsManageModalOpen(false);
+    setPublicRoute(publicRouteFromPath());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const token = manageTokenFromPath();
+      setActiveView('booking');
+      setPublicRoute(publicRouteFromPath());
+      setDirectManageToken(token);
+      setIsManageModalOpen(Boolean(token));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Load initial services on mount
   useEffect(() => {
@@ -264,7 +307,8 @@ export default function App() {
     setDirectManageToken(null);
 
     if (window.location.pathname.startsWith('/manage/')) {
-      window.history.replaceState({}, '', '/');
+      window.history.replaceState({}, '', '/book');
+      setPublicRoute('book');
     }
   };
 
@@ -303,6 +347,7 @@ export default function App() {
       <Header
         activeView={activeView}
         setActiveView={setActiveView}
+        onNavigate={navigatePublic}
       />
 
       {/* Main Content Area */}
@@ -312,9 +357,15 @@ export default function App() {
           <AdminDashboard
             currentUser={currentUser}
             onLogout={handleAdminLogout}
-            onBackToBooking={() => setActiveView('booking')}
+            onBackToBooking={() => navigatePublic('/book')}
             onServicesChanged={handleAdminServicesChanged}
           />
+        ) : publicRoute === 'hub' ? (
+          <ClientHub onNavigate={navigatePublic} />
+        ) : publicRoute === 'request-document' ? (
+          <PlaceholderPage type="document" onBack={() => navigatePublic('/')} />
+        ) : publicRoute === 'signin' ? (
+          <PlaceholderPage type="signin" onBack={() => navigatePublic('/')} />
         ) : confirmedBooking ? (
           // Dedicated Booking Confirmation Screen
           <StepConfirmation
@@ -322,7 +373,7 @@ export default function App() {
             onReset={handleResetBooking}
           />
         ) : (
-          // Customer Step-by-Step Wizard
+          // Customer Step-by-Step Booking Wizard
           <div className="space-y-6">
             {/* Quick Manage Lookup Link */}
             <div className="flex items-center justify-between text-xs text-slate-500 pb-2">
