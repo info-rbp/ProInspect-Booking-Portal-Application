@@ -13,6 +13,10 @@ This repository contains the ProInspect customer booking portal and internal ope
   - `bookings`
   - `settings`
   - `adminUsers`
+  - `clientUsers`
+  - `clientProperties`
+  - `clientRequests`
+  - `clientDocuments`
 - Google Calendar API for FreeBusy queries and event creation
 - Australia/Perth timezone
 
@@ -117,3 +121,31 @@ Sensitive lockbox/alarm values are not stored in the normal `bookings` document 
 The application fails closed for new lockbox/alarm bookings when `ACCESS_DATA_ENCRYPTION_KEY` is not configured.
 
 See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration, encryption secret and production verification procedure.
+
+
+## Client Portal branch architecture
+
+The `client-portal` branch extends the same application rather than creating a separate client system.
+
+Client routes:
+
+- `/signin` - verified Google/Firebase client sign-in
+- `/portal` - client dashboard
+- `/portal/properties` - linked properties
+- `/portal/bookings` - linked booking history
+- `/portal/requests` - request workspace ready for later maintenance/document workflows
+- `/portal/documents` - document workspace ready for reports, leases and notices
+
+The Client Portal uses the same Firebase Authentication project as the staff portal but a different authorisation boundary. Any verified Firebase user can establish a client profile unless that profile has been disabled. Staff access still requires the existing administrator allow-list.
+
+When a client first opens the portal, the trusted server:
+
+1. creates or refreshes `clientUsers/{firebaseUid}`;
+2. finds historical bookings where `property.customerEmail` matches the verified Firebase email;
+3. links those bookings to the Firebase UID;
+4. creates stable `clientProperties` records from the linked booking addresses; and
+5. returns only a client-safe summary of bookings, properties, requests and documents.
+
+When an authenticated client makes a future booking using the same verified email, the booking API automatically stores `clientUid` and `propertyId`. Public booking remains available without authentication.
+
+Direct browser Firestore access remains denied. Client Portal reads are performed by authenticated Express endpoints using the trusted Firebase Admin SDK. Sensitive booking access data is not returned by Client Portal APIs.
