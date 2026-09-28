@@ -565,7 +565,9 @@ export async function createTenantDocumentRecord(input: {
     throw new Error('CLIENT_PROPERTY_MISMATCH');
   }
 
-  const audiences = Array.from(new Set(input.audiences?.length ? input.audiences : ['tenant']));
+  const audiences: PortalAudience[] = Array.from(
+    new Set<PortalAudience>(input.audiences?.length ? input.audiences : ['tenant'])
+  );
   const ref = adminDb.collection('propertyDocuments').doc();
   const document: TenantDocument & { storagePath: string } = {
     id: ref.id,
