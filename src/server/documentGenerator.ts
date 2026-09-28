@@ -46,18 +46,18 @@ export function generateDocumentDraft(params: {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(title)} - Draft</title>
+  <title>${escapeHtml(title)} - Preparation Summary</title>
 </head>
 <body style="font-family:Arial,Helvetica,sans-serif;color:#1A2B4A;line-height:1.55;max-width:820px;margin:40px auto;padding:0 28px;">
   <div style="border-bottom:4px solid #00B5B8;padding-bottom:16px;margin-bottom:24px;">
     <div style="font-size:12px;font-weight:700;letter-spacing:.12em;color:#007F82;text-transform:uppercase;">ProInspect</div>
-    <h1 style="font-size:28px;margin:8px 0 0;">${escapeHtml(title)}</h1>
+    <h1 style="font-size:28px;margin:8px 0 0;">${escapeHtml(title)} – Preparation Summary</h1>
     <div style="margin-top:8px;font-size:13px;color:#64748b;">Request reference: ${escapeHtml(request.id)}</div>
   </div>
 
   <div style="border:2px solid #f59e0b;background:#fffbeb;padding:14px 16px;border-radius:8px;margin-bottom:24px;">
-    <strong>DRAFT - REVIEW REQUIRED</strong><br />
-    <span style="font-size:13px;">This document was generated from client-supplied information as a working draft. It must be reviewed and approved before issue or execution.</span>
+    <strong>PREPARATION SUMMARY - REVIEW REQUIRED</strong><br />
+    <span style="font-size:13px;">This file records client-supplied drafting instructions. It is not the completed legal or statutory document and must not be issued, signed or relied upon as one.</span>
   </div>
 
   <h2 style="font-size:18px;">Parties and property</h2>
@@ -79,12 +79,11 @@ export function generateDocumentDraft(params: {
     ${section('Instructions', input.instructions)}
   </table>
 
-  <h2 style="font-size:18px;">Drafting note</h2>
+  <h2 style="font-size:18px;">Preparation note</h2>
   <p style="font-size:14px;color:#334155;">
-    This draft records the information provided through the ProInspect Client Portal.
-    Any clauses, statutory requirements, disclosure obligations, execution requirements
-    or specialist legal provisions not expressly included in the client instructions
-    remain subject to review before the document is issued.
+    This preparation summary records information supplied through the ProInspect Client Portal.
+    ProInspect must review the request against the applicable approved template, statutory form
+    and any required legal or specialist requirements before a completed document is issued.
   </p>
 
   <div style="margin-top:38px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;">
@@ -95,7 +94,7 @@ export function generateDocumentDraft(params: {
 
   const safeTitle = title.replace(/[^A-Za-z0-9 -]+/g, '').trim() || 'Document';
   return {
-    fileName: `${safeTitle} - Draft.html`,
+    fileName: `${safeTitle} - Preparation Summary.html`,
     contentType: 'text/html',
     bytes: Buffer.from(body, 'utf8'),
   };
