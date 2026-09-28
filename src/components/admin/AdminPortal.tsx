@@ -461,7 +461,19 @@ function ResourceEditor({
 }) {
   const definition = resourceDefinitions[resource];
   const [form, setForm] = useState<Record<string, string>>(() =>
-    Object.fromEntries(definition.fields.map((field) => [field.key, valueText(record?.[field.key]) === '—' ? '' : valueText(record?.[field.key])]))
+    Object.fromEntries(
+      definition.fields.map((field) => {
+        const value = record?.[field.key];
+        if (value === undefined || value === null) return [field.key, ''];
+        if (field.type === 'csv' && Array.isArray(value)) {
+          return [field.key, value.map(String).join(', ')];
+        }
+        if (field.type === 'json' && typeof value === 'object') {
+          return [field.key, JSON.stringify(value, null, 2)];
+        }
+        return [field.key, valueText(value) === '—' ? '' : valueText(value)];
+      })
+    )
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
