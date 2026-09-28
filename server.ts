@@ -248,6 +248,21 @@ function isAdminResourceName(value: string): value is AdminResourceName {
   return Object.prototype.hasOwnProperty.call(ADMIN_RESOURCE_CONFIG, value);
 }
 
+function adminResourceFailure(
+  res: Response,
+  error: unknown,
+  fallback: string
+) {
+  if (error instanceof PlatformValidationError) {
+    return res.status(error.status).json({ error: error.message, code: error.code });
+  }
+  if (error instanceof Error && error.message === 'RESOURCE_SCOPE_FORBIDDEN') {
+    return res.status(403).json({ error: 'This record is outside your assigned resource scope.' });
+  }
+  console.error(fallback, error);
+  return res.status(500).json({ error: fallback });
+}
+
 function isoForPerth(dateKey: string, minutesAfterMidnight: number): string {
   const hours = Math.floor(minutesAfterMidnight / 60);
   const minutes = minutesAfterMidnight % 60;
@@ -1719,6 +1734,13 @@ app.patch(
       const booking = await getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: 'Booking not found.' });
 
+      const session = adminSession(res);
+      if (!canUpdateBookingForSession(booking, session)) {
+        return res.status(403).json({
+          error: 'This booking is outside your assigned work scope.',
+        });
+      }
+
       const status = req.body?.status;
       if (status && !['confirmed', 'completed', 'cancelled'].includes(status)) {
         return res.status(400).json({ error: 'Invalid booking status.' });
@@ -1726,7 +1748,7 @@ app.patch(
       if (
         status === 'cancelled' &&
         booking.status !== 'cancelled' &&
-        !hasAdminPermission(adminSession(res), 'bookings.cancel')
+        !hasAdminPermission(session, 'bookings.cancel')
       ) {
         return res.status(403).json({ error: 'You do not have permission to cancel bookings.' });
       }
@@ -1736,9 +1758,14 @@ app.patch(
         });
       }
 
-      if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
-        const service = await getService(booking.serviceId);
-        await deleteEvent(booking.calendarEventId, booking.calendarId || service?.calendarId);
+      const relationshipMutation =
+        req.body?.assignedStaffId !== undefined ||
+        req.body?.clientId !== undefined ||
+        req.body?.propertyId !== undefined;
+      if (session.resourceScope !== 'global' && relationshipMutation) {
+        return res.status(403).json({
+          error: 'Only operations managers or administrators can change booking relationships or assignments.',
+        });
       }
 
       const adminNotes =
@@ -1754,6 +1781,46 @@ app.patch(
       const propertyId =
         req.body?.propertyId === undefined ? undefined : normalizeText(req.body.propertyId, 128);
 
+      if (assignedStaffId) {
+        const staffDoc = await adminDb.collection('adminUsers').doc(assignedStaffId).get();
+        if (!staffDoc.exists || staffDoc.data()?.active === false) {
+          return res.status(409).json({ error: 'The selected staff member is not active.' });
+        }
+      }
+      if (clientId) {
+        const clientDoc = await adminDb.collection('clients').doc(clientId).get();
+        if (!clientDoc.exists || clientDoc.data()?.status === 'inactive') {
+          return res.status(409).json({ error: 'The selected client is not active.' });
+        }
+      }
+      if (propertyId) {
+        const propertyDoc = await adminDb.collection('properties').doc(propertyId).get();
+        if (!propertyDoc.exists || propertyDoc.data()?.status === 'inactive') {
+          return res.status(409).json({ error: 'The selected property is not active.' });
+        }
+      }
+
+      const nextClientId = clientId !== undefined ? clientId : booking.clientId;
+      const nextPropertyId = propertyId !== undefined ? propertyId : booking.propertyId;
+      if (nextClientId && nextPropertyId) {
+        const link = await adminDb
+          .collection('clientPropertyLinks')
+          .where('clientId', '==', nextClientId)
+          .where('propertyId', '==', nextPropertyId)
+          .limit(1)
+          .get();
+        if (link.empty || link.docs[0].data().active === false) {
+          return res.status(409).json({
+            error: 'The selected client is not linked to the selected property.',
+          });
+        }
+      }
+
+      if (status === 'cancelled' && booking.status !== 'cancelled' && booking.calendarEventId) {
+        const service = await getService(booking.serviceId);
+        await deleteEvent(booking.calendarEventId, booking.calendarId || service?.calendarId);
+      }
+
       const updated = await updateBooking(booking.id, {
         ...(status ? { status } : {}),
         ...(adminNotes !== undefined ? { adminNotes } : {}),
@@ -1762,12 +1829,19 @@ app.patch(
         ...(propertyId !== undefined ? { propertyId } : {}),
       });
       await recordAuditEvent({
-        session: adminSession(res),
+        session,
         action: 'booking.updated',
         resourceType: 'booking',
         resourceId: booking.id,
         summary: `Updated booking ${booking.bookingReference}`,
-        metadata: { status, assignedStaffId, clientId, propertyId },
+        propertyId: nextPropertyId,
+        clientId: nextClientId,
+        metadata: {
+          status: status || null,
+          assignedStaffId: assignedStaffId ?? null,
+          clientId: clientId ?? null,
+          propertyId: propertyId ?? null,
+        },
       });
       return res.json({ success: true, booking: updated });
     } catch (error) {
@@ -1813,6 +1887,12 @@ app.post(
         assignedServiceIds: Array.isArray(req.body?.assignedServiceIds)
           ? req.body.assignedServiceIds.map(String)
           : [],
+        assignedPropertyIds: Array.isArray(req.body?.assignedPropertyIds)
+          ? req.body.assignedPropertyIds.map(String)
+          : [],
+        assignedClientIds: Array.isArray(req.body?.assignedClientIds)
+          ? req.body.assignedClientIds.map(String)
+          : [],
       });
       await recordAuditEvent({
         session: adminSession(res),
@@ -1846,6 +1926,15 @@ app.patch(
         ...(req.body?.active !== undefined ? { active: Boolean(req.body.active) } : {}),
         ...(Array.isArray(req.body?.assignedServiceIds)
           ? { assignedServiceIds: req.body.assignedServiceIds.map(String) }
+          : {}),
+        ...(Array.isArray(req.body?.assignedPropertyIds)
+          ? { assignedPropertyIds: req.body.assignedPropertyIds.map(String) }
+          : {}),
+        ...(Array.isArray(req.body?.assignedClientIds)
+          ? { assignedClientIds: req.body.assignedClientIds.map(String) }
+          : {}),
+        ...(req.body?.resourceScope !== undefined
+          ? { resourceScope: req.body.resourceScope === 'global' ? 'global' : 'assigned' }
           : {}),
         ...(Array.isArray(req.body?.permissionGrants)
           ? { permissionGrants: req.body.permissionGrants }
@@ -1916,8 +2005,7 @@ app.post(
       });
       return res.status(201).json({ success: true, record });
     } catch (error) {
-      console.error('Admin resource creation failed:', error);
-      return res.status(500).json({ error: 'Unable to create this record.' });
+      return adminResourceFailure(res, error, 'Unable to create this record.');
     }
   }
 );
@@ -1946,8 +2034,7 @@ app.patch(
       });
       return res.json({ success: true, record });
     } catch (error) {
-      console.error('Admin resource update failed:', error);
-      return res.status(500).json({ error: 'Unable to update this record.' });
+      return adminResourceFailure(res, error, 'Unable to update this record.');
     }
   }
 );
@@ -1976,8 +2063,7 @@ app.delete(
       });
       return res.json({ success: true, record });
     } catch (error) {
-      console.error('Admin resource archive failed:', error);
-      return res.status(500).json({ error: 'Unable to archive this record.' });
+      return adminResourceFailure(res, error, 'Unable to archive this record.');
     }
   }
 );
