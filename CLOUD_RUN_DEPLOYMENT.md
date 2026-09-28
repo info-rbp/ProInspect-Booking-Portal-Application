@@ -36,7 +36,7 @@ Configure these on the Cloud Run service:
 ```text
 FIREBASE_PROJECT_ID=business-plan-applicatio-17047
 FIRESTORE_DATABASE_ID=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a
-FIREBASE_STORAGE_BUCKET=business-plan-applicatio-17047-proinspect-client-documents-production
+FIREBASE_STORAGE_BUCKET=proinspect-client-docs-696236368989-production
 ADMIN_EMAILS=info@proinspect.systems,info@remotebusinesspartner.com.au
 GOOGLE_CALENDAR_ID=c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com
 ```
@@ -49,7 +49,7 @@ The `client-portal` branch now contains a Terraform infrastructure layer under `
 
 Terraform creates a dedicated private Cloud Storage bucket for Client Portal uploads and generated documents:
 
-`business-plan-applicatio-17047-proinspect-client-documents-production`
+`proinspect-client-docs-696236368989-production`
 
 The bucket uses uniform bucket-level access, enforced public-access prevention and object versioning. Terraform grants the Cloud Run runtime service account `roles/storage.objectAdmin` on that bucket.
 
