@@ -149,6 +149,8 @@ export interface BookingRecord {
   serviceId: string;
   serviceName: string;
   serviceCategory?: ServiceCategory; // New bookings retain the customer-selected category; older records may not have it.
+  propertyId?: string; // Canonical shared property when the booking address matches a known property.
+  clientId?: string; // Canonical client inherited from the linked property where available.
   calendarId?: string;
   calendarEventId?: string;
   calendarHtmlLink?: string;
