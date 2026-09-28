@@ -313,6 +313,28 @@ export async function respondApproval(params: {
     );
   }
 
+  if (approval.requestId) {
+    const tenantFormRef = adminDb.collection('tenantFormRequests').doc(approval.requestId);
+    const tenantFormDoc = await tenantFormRef.get();
+    if (tenantFormDoc.exists) {
+      const mappedStatus =
+        params.status === 'approved'
+          ? 'approved'
+          : params.status === 'declined'
+            ? 'declined'
+            : 'action_required';
+      await tenantFormRef.set(
+        {
+          status: mappedStatus,
+          respondedAt,
+          responseOutcome: params.status,
+          updatedAt: respondedAt,
+        },
+        { merge: true }
+      );
+    }
+  }
+
   return updated;
 }
 
