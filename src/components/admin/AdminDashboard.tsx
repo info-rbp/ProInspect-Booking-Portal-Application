@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookingRecord, BookingStatus, InspectionService, BusinessSettings, ServiceAdminInput } from '../../types/booking';
 import type { ClientApproval, ClientDocumentSummary, ClientRequestSummary } from '../../types/clientPortal';
+import type { DocumentRequestRecord } from '../../types/documentRequest';
 import {
   createAdminService,
   fetchAdminBookings,
@@ -8,6 +9,7 @@ import {
   fetchAdminClientApprovals,
   fetchAdminClientDocuments,
   fetchAdminClientRequests,
+  fetchAdminDocumentRequests,
   fetchAdminServices,
   fetchAdminSettings,
   reorderAdminServices,
@@ -63,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [clientRequests, setClientRequests] = useState<ClientRequestSummary[]>([]);
   const [clientApprovals, setClientApprovals] = useState<ClientApproval[]>([]);
   const [clientDocuments, setClientDocuments] = useState<ClientDocumentSummary[]>([]);
+  const [publicDocumentRequests, setPublicDocumentRequests] = useState<DocumentRequestRecord[]>([]);
   const [services, setServices] = useState<InspectionService[]>([]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -88,11 +91,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [bkList, requestList, approvalList, documentList, srvList, stData] = await Promise.all([
+      const [
+        bkList,
+        requestList,
+        approvalList,
+        documentList,
+        publicDocumentRequestList,
+        srvList,
+        stData,
+      ] = await Promise.all([
         fetchAdminBookings(),
         fetchAdminClientRequests(),
         fetchAdminClientApprovals(),
         fetchAdminClientDocuments(),
+        fetchAdminDocumentRequests(),
         fetchAdminServices(),
         fetchAdminSettings(),
       ]);
@@ -100,6 +112,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setClientRequests(requestList);
       setClientApprovals(approvalList);
       setClientDocuments(documentList);
+      setPublicDocumentRequests(publicDocumentRequestList);
       setServices(srvList);
       onServicesChanged?.(
         srvList.filter((service) => service.active && service.publiclyBookable)
@@ -559,6 +572,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           requests={clientRequests}
           approvals={clientApprovals}
           documents={clientDocuments}
+          publicDocumentRequests={publicDocumentRequests}
           onUpdateStatus={handleUpdateClientRequestStatus}
           onDownloadDocument={handleDownloadClientDocument}
         />
