@@ -8,6 +8,7 @@ const collections = [
   'clients',
   'clientUsers',
   'clientMemberships',
+  'clientOrganisations',
   'clientPropertyLinks',
   'clientProperties',
   'clientDocuments',
@@ -51,6 +52,29 @@ async function seed() {
     email: 'client@example.com',
     clientIds: ['client-existing'],
     active: true,
+    createdAt: '2026-09-28T00:00:00.000Z',
+    updatedAt: '2026-09-28T00:00:00.000Z',
+  });
+
+  batch.set(adminDb.collection('clientOrganisations').doc('legacy-org'), {
+    name: 'Legacy Organisation',
+    entityType: 'company',
+    abn: '51824753556',
+    acn: '123456789',
+    billingEmail: 'billing@example.com',
+    phone: '0890000000',
+    createdByUid: 'legacy-uid',
+    createdAt: '2026-09-28T00:00:00.000Z',
+    updatedAt: '2026-09-28T00:00:00.000Z',
+  });
+
+  batch.set(adminDb.collection('clientMemberships').doc('legacy-membership'), {
+    organisationId: 'legacy-org',
+    email: 'legacy.member@example.com',
+    uid: 'legacy-uid',
+    displayName: 'Legacy Member',
+    role: 'admin',
+    status: 'active',
     createdAt: '2026-09-28T00:00:00.000Z',
     updatedAt: '2026-09-28T00:00:00.000Z',
   });
@@ -108,6 +132,11 @@ async function main() {
   assert.match(run.stdout, /"dryRun": true/);
   assert.match(run.stdout, /"propertyAddressKeysBackfilled": 1/);
   assert.match(run.stdout, /"clientRolesBackfilled": 1/);
+  assert.match(run.stdout, /"legacyClientOrganisationsScanned": 1/);
+  assert.match(run.stdout, /"legacyClientOrganisationsMigrated": 1/);
+  assert.match(run.stdout, /"legacyClientMembershipsScanned": 1/);
+  assert.match(run.stdout, /"legacyClientMembershipsMigrated": 1/);
+  assert.match(run.stdout, /"legacyClientMembershipsRequiringReview": 0/);
   assert.match(run.stdout, /"legacyClientPropertiesScanned": 1/);
   assert.match(run.stdout, /"legacyClientDocumentsScanned": 1/);
   assert.match(run.stdout, /Dry run only/);
