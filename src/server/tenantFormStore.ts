@@ -532,6 +532,19 @@ async function writeSensitiveAudit(input: {
   });
 }
 
+export async function getTenantFormAttachmentForAdmin(
+  requestId: string,
+  attachmentId: string
+) {
+  const doc = await adminDb.collection('tenantFormRequests').doc(requestId).get();
+  if (!doc.exists) return null;
+  const request = docWithId<TenantFormRequest & {
+    attachments: Array<TenantFormAttachment & { storagePath?: string }>;
+  }>(doc);
+  const attachment = (request.attachments || []).find((item) => item.id === attachmentId);
+  return attachment?.storagePath ? attachment : null;
+}
+
 export async function listAdminTenantForms(): Promise<TenantFormRequest[]> {
   const snapshot = await adminDb
     .collection('tenantFormRequests')
