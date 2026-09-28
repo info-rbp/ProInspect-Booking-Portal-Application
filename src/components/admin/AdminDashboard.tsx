@@ -89,9 +89,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         session.permissions.includes('*') || session.permissions.includes(permission);
 
       const [bkList, srvList, stData] = await Promise.all([
-        can('bookings') ? fetchAdminBookings() : Promise.resolve([] as BookingRecord[]),
-        can('services') ? fetchAdminServices() : Promise.resolve([] as InspectionService[]),
-        can('settings') ? fetchAdminSettings() : Promise.resolve(null),
+        can('bookings.read') ? fetchAdminBookings() : Promise.resolve([] as BookingRecord[]),
+        can('services.read') ? fetchAdminServices() : Promise.resolve([] as InspectionService[]),
+        can('settings.read') ? fetchAdminSettings() : Promise.resolve(null),
       ]);
 
       setBookings(bkList);
@@ -102,12 +102,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setSettings(stData);
 
       const allowedTabs: Array<typeof activeTab> = [
-        ...(can('bookings') ? ['bookings' as const] : []),
-        ...(can('operations') ? ['operations' as const] : []),
-        ...(can('tenants') ? ['tenants' as const] : []),
-        ...(can('clients') ? ['clients' as const] : []),
-        ...(can('services') ? ['services' as const] : []),
-        ...(can('settings') ? ['settings' as const] : []),
+        ...(can('bookings.read') ? ['bookings' as const] : []),
+        ...(can('maintenance.read') ? ['operations' as const] : []),
+        ...(can('tenants.read') ? ['tenants' as const] : []),
+        ...(can('clients.read') ? ['clients' as const] : []),
+        ...(can('services.read') ? ['services' as const] : []),
+        ...(can('settings.read') ? ['settings' as const] : []),
       ];
       if (!allowedTabs.includes(activeTab) && allowedTabs[0]) {
         setActiveTab(allowedTabs[0]);

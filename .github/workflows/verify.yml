@@ -6,6 +6,7 @@ on:
       - main
       - cloud-run-migration
       - tenant-portal
+      - release/platform-unification
   pull_request:
     branches:
       - main
@@ -47,6 +48,8 @@ jobs:
           GCLOUD_PROJECT: demo-tenant-stage1
           FIRESTORE_DATABASE_ID: '(default)'
         run: npx --yes firebase-tools@latest emulators:exec --only firestore --project demo-tenant-stage1 --config scripts/stage1-firebase.json 'npm run test:migration-preflight'
+      - name: Stage 2 integration architecture gate
+        run: npm run stage2:check
       - name: Build
         run: npm run build
       - name: Build production container image

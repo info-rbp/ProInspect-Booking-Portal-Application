@@ -48,6 +48,17 @@ import type {
   TenantFormStatus,
   TenantFormsDashboard,
 } from '../types/tenantForms';
+import type {
+  AdminAuditEvent,
+  AdminDashboardSummary,
+  AdminIntegrationStatus,
+  AdminReportSummary,
+  AdminResourceName,
+  AdminResourceRecord,
+  AdminRole,
+  AdminSession,
+  AdminStaffUser,
+} from '../types/admin';
 import { getAdminIdToken, getCurrentIdToken } from './firebase';
 
 type ApiErrorResponse = {
@@ -177,20 +188,16 @@ async function adminFetch(
   });
 }
 
-export async function verifyAdminSession(): Promise<{ role: string; permissions: string[] }> {
+export async function verifyAdminSession(): Promise<AdminSession> {
   const res = await adminFetch('/api/admin/session');
   const data = (await res.json().catch(() => ({}))) as {
-    role?: string;
-    permissions?: string[];
+    session?: AdminSession;
     error?: string;
   };
-  if (!res.ok) {
+  if (!res.ok || !data.session) {
     throw new Error(data.error || 'This Google account is not authorised for ProInspect administration.');
   }
-  return {
-    role: data.role || 'operations_officer',
-    permissions: Array.isArray(data.permissions) ? data.permissions : [],
-  };
+  return data.session;
 }
 
 export async function fetchAdminBookings(): Promise<BookingRecord[]> {
@@ -1218,4 +1225,140 @@ export async function markTenantNotificationRead(notificationId: string): Promis
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || 'Unable to mark notification as read.');
   }
+}
+
+
+export async function fetchAdminDashboardSummary(): Promise<AdminDashboardSummary> {
+  const res = await adminFetch('/api/admin/dashboard');
+  const data = await res.json() as { summary?: AdminDashboardSummary; error?: string };
+  if (!res.ok || !data.summary) throw new Error(data.error || 'Failed to load dashboard.');
+  return data.summary;
+}
+
+export async function fetchAdminStaff(): Promise<AdminStaffUser[]> {
+  const res = await adminFetch('/api/admin/staff');
+  const data = await res.json() as { staff?: AdminStaffUser[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Failed to load staff.');
+  return data.staff || [];
+}
+
+export async function createAdminStaff(input: {
+  email: string;
+  displayName: string;
+  role: AdminRole;
+  assignedServiceIds?: string[];
+  assignedPropertyIds?: string[];
+  assignedClientIds?: string[];
+}): Promise<AdminStaffUser> {
+  const res = await adminFetch('/api/admin/staff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json() as { staff?: AdminStaffUser; error?: string };
+  if (!res.ok || !data.staff) throw new Error(data.error || 'Failed to create staff access.');
+  return data.staff;
+}
+
+export async function updateAdminStaff(
+  uid: string,
+  updates: Partial<Pick<AdminStaffUser,
+    'displayName' | 'role' | 'active' | 'assignedServiceIds' |
+    'assignedPropertyIds' | 'assignedClientIds' | 'resourceScope' |
+    'permissionGrants' | 'permissionRevokes'>>
+): Promise<AdminStaffUser> {
+  const res = await adminFetch(`/api/admin/staff/${encodeURIComponent(uid)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json() as { staff?: AdminStaffUser; error?: string };
+  if (!res.ok || !data.staff) throw new Error(data.error || 'Failed to update staff access.');
+  return data.staff;
+}
+
+export async function fetchAdminResource(resource: AdminResourceName): Promise<AdminResourceRecord[]> {
+  const res = await adminFetch(`/api/admin/resources/${encodeURIComponent(resource)}`);
+  const data = await res.json() as { records?: AdminResourceRecord[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Failed to load records.');
+  return data.records || [];
+}
+
+export async function createAdminResource(
+  resource: AdminResourceName,
+  record: Record<string, unknown>
+): Promise<AdminResourceRecord> {
+  const res = await adminFetch(`/api/admin/resources/${encodeURIComponent(resource)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record),
+  });
+  const data = await res.json() as { record?: AdminResourceRecord; error?: string };
+  if (!res.ok || !data.record) throw new Error(data.error || 'Failed to create record.');
+  return data.record;
+}
+
+export async function updateAdminResource(
+  resource: AdminResourceName,
+  id: string,
+  updates: Record<string, unknown>
+): Promise<AdminResourceRecord> {
+  const res = await adminFetch(
+    `/api/admin/resources/${encodeURIComponent(resource)}/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }
+  );
+  const data = await res.json() as { record?: AdminResourceRecord; error?: string };
+  if (!res.ok || !data.record) throw new Error(data.error || 'Failed to update record.');
+  return data.record;
+}
+
+export async function archiveAdminResource(
+  resource: AdminResourceName,
+  id: string
+): Promise<AdminResourceRecord> {
+  const res = await adminFetch(
+    `/api/admin/resources/${encodeURIComponent(resource)}/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
+  const data = await res.json() as { record?: AdminResourceRecord; error?: string };
+  if (!res.ok || !data.record) throw new Error(data.error || 'Failed to archive record.');
+  return data.record;
+}
+
+export async function fetchAdminReportSummary(): Promise<AdminReportSummary> {
+  const res = await adminFetch('/api/admin/reports/summary');
+  const data = await res.json() as { report?: AdminReportSummary; error?: string };
+  if (!res.ok || !data.report) throw new Error(data.error || 'Failed to load report summary.');
+  return data.report;
+}
+
+export async function fetchAdminIntegrations(): Promise<AdminIntegrationStatus[]> {
+  const res = await adminFetch('/api/admin/integrations');
+  const data = await res.json() as { integrations?: AdminIntegrationStatus[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Failed to load integrations.');
+  return data.integrations || [];
+}
+
+export async function fetchAdminAudit(limit = 250): Promise<AdminAuditEvent[]> {
+  const res = await adminFetch(`/api/admin/audit?limit=${limit}`);
+  const data = await res.json() as { events?: AdminAuditEvent[]; error?: string };
+  if (!res.ok) throw new Error(data.error || 'Failed to load audit trail.');
+  return data.events || [];
+}
+
+export async function updateAdminSettings(
+  updates: Partial<BusinessSettings>
+): Promise<BusinessSettings> {
+  const res = await adminFetch('/api/admin/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  const data = await res.json() as { settings?: BusinessSettings; error?: string };
+  if (!res.ok || !data.settings) throw new Error(data.error || 'Failed to update settings.');
+  return data.settings;
 }
