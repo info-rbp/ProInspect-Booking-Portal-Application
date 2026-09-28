@@ -621,10 +621,19 @@ function validatePartyElectronicConsents(
       return false;
     }
     const data = entry as Record<string, unknown>;
-    return (
-      (data.email === 'yes' || data.email === 'no') &&
-      (data.fax === 'yes' || data.fax === 'no')
-    );
+    const emailConsent = data.email === 'yes' || data.email === 'no';
+    const faxConsent = data.fax === 'yes' || data.fax === 'no';
+
+    if (!emailConsent || !faxConsent) return false;
+    if (data.email === 'yes' && !party.email) return false;
+    if (
+      data.fax === 'yes' &&
+      !normalizeText(data.faxNumber, 50)
+    ) {
+      return false;
+    }
+
+    return true;
   });
 }
 
@@ -679,6 +688,20 @@ function validateWorkflowField(
     if (typeof value !== 'string' || !isValidDateKey(value)) {
       return `${field.label} must be a valid date.`;
     }
+  }
+
+  if (
+    field.type === 'email' &&
+    (typeof value !== 'string' || !isValidEmail(value))
+  ) {
+    return `${field.label} must be a valid email address.`;
+  }
+
+  if (
+    field.type === 'phone' &&
+    (typeof value !== 'string' || !isValidAustralianPhone(value))
+  ) {
+    return `${field.label} must be a valid Australian phone number.`;
   }
 
   if (field.type === 'number' || field.type === 'currency') {
