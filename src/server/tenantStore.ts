@@ -13,7 +13,7 @@ import type {
   TenantRequestStatus,
   TenantUserRecord,
 } from '../types/tenant.js';
-import type { DocumentSnapshot } from 'firebase-admin/firestore';
+import { FieldValue, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { adminDb } from './firebaseAdmin.js';
 
 function nowIso(): string {
@@ -245,6 +245,15 @@ export async function createTenantRequest(
   return request;
 }
 
+async function tenantHasActiveTenancy(
+  tenant: TenantUserRecord,
+  tenancyId: string
+): Promise<boolean> {
+  if (!tenant.tenancyIds.includes(tenancyId)) return false;
+  const tenancy = await getTenancyById(tenancyId);
+  return Boolean(tenancy && tenancy.status !== 'ended');
+}
+
 export async function getTenantRequestForUser(
   tenant: TenantUserRecord,
   requestId: string
@@ -252,7 +261,7 @@ export async function getTenantRequestForUser(
   const doc = await adminDb.collection('tenantRequests').doc(requestId).get();
   if (!doc.exists) return null;
   const request = docWithId<TenantRequest>(doc);
-  return tenant.tenancyIds.includes(request.tenancyId) ? request : null;
+  return (await tenantHasActiveTenancy(tenant, request.tenancyId)) ? request : null;
 }
 
 export async function addTenantRequestAttachment(
@@ -295,7 +304,7 @@ export async function getTenantDocumentForUser(
   const doc = await adminDb.collection('tenantDocuments').doc(documentId).get();
   if (!doc.exists) return null;
   const document = docWithId<TenantDocument & { storagePath?: string }>(doc);
-  return tenant.tenancyIds.includes(document.tenancyId) ? document : null;
+  return (await tenantHasActiveTenancy(tenant, document.tenancyId)) ? document : null;
 }
 
 export async function listAdminTenantPortal(): Promise<AdminTenantPortalSnapshot> {
@@ -546,13 +555,16 @@ export async function updateTenancyAdmin(
   const existing = await ref.get();
   if (!existing.exists) return null;
 
-  await ref.set(
-    {
-      ...changes,
-      updatedAt: nowIso(),
-    },
-    { merge: true }
-  );
+  const patch: Record<string, unknown> = {
+    ...changes,
+    updatedAt: nowIso(),
+  };
+
+  if (changes.status === 'active' && changes.endDate === undefined) {
+    patch.endDate = FieldValue.delete();
+  }
+
+  await ref.set(patch, { merge: true });
 
   return docWithId<TenancyRecord>(await ref.get());
 }
