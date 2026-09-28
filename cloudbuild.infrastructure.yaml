@@ -78,36 +78,59 @@ steps:
         from pathlib import Path
 
         values = json.loads(Path('/workspace/runtime-environment.json').read_text())
-        lines = []
-        for key in sorted(values):
-            lines.append(f'{key}: {json.dumps(str(values[key]))}')
-        Path('/workspace/runtime-environment.yaml').write_text('\n'.join(lines) + '\n')
+        lines = [
+            f'{key}: {json.dumps(str(values[key]))}'
+            for key in sorted(values)
+        ]
+        Path('/workspace/runtime-environment.yaml').write_text(
+            '\n'.join(lines) + '\n'
+        )
         PY
 
-        gcloud run services describe "${_CLOUD_RUN_SERVICE}"           --project="$PROJECT_ID"           --region="${_REGION}" >/dev/null
+        gcloud run services describe "${_CLOUD_RUN_SERVICE}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" >/dev/null
 
-        gcloud run services update "${_CLOUD_RUN_SERVICE}"           --project="$PROJECT_ID"           --region="${_REGION}"           --service-account="${_RUNTIME_SERVICE_ACCOUNT}"           --env-vars-file=/workspace/runtime-environment.yaml           --quiet
+        gcloud run services update "${_CLOUD_RUN_SERVICE}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
+          --env-vars-file=/workspace/runtime-environment.yaml \
+          --quiet
 
-        ACCESS_SECRET="$(cat /workspace/access-secret.txt)"
-        RESEND_SECRET="$(cat /workspace/resend-secret.txt)"
-        MAPS_SECRET="$(cat /workspace/maps-secret.txt)"
+        ACCESS_SECRET="$$(cat /workspace/access-secret.txt)"
+        RESEND_SECRET="$$(cat /workspace/resend-secret.txt)"
+        MAPS_SECRET="$$(cat /workspace/maps-secret.txt)"
         SECRET_BINDINGS=()
 
-        if gcloud secrets versions list "$ACCESS_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
-          SECRET_BINDINGS+=("ACCESS_DATA_ENCRYPTION_KEY=$ACCESS_SECRET:latest")
+        if gcloud secrets versions list "$$ACCESS_SECRET" \
+          --project="$PROJECT_ID" \
+          --filter="state=ENABLED" \
+          --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("ACCESS_DATA_ENCRYPTION_KEY=$$ACCESS_SECRET:latest")
         fi
 
-        if gcloud secrets versions list "$RESEND_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
-          SECRET_BINDINGS+=("RESEND_API_KEY=$RESEND_SECRET:latest")
+        if gcloud secrets versions list "$$RESEND_SECRET" \
+          --project="$PROJECT_ID" \
+          --filter="state=ENABLED" \
+          --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("RESEND_API_KEY=$$RESEND_SECRET:latest")
         fi
 
-        if gcloud secrets versions list "$MAPS_SECRET"           --project="$PROJECT_ID"           --filter="state=ENABLED"           --format="value(name)" | grep -q .; then
-          SECRET_BINDINGS+=("GOOGLE_MAPS_API_KEY=$MAPS_SECRET:latest")
+        if gcloud secrets versions list "$$MAPS_SECRET" \
+          --project="$PROJECT_ID" \
+          --filter="state=ENABLED" \
+          --format="value(name)" | grep -q .; then
+          SECRET_BINDINGS+=("GOOGLE_MAPS_API_KEY=$$MAPS_SECRET:latest")
         fi
 
-        if (( ${#SECRET_BINDINGS[@]} > 0 )); then
-          SECRET_LIST="$(IFS=,; echo "${SECRET_BINDINGS[*]}")"
-          gcloud run services update "${_CLOUD_RUN_SERVICE}"             --project="$PROJECT_ID"             --region="${_REGION}"             --update-secrets="$SECRET_LIST"             --quiet
+        if (( $${#SECRET_BINDINGS[@]} > 0 )); then
+          SECRET_LIST="$$(IFS=,; echo "$${SECRET_BINDINGS[*]}")"
+          gcloud run services update "${_CLOUD_RUN_SERVICE}" \
+            --project="$PROJECT_ID" \
+            --region="${_REGION}" \
+            --update-secrets="$$SECRET_LIST" \
+            --quiet
         fi
 
 substitutions:
