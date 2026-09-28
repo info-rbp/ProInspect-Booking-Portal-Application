@@ -435,14 +435,38 @@ async function validateDocumentRequest(
   const pricingMode = text(payload.pricingMode ?? existing?.pricingMode, 20) || 'fixed';
   if (!['fixed','quote'].includes(pricingMode)) throw new PlatformValidationError('Invalid pricing mode.');
 
+  const documentProductId = requiredText(
+    payload.documentProductId ?? payload.documentId ?? existing?.documentProductId,
+    'Document product',
+    160
+  );
+  await requireDocument('documentProducts', documentProductId, 'Document product');
+
   const generatedDocumentId = optionalText(payload.generatedDocumentId ?? existing?.generatedDocumentId, 160);
   const paymentId = optionalText(payload.paymentId ?? existing?.paymentId, 160);
-  await optionalDocument('propertyDocuments', generatedDocumentId, 'Generated document');
-  await optionalDocument('payments', paymentId, 'Payment');
+  const generatedDocument = await optionalDocument('propertyDocuments', generatedDocumentId, 'Generated document');
+  const payment = await optionalDocument('payments', paymentId, 'Payment');
+  if (generatedDocument && propertyId && generatedDocument.data()?.propertyId !== propertyId) {
+    throw new PlatformValidationError(
+      'The generated document does not belong to the selected property.',
+      'RELATIONSHIP_MISMATCH',
+      409
+    );
+  }
+  if (payment && payment.data()?.sourceType === 'document_request' && existing?.id) {
+    const paymentSourceId = String(payment.data()?.sourceId || '');
+    if (paymentSourceId && paymentSourceId !== String(existing.id)) {
+      throw new PlatformValidationError(
+        'The selected payment belongs to a different document request.',
+        'RELATIONSHIP_MISMATCH',
+        409
+      );
+    }
+  }
 
   return {
     reference: text(payload.reference ?? payload.requestReference ?? existing?.reference, 80) || reference('DR'),
-    documentProductId: requiredText(payload.documentProductId ?? payload.documentId ?? existing?.documentProductId, 'Document product', 160),
+    documentProductId,
     documentName: requiredText(payload.documentName ?? payload.title ?? existing?.documentName, 'Document name', 240),
     documentCategory: category as DocumentRequest['documentCategory'],
     pricingMode: pricingMode as DocumentRequest['pricingMode'],
@@ -483,7 +507,14 @@ async function validateWorkOrder(
   await requireDocument('properties', propertyId, 'Property');
   await optionalDocument('clients', clientId, 'Client');
   const tenancy = await optionalDocument('tenancies', tenancyId, 'Tenancy');
-  await optionalDocument('adminUsers', assignedStaffId, 'Assigned staff member');
+  const assignedStaff = await optionalDocument('adminUsers', assignedStaffId, 'Assigned staff member');
+  if (assignedStaff && assignedStaff.data()?.active === false) {
+    throw new PlatformValidationError(
+      'The selected staff member is inactive.',
+      'REFERENCE_INACTIVE',
+      409
+    );
+  }
   if (clientId) await validatePropertyClientLink(propertyId, clientId);
   if (tenancy && tenancy.data()?.propertyId !== propertyId) {
     throw new PlatformValidationError('The selected tenancy does not belong to the selected property.', 'RELATIONSHIP_MISMATCH', 409);
@@ -501,7 +532,56 @@ async function validateWorkOrder(
       booking: 'bookings',
       document_request: 'documentRequests',
     }[sourceType];
-    if (sourceCollection) await requireDocument(sourceCollection, sourceId, 'Source record');
+    if (sourceCollection) {
+      const source = await requireDocument(sourceCollection, sourceId, 'Source record');
+      const sourcePropertyId = String(source.data()?.propertyId || '');
+      const sourceClientId = String(source.data()?.clientId || '');
+      if (sourcePropertyId && sourcePropertyId !== propertyId) {
+        throw new PlatformValidationError(
+          'The selected source record belongs to a different property.',
+          'RELATIONSHIP_MISMATCH',
+          409
+        );
+      }
+      if (clientId && sourceClientId && sourceClientId !== clientId) {
+        throw new PlatformValidationError(
+          'The selected source record belongs to a different client.',
+          'RELATIONSHIP_MISMATCH',
+          409
+        );
+      }
+    }
+  }
+
+  const quoteDocumentId = optionalText(payload.quoteDocumentId ?? existing?.quoteDocumentId, 160);
+  const invoiceDocumentId = optionalText(payload.invoiceDocumentId ?? existing?.invoiceDocumentId, 160);
+  const completionDocumentIds = payload.completionDocumentIds === undefined
+    ? stringArray(existing?.completionDocumentIds)
+    : stringArray(payload.completionDocumentIds);
+  const relatedDocumentIds = Array.from(
+    new Set([quoteDocumentId, invoiceDocumentId, ...completionDocumentIds].filter(Boolean) as string[])
+  );
+  if (relatedDocumentIds.length) {
+    const documentRefs = relatedDocumentIds.map((id) =>
+      adminDb.collection('propertyDocuments').doc(id)
+    );
+    const documentSnapshots = await adminDb.getAll(...documentRefs);
+    documentSnapshots.forEach((document, index) => {
+      if (!document.exists) {
+        throw new PlatformValidationError(
+          'A referenced work-order document does not exist.',
+          'REFERENCE_NOT_FOUND',
+          409
+        );
+      }
+      if (document.data()?.propertyId !== propertyId) {
+        throw new PlatformValidationError(
+          'A referenced work-order document belongs to a different property.',
+          'RELATIONSHIP_MISMATCH',
+          409
+        );
+      }
+    });
   }
 
   const priority = text(payload.priority ?? existing?.priority, 20) || 'routine';
@@ -528,16 +608,14 @@ async function validateWorkOrder(
     quoteAmountExGst: payload.quoteAmountExGst === undefined && existing?.quoteAmountExGst === undefined
       ? undefined
       : numberValue(payload.quoteAmountExGst ?? existing?.quoteAmountExGst, 'Quote amount'),
-    quoteDocumentId: optionalText(payload.quoteDocumentId ?? existing?.quoteDocumentId, 160),
-    invoiceDocumentId: optionalText(payload.invoiceDocumentId ?? existing?.invoiceDocumentId, 160),
+    quoteDocumentId,
+    invoiceDocumentId,
     approvalId: optionalText(payload.approvalId ?? existing?.approvalId, 160),
     scheduledStart: optionalText(payload.scheduledStart ?? existing?.scheduledStart, 50),
     scheduledEnd: optionalText(payload.scheduledEnd ?? existing?.scheduledEnd, 50),
     accessNotes: optionalText(payload.accessNotes ?? existing?.accessNotes, 3000),
     completionNotes: optionalText(payload.completionNotes ?? existing?.completionNotes, 5000),
-    completionDocumentIds: payload.completionDocumentIds === undefined
-      ? stringArray(existing?.completionDocumentIds)
-      : stringArray(payload.completionDocumentIds),
+    completionDocumentIds,
     createdBy: text(existing?.createdBy, 160) || actorId,
     assignedAt: assignedStaffId && assignedStaffId !== previousAssigned ? now : optionalText(existing?.assignedAt, 50),
     completedAt: status === 'completed' ? optionalText(existing?.completedAt, 50) || now : optionalText(existing?.completedAt, 50),
