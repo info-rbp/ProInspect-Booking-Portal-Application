@@ -307,6 +307,18 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+function requireAdminPermission(permission: string) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const permissions = Array.isArray(res.locals.admin?.permissions)
+      ? res.locals.admin.permissions as string[]
+      : [];
+    if (permissions.includes('*') || permissions.includes(permission)) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
+  };
+}
+
 async function requireTenant(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization || '';
@@ -856,6 +868,29 @@ function publicBookingView(
   };
 }
 
+app.post('/api/integrations/payments/:id/status', async (req, res) => {
+  try {
+    const expected = process.env.PAYMENT_WEBHOOK_TOKEN?.trim();
+    const supplied = normalizeText(req.headers['x-payment-webhook-token'], 500);
+    if (!expected || !supplied || supplied !== expected) {
+      return res.status(401).json({ error: 'Payment integration authentication failed.' });
+    }
+    const status = normalizeText(req.body?.status, 32) as PaymentStatus;
+    if (!['pending','payment_required','paid','failed','refunded','waived'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid payment status.' });
+    }
+    const payment = await updatePaymentStatus(req.params.id, status, {
+      type: 'integration',
+      id: 'payment-provider',
+    });
+    if (!payment) return res.status(404).json({ error: 'Payment not found.' });
+    return res.json({ success: true, payment });
+  } catch (error) {
+    console.error('Payment webhook failed:', error);
+    return res.status(500).json({ error: 'Unable to update payment.' });
+  }
+});
+
 app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
   let savedPath: string | null = null;
   try {
@@ -932,7 +967,7 @@ app.get('/api/health', (_req, res) => {
     tenantStorageConfigured: tenantStorageIsConfigured(),
     tenantPortalEmailConfigured: tenantPortalEmailIsConfigured(),
     reportIngestConfigured: Boolean(process.env.REPORT_INGEST_TOKEN?.trim()),
-    paymentCheckoutConfigured: Boolean(process.env.PAYMENT_CHECKOUT_BASE_URL?.trim()),
+    paymentCheckoutConfigured: Boolean(process.env.PAYMENT_CHECKOUT_URL_TEMPLATE?.trim()),
     timezone: TIMEZONE,
   });
 });
@@ -1924,7 +1959,7 @@ app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   }
 });
 
-app.get('/api/admin/operations', requireAdmin, async (_req, res) => {
+app.get('/api/admin/operations', requireAdmin, requireAdminPermission('operations'), async (_req, res) => {
   try {
     const data = await listAdminOperations();
     return res.json(data);
@@ -1934,7 +1969,7 @@ app.get('/api/admin/operations', requireAdmin, async (_req, res) => {
   }
 });
 
-app.post('/api/admin/contractors', requireAdmin, async (req, res) => {
+app.post('/api/admin/contractors', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
   try {
     const name = normalizeText(req.body?.name, 180);
     if (name.length < 2) return res.status(400).json({ error: 'Contractor name is required.' });
@@ -1952,7 +1987,7 @@ app.post('/api/admin/contractors', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/work-orders', requireAdmin, async (req, res) => {
+app.post('/api/admin/work-orders', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
   try {
     const propertyId = normalizeText(req.body?.propertyId, 128);
     const title = normalizeText(req.body?.title, 180);
@@ -1986,7 +2021,7 @@ app.post('/api/admin/work-orders', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/work-orders/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/work-orders/:id', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
   try {
     const status = normalizeText(req.body?.status,32) as WorkOrderStatus;
     const workOrder = await updateWorkOrder(req.params.id, {
@@ -2009,7 +2044,7 @@ app.patch('/api/admin/work-orders/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/approvals', requireAdmin, async (req, res) => {
+app.post('/api/admin/approvals', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
   try {
     const clientId = normalizeText(req.body?.clientId,128);
     const title = normalizeText(req.body?.title,180);
@@ -2048,7 +2083,7 @@ app.post('/api/admin/approvals', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/client-requests/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/client-requests/:id', requireAdmin, requireAdminPermission('operations'), async (req, res) => {
   const status = normalizeText(req.body?.status,32) as ClientRequestStatus;
   const request = await updateClientRequestRecord(req.params.id, {
     status: status && ['submitted','under_review','awaiting_client','approved','in_progress','completed','cancelled'].includes(status) ? status : undefined,
@@ -2058,7 +2093,7 @@ app.patch('/api/admin/client-requests/:id', requireAdmin, async (req, res) => {
   return res.json({ success:true, request });
 });
 
-app.patch('/api/admin/document-requests/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminPermission('documents'), async (req, res) => {
   const status = normalizeText(req.body?.status,40) as DocumentRequestStatus;
   const request = await updateDocumentRequest(req.params.id, {
     status: status && ['submitted','under_review','awaiting_information','in_preparation','ready','completed','cancelled'].includes(status) ? status : undefined,
@@ -2070,7 +2105,7 @@ app.patch('/api/admin/document-requests/:id', requireAdmin, async (req, res) => 
   return res.json({ success:true, request });
 });
 
-app.patch('/api/admin/payments/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/payments/:id', requireAdmin, requireAdminPermission('payments'), async (req, res) => {
   const status = normalizeText(req.body?.status,32) as PaymentStatus;
   if (!['pending','payment_required','paid','failed','refunded','waived'].includes(status)) {
     return res.status(400).json({ error:'Invalid payment status.' });
@@ -2082,7 +2117,7 @@ app.patch('/api/admin/payments/:id', requireAdmin, async (req, res) => {
   return res.json({ success:true, payment });
 });
 
-app.get('/api/admin/audit', requireAdmin, async (req, res) => {
+app.get('/api/admin/audit', requireAdmin, requireAdminPermission('audit'), async (req, res) => {
   try {
     const events = await listAuditEvents({
       entityType: typeof req.query.entityType === 'string' ? req.query.entityType as any : undefined,
