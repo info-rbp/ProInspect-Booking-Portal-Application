@@ -10,7 +10,7 @@ import {
 
 const SETTINGS_ID = 'business';
 const SERVICE_CATALOGUE_META_ID = 'serviceCatalogue';
-const SERVICE_CATALOGUE_VERSION = 2;
+const SERVICE_CATALOGUE_VERSION = 3;
 let seeded: Promise<void> | null = null;
 
 export async function ensureSeedData() {
@@ -59,9 +59,21 @@ export async function ensureSeedData() {
 
           if (
             defaultService.id === 'maintenance-attendance' ||
-            defaultService.id === 'other-custom-appointment'
+            defaultService.id === 'other-custom-appointment' ||
+            defaultService.id === 'commercial-property-inspection' ||
+            defaultService.id === 'follow-up-reinspection' ||
+            defaultService.id === 'contractor-access-attendance'
           ) {
             migrationPatch.publicDescription = defaultService.publicDescription;
+          }
+
+          if (
+            defaultService.id === 'completed-works-inspection' ||
+            defaultService.id === 'follow-up-reinspection' ||
+            defaultService.id === 'contractor-access-attendance' ||
+            defaultService.id === 'key-handover-collection'
+          ) {
+            migrationPatch.categories = defaultService.categories;
           }
 
           batch.set(refs[index], migrationPatch, { merge: true });
