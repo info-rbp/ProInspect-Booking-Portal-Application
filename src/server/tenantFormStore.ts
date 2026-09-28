@@ -629,7 +629,9 @@ export async function listSensitiveTenantFormsForAdmin() {
     .get();
 
   return snapshot.docs.map((doc) => {
-    const request = docWithId<SensitiveTenantFormRequest>(doc);
+    const request = docWithId<SensitiveTenantFormRequest & {
+      evidence: Array<TenantFormAttachment & { storagePath?: string }>;
+    }>(doc);
     return {
       id: request.id,
       reference: request.reference,
@@ -639,7 +641,19 @@ export async function listSensitiveTenantFormsForAdmin() {
       tenancyId: request.tenancyId,
       propertyId: request.propertyId,
       status: request.status,
+      payload: request.payload,
+      evidence: (request.evidence || []).map((item) => ({
+        id: item.id,
+        fileName: item.fileName,
+        contentType: item.contentType,
+        size: item.size,
+        uploadedAt: item.uploadedAt,
+      })),
       submittedAt: request.submittedAt,
+      noticePreparedAt: request.noticePreparedAt,
+      noticeServedAt: request.noticeServedAt,
+      completedAt: request.completedAt,
+      restrictedNotes: request.restrictedNotes,
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
     };
