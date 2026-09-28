@@ -230,6 +230,7 @@ export async function getTenantPortalDashboard(
   });
 
   const publicRequests = requests
+    .filter((request) => request.tenantUserId === tenant.id)
     .map(publicTenantRequest)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -285,7 +286,7 @@ export async function getTenantPortalDashboard(
 }
 
 function makeRequestReference(): string {
-  const datePart = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+  const datePart = getPerthDateKey(new Date()).replaceAll('-', '');
   return `TR-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
@@ -342,6 +343,7 @@ export async function getTenantRequestForUser(
   const doc = await adminDb.collection('tenantRequests').doc(requestId).get();
   if (!doc.exists) return null;
   const request = docWithId<TenantRequest>(doc);
+  if (request.tenantUserId !== tenant.id) return null;
   return (await tenantHasTenancyAccess(tenant, request.tenancyId)) ? request : null;
 }
 
