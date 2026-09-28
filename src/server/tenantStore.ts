@@ -212,8 +212,8 @@ export async function getTenantPortalDashboard(
       id: document.id,
       tenancyId: document.tenancyId,
       propertyId: document.propertyId,
-      clientIds: document.clientIds || [],
-      audiences: document.audiences || ['tenant'],
+      clientIds: [],
+      audiences: ['tenant'],
       title: document.title,
       category: document.category,
       fileName: document.fileName,
@@ -559,7 +559,9 @@ export async function createTenantDocumentRecord(input: {
 
   const requestedClientIds = input.clientIds?.length
     ? Array.from(new Set(input.clientIds))
-    : linkedClientIds;
+    : (input.audiences || []).includes('client')
+      ? linkedClientIds
+      : [];
 
   if (requestedClientIds.some((clientId) => !linkedClientIds.includes(clientId))) {
     throw new Error('CLIENT_PROPERTY_MISMATCH');
@@ -738,6 +740,20 @@ export async function createClientPropertyLink(input: {
     .limit(1)
     .get();
 
+  if (input.primary) {
+    const propertyLinks = await adminDb
+      .collection('clientPropertyLinks')
+      .where('propertyId', '==', input.propertyId)
+      .get();
+    const batch = adminDb.batch();
+    propertyLinks.docs.forEach((linkDoc) => {
+      if (linkDoc.id !== existing.docs[0]?.id) {
+        batch.set(linkDoc.ref, { primary: false, updatedAt: nowIso() }, { merge: true });
+      }
+    });
+    await batch.commit();
+  }
+
   if (!existing.empty) {
     const current = docWithId<ClientPropertyLink>(existing.docs[0]);
     const updatedAt = nowIso();
@@ -909,7 +925,12 @@ export async function getClientPortalDashboard(
     .map((document) => {
       const { storagePath: _storagePath, ...publicDocument } =
         document as TenantDocument & { storagePath?: string };
-      return publicDocument;
+      return {
+        ...publicDocument,
+        clientIds: publicDocument.clientIds.filter((clientId) =>
+          allowedClientIds.includes(clientId)
+        ),
+      };
     })
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
 
