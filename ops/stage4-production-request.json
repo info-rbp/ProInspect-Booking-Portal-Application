@@ -4,5 +4,5 @@
   "releaseId": "production-unification",
   "sourceSha": "f72592d13e8981859e40a8fe5c90cefd592a83fa",
   "approve": "",
-  "note": "Non-mutating production readiness only. Verify GitHub environment protection, exact-source CI, WIF provider and Terraform service-account federation. No descriptor, infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Second non-mutating production readiness attempt after reviewer/WIF updates. No descriptor, infrastructure apply, migration, deployment, traffic change or main merge."
 }
