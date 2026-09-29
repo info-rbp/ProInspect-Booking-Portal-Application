@@ -34,7 +34,7 @@ def setup_plan(c):
       "artifactRepository":repository,"region":t["region"],
       "workloadIdentityPool":pool,"workloadIdentityProvider":provider,
       "runtimeIdentity":t["runtime_service_account_email"],"operatorPrincipal":c["operatorPrincipal"],
-      "providerCondition":"assertion.repository_id == '1390107826' && assertion.repository_owner_id == '235419395' && assertion.repository == '"+REPOSITORY+"' && assertion.sub == 'repo:"+REPOSITORY+":environment:production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@' + assertion.ref",
+      "providerCondition":"assertion.repository_id == '1390107826' && assertion.repository_owner_id == '235419395' && assertion.repository == '"+REPOSITORY+"' && assertion.environment == 'production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@' + assertion.ref",
       "scope":"Supporting IAM/storage/build/federation only; no runtime service or customer data changes."}
 
 def main():
@@ -98,7 +98,7 @@ def main():
     else:
         require(c.get("bootstrapCreateSupportingResources") is True,"Selected GitHub Workload Identity Provider does not exist; review it before allowing bootstrap creation.")
         g("iam","workload-identity-pools","providers","create-oidc",provider_id,"--location=global","--workload-identity-pool="+pool,
-          "--issuer-uri=https://token.actions.githubusercontent.com","--attribute-mapping=google.subject=assertion.sub,attribute.repository_id=assertion.repository_id",
+          "--issuer-uri=https://token.actions.githubusercontent.com","--attribute-mapping=google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id,attribute.ref=assertion.ref,attribute.workflow_ref=assertion.workflow_ref",
           "--attribute-condition="+plan["providerCondition"])
     g("iam","service-accounts","add-iam-policy-binding",terraform,"--role=roles/iam.workloadIdentityUser",
       "--member=principalSet://iam.googleapis.com/"+pool_name+"/attribute.repository_id/1390107826")
