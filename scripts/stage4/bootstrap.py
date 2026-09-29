@@ -26,10 +26,13 @@ def setup_plan(c):
     accounts={"terraform":t["terraform_service_account_email"],"build":p["buildIdentity"],
               "deploy":p["deployIdentity"],"migration":p["migrationIdentity"]}
     repository=p["imageRepository"].split("/")[2]
+    pool=t.get("workload_identity_pool_id") or "proinspect-production"
+    provider=t.get("workload_identity_pool_provider_id") or "github"
     return {"projectId":PROJECT,"sourceSha":c["sourceSha"],"configDigest":digest(c),
       "accounts":accounts,"roles":ROLES,
       "buckets":sorted({c["state"]["bucket"],p["evidenceBucket"],p["backupBucket"],p["buildSourceBucket"]}),
       "artifactRepository":repository,"region":t["region"],
+      "workloadIdentityPool":pool,"workloadIdentityProvider":provider,
       "runtimeIdentity":t["runtime_service_account_email"],"operatorPrincipal":c["operatorPrincipal"],
       "providerCondition":"assertion.repository_id == '1390107826' && assertion.repository_owner_id == '235419395' && assertion.repository == '"+REPOSITORY+"' && assertion.sub == 'repo:"+REPOSITORY+":environment:production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@' + assertion.ref",
       "scope":"Supporting IAM/storage/build/federation only; no runtime service or customer data changes."}
@@ -82,21 +85,24 @@ def main():
         require(c.get("bootstrapCreateSupportingResources") is True,"Missing repository requires explicit supporting-resource creation approval.")
         g("artifacts","repositories","create",repository,"--location="+region,"--repository-format=docker")
     g("artifacts","repositories","add-iam-policy-binding",repository,"--location="+region,"--member=serviceAccount:"+build,"--role=roles/artifactregistry.writer")
-    number=str(project["projectNumber"]);pool="proinspect-production"
+    number=str(project["projectNumber"]);pool=plan["workloadIdentityPool"];provider_id=plan["workloadIdentityProvider"]
     pools=g("iam","workload-identity-pools","list","--location=global")
     pool_name="projects/"+number+"/locations/global/workloadIdentityPools/"+pool
-    if not any(x["name"]==pool_name for x in pools):g("iam","workload-identity-pools","create",pool,"--location=global")
+    if not any(x["name"]==pool_name for x in pools):
+        require(c.get("bootstrapCreateSupportingResources") is True,"Selected Workload Identity Pool does not exist; review it before allowing bootstrap creation.")
+        g("iam","workload-identity-pools","create",pool,"--location=global")
     providers=g("iam","workload-identity-pools","providers","list","--location=global","--workload-identity-pool="+pool)
-    provider=next((x for x in providers if x["name"]==pool_name+"/providers/github"),None)
+    provider=next((x for x in providers if x["name"]==pool_name+"/providers/"+provider_id),None)
     if provider:
         require(provider.get("attributeCondition")==plan["providerCondition"] and provider.get("oidc",{}).get("issuerUri")=="https://token.actions.githubusercontent.com","Existing federation differs; inspect it instead of overwriting.")
     else:
-        g("iam","workload-identity-pools","providers","create-oidc","github","--location=global","--workload-identity-pool="+pool,
+        require(c.get("bootstrapCreateSupportingResources") is True,"Selected GitHub Workload Identity Provider does not exist; review it before allowing bootstrap creation.")
+        g("iam","workload-identity-pools","providers","create-oidc",provider_id,"--location=global","--workload-identity-pool="+pool,
           "--issuer-uri=https://token.actions.githubusercontent.com","--attribute-mapping=google.subject=assertion.sub,attribute.repository_id=assertion.repository_id",
           "--attribute-condition="+plan["providerCondition"])
     g("iam","service-accounts","add-iam-policy-binding",terraform,"--role=roles/iam.workloadIdentityUser",
       "--member=principalSet://iam.googleapis.com/"+pool_name+"/attribute.repository_id/1390107826")
-    print("Keyless provider: "+pool_name+"/providers/github")
+    print("Keyless provider: "+pool_name+"/providers/"+provider_id)
     print("Production runtime service and customer data were not modified.")
 
 if __name__=="__main__":main()
