@@ -64,7 +64,7 @@ def verify_federation(terraform_sa,wif_provider):
         raise RuntimeError("WIF provider issuer is not GitHub Actions.")
     condition=provider.get("attributeCondition","")
     required=[f"assertion.repository_id == '{REPOSITORY_ID}'",f"assertion.repository_owner_id == '{OWNER_ID}'",
-              f"assertion.repository == '{REPOSITORY}'","environment:production","stage4-production.yml",
+              f"assertion.repository == '{REPOSITORY}'","assertion.environment == 'production'","stage4-production.yml",
               "refs/heads/release/platform-unification","refs/heads/main"]
     if any(value not in condition for value in required):
         raise RuntimeError("WIF provider condition does not contain the exact repository, production environment, workflow and branch restrictions.")
