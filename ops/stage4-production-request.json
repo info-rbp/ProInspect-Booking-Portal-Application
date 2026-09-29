@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "b3750ad84126412bbcfd12959218d087e96a65ae",
+  "sourceSha": "f72592d13e8981859e40a8fe5c90cefd592a83fa",
   "approve": "",
-  "note": "Non-mutating production readiness only: verify protected environment, exact-source CI, GitHub OIDC/WIF and Terraform service-account federation. No descriptor, infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Non-mutating production readiness only. Verify GitHub environment protection, exact-source CI, WIF provider and Terraform service-account federation. No descriptor, infrastructure apply, migration, deployment, traffic change or main merge."
 }
