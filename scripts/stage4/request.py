@@ -27,8 +27,13 @@ def main():
     subprocess.run(["git","merge-base","--is-ancestor",request["sourceSha"],"HEAD"],check=True)
     # Checking an environment does not create it. A marker variable is insufficient.
     if request["action"]!="disabled":
-        validate_environment(github("/environments/production"),
-                             github("/environments/production/deployment-branch-policies"))
+        environment=github("/environments/production")
+        policies=github("/environments/production/deployment-branch-policies")
+        print("GitHub production protection rule types:",
+              sorted(r.get("type","unknown") for r in environment.get("protection_rules",[])))
+        print("GitHub production deployment branches:",
+              sorted(p.get("name","") for p in policies.get("branch_policies",[])))
+        validate_environment(environment,policies)
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"],"a") as f:
             for key in ("action","sourceSha","releaseId","approve"): f.write(key+"="+request.get(key,"")+"\n")
