@@ -61,7 +61,11 @@
       "migration-backups": "REQUIRED_BACKUP_BUCKET",
       "build-sources": "REQUIRED_BUILD_SOURCE_BUCKET"
     },
-    "artifact_repository_id": "REQUIRED_EXISTING_ARTIFACT_REPOSITORY"
+    "artifact_repository_id": "REQUIRED_EXISTING_ARTIFACT_REPOSITORY",
+    "github_repository": "info-rbp/ProInspect-Platform",
+    "github_repository_id": "1390107826",
+    "workload_identity_pool_id": "proinspect-property-services",
+    "workload_identity_pool_provider_id": "github"
   },
   "production": {
     "buildIdentity": "proinspect-prod-build@business-plan-applicatio-17047.iam.gserviceaccount.com",
