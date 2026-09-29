@@ -59,7 +59,24 @@ jobs:
           ref: ${{ needs.request.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Validate production identity settings before Google authentication
+        env:
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          if os.environ.get('PROJECT_ID') != 'business-plan-applicatio-17047':
+              raise SystemExit('GCP_PRODUCTION_PROJECT_ID does not match the frozen production project.')
+          if os.environ.get('TERRAFORM_SA') != 'proinspect-prod-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com':
+              raise SystemExit('GCP_TERRAFORM_SERVICE_ACCOUNT does not match the reviewed Terraform identity.')
+          provider=os.environ.get('WIF_PROVIDER','')
+          if not re.fullmatch(r'projects/696236368989/locations/global/workloadIdentityPools/[a-z0-9-]{4,32}/providers/[a-z0-9-]{4,32}', provider):
+              raise SystemExit('GCP_WORKLOAD_IDENTITY_PROVIDER is not a full provider resource in the production project.')
+          PY
       - name: Validate private descriptor before any Google authentication
+        if: needs.request.outputs.action != 'readiness'
         env:
           CONFIG_B64: ${{ secrets.STAGE4_PRODUCTION_CONFIG_B64 }}
           PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
