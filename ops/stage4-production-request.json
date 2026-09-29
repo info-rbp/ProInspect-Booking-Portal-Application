@@ -4,5 +4,5 @@
   "releaseId": "production-unification",
   "sourceSha": "a7480c0c1b75796409bbd38e5a26fd42d214106b",
   "approve": "",
-  "note": "Read-only production readiness and discovery against verified Stage 4 source. No infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Read-only production readiness and discovery after required reviewer fix. No infrastructure apply, migration, deployment, traffic change or main merge."
 }
