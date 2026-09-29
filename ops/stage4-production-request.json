@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "f72592d13e8981859e40a8fe5c90cefd592a83fa",
+  "sourceSha": "e0dc93c3edc00a6a55f0ecb8af7fe7a94604e687",
   "approve": "",
-  "note": "Second non-mutating production readiness attempt after reviewer/WIF updates. No descriptor, infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Diagnostic non-mutating readiness: report only production protection rule types and allowed branches, then verify keyless WIF if protections pass."
 }
