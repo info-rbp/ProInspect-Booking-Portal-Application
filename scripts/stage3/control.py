@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_PROJECT = 'business-plan-applicatio-17047'
 PRODUCTION_DATABASE = 'ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a'
 BASE_SHA = 'ceebc2f0d312aec6ab68b796a90e04219e771696'
-REPO = 'info-rbp/ProInspect-Booking-Portal-Application'
+REPO = 'info-rbp/ProInspect-Platform'
 STATEFUL = {'google_storage_bucket', 'google_firestore_database', 'google_secret_manager_secret', 'google_artifact_registry_repository', 'google_service_account', 'google_firebase_web_app'}
 
 
@@ -228,9 +228,11 @@ def inventory(config):
     result['backupSchedules'] = api_list(config, base + '/backupSchedules','backupSchedules') if exists else []
     result['firebaseProject'] = api(config, f'https://firebase.googleapis.com/v1beta1/projects/{p}', optional=True)
     result['webApps'] = api_list(config, f'https://firebase.googleapis.com/v1beta1/projects/{p}/webApps','apps') if result['firebaseProject'] else []
-    pool=f'projects/{result["project"]["projectNumber"]}/locations/global/workloadIdentityPools/proinspect-{config["environment"]}'
+    pool_id=config.get('terraform',{}).get('workload_identity_pool_id') or f'proinspect-{config["environment"]}'
+    provider_id=config.get('terraform',{}).get('workload_identity_pool_provider_id') or 'github'
+    pool=f'projects/{result["project"]["projectNumber"]}/locations/global/workloadIdentityPools/{pool_id}'
     result['identityPool']=api(config,'https://iam.googleapis.com/v1/'+pool,optional=True)
-    result['identityProvider']=api(config,'https://iam.googleapis.com/v1/'+pool+'/providers/github',optional=True) if result['identityPool'] else None
+    result['identityProvider']=api(config,'https://iam.googleapis.com/v1/'+pool+'/providers/'+provider_id,optional=True) if result['identityPool'] else None
     release='cloud.firestore' if database=='(default)' else 'cloud.firestore/'+database
     result['rulesRelease']=api(config,f'https://firebaserules.googleapis.com/v1/projects/{p}/releases/'+release,optional=True) if result['firebaseProject'] else None
     result['gatewayRole']=api(config,f'https://iam.googleapis.com/v1/projects/{p}/roles/proinspectGatewayPolicy',optional=True)
