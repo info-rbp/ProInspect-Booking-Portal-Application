@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "0befd24d676dde719c0c7f76918d08cccd5f0b45",
+  "sourceSha": "3528c9d986082f29183ef90c78fb3168e4aa5515",
   "approve": "",
-  "note": "Read-only Stage 4 readiness after corrected GitHub OIDC condition. Verify protected environment, exact-source CI, WIF federation and production inventory only. No infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Diagnostic read-only Stage 4 readiness. Print only non-secret GitHub OIDC claim values, then attempt WIF and production inventory. No infrastructure apply, migration, deployment, traffic change or main merge."
 }
