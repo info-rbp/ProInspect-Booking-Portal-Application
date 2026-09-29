@@ -10,6 +10,13 @@ This workflow uses the existing production project. No separate staging
 application is required. A temporary scratch Firestore database is used to
 verify that the production backup can really be restored.
 
+## Current repository and federation identity
+The canonical repository is now `info-rbp/ProInspect-Platform` (repository ID `1390107826`, owner ID `235419395`). The production WIF condition must use this current repository name; conditions that still name `ProInspect-Booking-Portal-Application` will reject GitHub tokens after the rename.
+
+The operator-created production pool is recorded as `proinspect-property-services` with provider ID `github`. Terraform and bootstrap adopt those explicit IDs instead of silently creating a second WIF pool.
+
+The non-mutating `readiness` action intentionally requires only the three production environment variables: project ID, Terraform service-account email and full WIF provider resource. It does not require the unfinished production descriptor or `STAGE4_PRODUCTION_CONFIG_B64`. This allows keyless access to be proven before cloud inventory is used to complete the descriptor.
+
 ## One-time GitHub setup
 In repository Settings > Environments, create `production`. Add a required
 reviewer and custom deployment branch policies for `main` and
