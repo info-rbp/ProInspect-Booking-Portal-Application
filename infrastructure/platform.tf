@@ -299,12 +299,12 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github[0].workload_identity_pool_id
   workload_identity_pool_provider_id = var.workload_identity_pool_provider_id
   attribute_mapping = {
-    "google.subject"                 = "assertion.sub"
-    "attribute.repository"           = "assertion.repository"
-    "attribute.repository_id"        = "assertion.repository_id"
-    "attribute.repository_owner_id"  = "assertion.repository_owner_id"
-    "attribute.ref"                  = "assertion.ref"
-    "attribute.workflow_ref"         = "assertion.workflow_ref"
+    "google.subject"                = "assertion.sub"
+    "attribute.repository"          = "assertion.repository"
+    "attribute.repository_id"       = "assertion.repository_id"
+    "attribute.repository_owner_id" = "assertion.repository_owner_id"
+    "attribute.ref"                 = "assertion.ref"
+    "attribute.workflow_ref"        = "assertion.workflow_ref"
   }
   attribute_condition = var.environment == "production" ? "assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '235419395' && assertion.repository == '${var.github_repository}' && assertion.environment == 'production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '${var.github_repository}/.github/workflows/stage4-production.yml@' + assertion.ref" : "assertion.repository_id == '${var.github_repository_id}' && assertion.repository == '${var.github_repository}' && assertion.ref == 'refs/heads/release/platform-unification' && assertion.environment == '${var.environment}'"
   oidc { issuer_uri = "https://token.actions.githubusercontent.com" }
