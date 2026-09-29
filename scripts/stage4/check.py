@@ -4,7 +4,7 @@ import subprocess
 root=Path(__file__).resolve().parents[2]
 files=["scripts/stage4/release.py","scripts/stage4/common.py","scripts/stage4/migrate.ts",
  "scripts/stage4/checkpoints.py","scripts/stage4/integrations.ts","scripts/stage4/record-companion.ts",
- "scripts/stage4/bootstrap.py","scripts/stage4/request.py","src/server/productionReleaseGate.ts",
+ "scripts/stage4/bootstrap.py","scripts/stage4/request.py","scripts/stage4/discover.py","src/server/productionReleaseGate.ts",
  "src/server/productionMaintenance.ts",".github/workflows/stage4-production.yml",
  "infrastructure/stage4.tf","infrastructure/environments/production.example.json",
  "STAGE4_PRODUCTION_CONTRACT.md","docs/STAGE4_PRODUCTION_RUNBOOK.md"]

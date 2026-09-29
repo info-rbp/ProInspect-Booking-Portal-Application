@@ -121,15 +121,40 @@ jobs:
           service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
           create_credentials_file: true
       - uses: google-github-actions/setup-gcloud@v3
+      - name: Read-only production discovery
+        if: needs.request.outputs.action == 'readiness'
+        env:
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          python3 scripts/stage4/discover.py \
+            --template infrastructure/environments/production.example.json \
+            --output /tmp/stage4-production-discovery.json \
+            --source-sha "$SOURCE_SHA" \
+            --release-id "$RELEASE_ID" \
+            --terraform-sa "$TERRAFORM_SA" \
+            --wif-provider "$WIF_PROVIDER"
+      - name: Retain non-secret production discovery
+        if: needs.request.outputs.action == 'readiness'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage4-production-discovery
+          path: /tmp/stage4-production-discovery.json
+          retention-days: 1
+          if-no-files-found: error
       - uses: actions/setup-node@v4
+        if: needs.request.outputs.action != 'readiness'
         with:
           node-version: '22.16.0'
           cache: npm
       - uses: hashicorp/setup-terraform@v3
+        if: needs.request.outputs.action != 'readiness'
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
       - name: Install the locked application dependencies
+        if: needs.request.outputs.action != 'readiness'
         run: npm ci
       - name: Execute the explicitly requested production phase
         env:
