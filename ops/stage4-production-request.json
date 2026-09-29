@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "e0dc93c3edc00a6a55f0ecb8af7fe7a94604e687",
+  "sourceSha": "a7480c0c1b75796409bbd38e5a26fd42d214106b",
   "approve": "",
-  "note": "Diagnostic non-mutating readiness: report only production protection rule types and allowed branches, then verify keyless WIF if protections pass."
+  "note": "Read-only production readiness and discovery against verified Stage 4 source. No infrastructure apply, migration, deployment, traffic change or main merge."
 }
