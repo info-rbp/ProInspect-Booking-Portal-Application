@@ -113,6 +113,30 @@ jobs:
           from common import verify_ci
           verify_ci(os.environ['SOURCE_SHA'])
           PY
+      - name: Show non-secret GitHub OIDC claims
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, urllib.parse, urllib.request
+          provider=os.environ["WIF_PROVIDER"]
+          audience="https://iam.googleapis.com/"+provider
+          url=os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          sep="&" if "?" in url else "?"
+          req=urllib.request.Request(
+              url+sep+"audience="+urllib.parse.quote(audience,safe=""),
+              headers={"Authorization":"bearer "+os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+          with urllib.request.urlopen(req,timeout=30) as response:
+              token=json.load(response)["value"]
+          payload=token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+          claims=json.loads(base64.urlsafe_b64decode(payload.encode()))
+          allowed=["sub","aud","repository","repository_id","repository_owner","repository_owner_id",
+                   "ref","ref_type","workflow","workflow_ref","job_workflow_ref","environment",
+                   "event_name","run_id","run_attempt"]
+          print("OIDC_CLAIMS="+json.dumps({k:claims.get(k) for k in allowed if k in claims},
+                                          sort_keys=True,separators=(",",":")))
+          PY
       - name: Keyless production Google authentication
         uses: google-github-actions/auth@v3
         with:
