@@ -46,7 +46,7 @@ Cloud Run provides `PORT`; the Docker image defaults to 8080 and the server read
 
 Connect this GitHub repository to Cloud Run / Cloud Build:
 
-- Repository: `info-rbp/ProInspect-Booking-Portal-Application`
+- Repository: `info-rbp/ProInspect-Platform`
 - Production branch regex: `^main$`
 - Build type: Dockerfile
 - Dockerfile: `/Dockerfile`
