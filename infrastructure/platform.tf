@@ -13,11 +13,21 @@ variable "payment_checkout_url_template" {
 }
 variable "github_repository" {
   type    = string
-  default = "info-rbp/ProInspect-Booking-Portal-Application"
+  default = "info-rbp/ProInspect-Platform"
 }
 variable "github_repository_id" {
   type    = string
   default = "1390107826"
+}
+variable "workload_identity_pool_id" {
+  type        = string
+  default     = ""
+  description = "Existing or intended GitHub Workload Identity Pool ID."
+}
+variable "workload_identity_pool_provider_id" {
+  type        = string
+  default     = "github"
+  description = "GitHub OIDC provider ID inside the selected Workload Identity Pool."
 }
 variable "terraform_service_account_email" {
   type        = string
@@ -280,14 +290,14 @@ resource "google_storage_bucket_iam_member" "runtime_legacy" {
 resource "google_iam_workload_identity_pool" "github" {
   count                     = var.enable_github_federation ? 1 : 0
   project                   = var.project_id
-  workload_identity_pool_id = "proinspect-${var.environment}"
+  workload_identity_pool_id = var.workload_identity_pool_id != "" ? var.workload_identity_pool_id : "proinspect-${var.environment}"
   depends_on                = [google_project_service.stage3, google_project_service.required]
 }
 resource "google_iam_workload_identity_pool_provider" "github" {
   count                              = var.enable_github_federation ? 1 : 0
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.github[0].workload_identity_pool_id
-  workload_identity_pool_provider_id = "github"
+  workload_identity_pool_provider_id = var.workload_identity_pool_provider_id
   attribute_mapping = {
     "google.subject"          = "assertion.sub"
     "attribute.repository_id" = "assertion.repository_id"
