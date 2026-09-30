@@ -332,6 +332,53 @@ jobs:
           if [ -f private-evidence/stage4-operator.private.json ]; then
             RECEIPT=(--receipt private-evidence/stage4-operator.private.json)
           fi
+          if [ "$ACTION" = plan ]; then
+            python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts/stage4")
+          import release
+
+          config_path = "infrastructure/environments/production.local.json"
+          phase = {"name": "config"}
+
+          original_tf = release.tf
+          def traced_tf(c, *args, **kwargs):
+              command = args[0] if args else "unknown"
+              phase["name"] = "terraform-" + command
+              print("STAGE4_PLAN_PHASE_START=" + phase["name"], flush=True)
+              try:
+                  result = original_tf(c, *args, **kwargs)
+              except RuntimeError:
+                  print("STAGE4_PLAN_PHASE_FAIL=" + phase["name"], flush=True)
+                  raise
+              print("STAGE4_PLAN_PHASE_PASS=" + phase["name"], flush=True)
+              return result
+
+          release.tf = traced_tf
+          try:
+              c = release.config(config_path)
+              phase["name"] = "exact-source-ci"
+              release.verify_ci(c["sourceSha"])
+              phase["name"] = "github-production-policy"
+              release.validate_environment(
+                  release.github("/environments/production"),
+                  release.github("/environments/production/deployment-branch-policies"),
+              )
+              phase["name"] = "checkpoint-session-open"
+              with release.session(c):
+                  phase["name"] = "plan-body"
+                  release.plan(c)
+                  phase["name"] = "checkpoint-persist"
+              print("STAGE4_PLAN_TRACE=success", flush=True)
+          except Exception as error:
+              print("STAGE4_PLAN_TRACE=failed", flush=True)
+              print("STAGE4_PLAN_LAST_PHASE=" + phase["name"], flush=True)
+              print("STAGE4_PLAN_ERROR_TYPE=" + type(error).__name__, flush=True)
+              raise
+          PY
+            exit 0
+          fi
+
           python3 scripts/stage4/release.py "$ACTION" \
             --config infrastructure/environments/production.local.json \
             --approve "$APPROVAL" "${RECEIPT[@]}"
