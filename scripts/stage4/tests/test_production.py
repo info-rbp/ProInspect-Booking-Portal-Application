@@ -13,6 +13,7 @@ import common
 import release
 import request as requests
 import checkpoints
+import discover
 
 def fixture():
     return json.loads((Path(__file__).parent/"production.fixture.json").read_text())
@@ -128,6 +129,11 @@ class ProductionPolicy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td,patch.object(common,"ROOT",Path(td)):
             common.record(c,"sample",synthetic=True)
             with self.assertRaises(ValueError):common.evidence(c,"sample")
+    def test_github_oidc_issuer_accepts_google_trailing_slash(self):
+        self.assertTrue(discover.github_issuer({"oidc":{"issuerUri":"https://token.actions.githubusercontent.com/"}}))
+        self.assertTrue(discover.github_issuer({"oidc":{"issuerUri":"https://token.actions.githubusercontent.com"}}))
+        self.assertFalse(discover.github_issuer({"oidc":{"issuerUri":"https://example.invalid/"}}))
+
     def test_checkpoints_exclude_credentials_and_caches(self):
         self.assertNotIn("runtime-env.private.json",checkpoints.ALLOWED)
         self.assertNotIn("staging.local.json",checkpoints.ALLOWED)
