@@ -180,6 +180,58 @@ jobs:
       - name: Install the locked application dependencies
         if: needs.request.outputs.action != 'readiness'
         run: npm ci
+      - name: Diagnose plan prerequisites without exposing secrets
+        if: needs.request.outputs.action == 'plan'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+        run: |
+          set -uo pipefail
+          failures=0
+          check() {
+            local label="$1"
+            shift
+            if "$@" >/dev/null 2>&1; then
+              echo "PLAN_DIAGNOSTIC PASS: $label"
+            else
+              echo "PLAN_DIAGNOSTIC FAIL: $label"
+              failures=$((failures + 1))
+            fi
+          }
+
+          DEPLOY_SA="proinspect-prod-deploy@business-plan-applicatio-17047.iam.gserviceaccount.com"
+          STATE_BUCKET="business-plan-applicatio-17047-proinspect-tfstate"
+          EVIDENCE_BUCKET="business-plan-applicatio-17047-proinspect-release-evidence"
+          BACKUP_BUCKET="business-plan-applicatio-17047-proinspect-migration-backups"
+          SERVICE="proinspect-booking-portal-application"
+          REGION="europe-west1"
+
+          check "Terraform self impersonation" gcloud auth print-access-token --impersonate-service-account="$TERRAFORM_SA"
+          check "Deploy identity impersonation" gcloud auth print-access-token --impersonate-service-account="$DEPLOY_SA"
+          check "State bucket read" gcloud storage buckets describe "gs://$STATE_BUCKET" --impersonate-service-account="$TERRAFORM_SA"
+          check "Evidence bucket read" gcloud storage buckets describe "gs://$EVIDENCE_BUCKET" --impersonate-service-account="$TERRAFORM_SA"
+          check "Backup bucket read" gcloud storage buckets describe "gs://$BACKUP_BUCKET" --impersonate-service-account="$TERRAFORM_SA"
+          check "Cloud Run describe as deploy" gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --impersonate-service-account="$DEPLOY_SA"
+          check "Cloud Run IAM read as Terraform" gcloud run services get-iam-policy "$SERVICE" --region="$REGION" --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Encryption secret metadata" gcloud secrets versions describe 1 --secret=proinspect-production-access-data-encryption-key --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Encryption secret payload access" gcloud secrets versions access 1 --secret=proinspect-production-access-data-encryption-key --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Project inventory" gcloud projects describe "$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Enabled-service inventory" gcloud services list --enabled --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Bucket inventory" gcloud storage buckets list --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Service-account inventory" gcloud iam service-accounts list --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Secret inventory" gcloud secrets list --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Firestore database inventory" gcloud firestore databases list --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Artifact Registry inventory" gcloud artifacts repositories list --location="$REGION" --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Cloud Run inventory" gcloud run services list --region="$REGION" --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Global Cloud Build trigger inventory" gcloud builds triggers list --region=global --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+          check "Regional Cloud Build trigger inventory" gcloud builds triggers list --region="$REGION" --project="$PROJECT_ID" --impersonate-service-account="$TERRAFORM_SA"
+
+          if [ "$failures" -ne 0 ]; then
+            echo "PLAN_DIAGNOSTIC: $failures prerequisite check(s) failed; plan execution is intentionally stopped."
+            exit 1
+          fi
+          echo "PLAN_DIAGNOSTIC: all non-secret prerequisite checks passed."
+
       - name: Execute the explicitly requested production phase
         env:
           TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
