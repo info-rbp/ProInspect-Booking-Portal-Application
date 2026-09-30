@@ -10,7 +10,7 @@
   "deploymentOwnershipReviewed": false,
   "operatorPrincipal": "user:REQUIRED_OPERATOR_EMAIL",
   "state": {
-    "bucket": "REQUIRED_VERIFIED_EXISTING_STATE_BUCKET",
+    "bucket": "business-plan-applicatio-17047-proinspect-tfstate",
     "prefix": "booking-portal/production"
   },
   "existingFirebaseWebAppId": "1:696236368989:web:6b7ab2201328585b6919b4",
@@ -84,11 +84,11 @@
     "PRODUCTION_RELEASE_TOKEN": "proinspect-production-release-token"
   },
   "secretVersions": {
-    "ACCESS_DATA_ENCRYPTION_KEY": "REQUIRED_ENABLED_NUMERIC_VERSION",
-    "RESEND_API_KEY": "REQUIRED_ENABLED_NUMERIC_VERSION",
-    "REPORT_HANDOFF_SIGNING_KEY": "REQUIRED_ENABLED_NUMERIC_VERSION",
-    "REPORT_INGEST_TOKEN": "REQUIRED_ENABLED_NUMERIC_VERSION",
-    "PRODUCTION_RELEASE_TOKEN": "REQUIRED_ENABLED_NUMERIC_VERSION"
+    "ACCESS_DATA_ENCRYPTION_KEY": "1",
+    "RESEND_API_KEY": "1",
+    "REPORT_HANDOFF_SIGNING_KEY": "1",
+    "REPORT_INGEST_TOKEN": "1",
+    "PRODUCTION_RELEASE_TOKEN": "1"
   },
   "googleSignInClientId": "696236368989-j354mi0ma89pu01412dplovoma3c87an.apps.googleusercontent.com",
   "testEmail": "REQUIRED_CONTROLLED_TEST_MAILBOX",
