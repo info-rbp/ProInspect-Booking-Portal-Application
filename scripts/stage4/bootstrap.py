@@ -34,7 +34,7 @@ def setup_plan(c):
       "artifactRepository":repository,"region":t["region"],
       "workloadIdentityPool":pool,"workloadIdentityProvider":provider,
       "runtimeIdentity":t["runtime_service_account_email"],"operatorPrincipal":c["operatorPrincipal"],
-      "providerCondition":"assertion.repository_id == '1390107826' && assertion.repository_owner_id == '235419395' && assertion.repository == '"+REPOSITORY+"' && assertion.environment == 'production' && (assertion.ref == 'refs/heads/release/platform-unification' || assertion.ref == 'refs/heads/main') && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@' + assertion.ref",
+      "providerCondition":"assertion.repository_id == '1390107826' && assertion.repository_owner_id == '235419395' && assertion.repository == '"+REPOSITORY+"' && assertion.sub == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production' && ((assertion.ref == 'refs/heads/release/platform-unification' && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@refs/heads/release/platform-unification') || (assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '"+REPOSITORY+"/.github/workflows/stage4-production.yml@refs/heads/main'))",
       "scope":"Supporting IAM/storage/build/federation only; no runtime service or customer data changes."}
 
 def main():
