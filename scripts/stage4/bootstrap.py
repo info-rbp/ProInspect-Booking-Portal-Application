@@ -94,7 +94,8 @@ def main():
     providers=g("iam","workload-identity-pools","providers","list","--location=global","--workload-identity-pool="+pool)
     provider=next((x for x in providers if x["name"]==pool_name+"/providers/"+provider_id),None)
     if provider:
-        require(provider.get("attributeCondition")==plan["providerCondition"] and provider.get("oidc",{}).get("issuerUri")=="https://token.actions.githubusercontent.com","Existing federation differs; inspect it instead of overwriting.")
+        issuer=str(provider.get("oidc",{}).get("issuerUri","")).rstrip("/")
+        require(provider.get("attributeCondition")==plan["providerCondition"] and issuer=="https://token.actions.githubusercontent.com","Existing federation differs; inspect it instead of overwriting.")
     else:
         require(c.get("bootstrapCreateSupportingResources") is True,"Selected GitHub Workload Identity Provider does not exist; review it before allowing bootstrap creation.")
         g("iam","workload-identity-pools","providers","create-oidc",provider_id,"--location=global","--workload-identity-pool="+pool,
