@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "readiness",
+  "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "0a2cc589b73b04af604accada2938f9965f3998c",
+  "sourceSha": "76d2a41d400c42f27a2cc577a115177f1e0d0ca3",
   "approve": "",
-  "note": "Read-only Stage 4 readiness after fixing discovery to normalize the GitHub OIDC issuer trailing slash. No infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Stage 4 production infrastructure plan only. Dedicated versioned/private Terraform state bucket confirmed, legacy Cloud Build triggers disabled, production descriptor validated and installed. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
