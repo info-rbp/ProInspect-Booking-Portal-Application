@@ -283,7 +283,8 @@ jobs:
           check_http "WIF provider REST inventory" "https://iam.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL/providers/$WIF_PROVIDER" "200,404"
           check_http "Firestore rules release REST inventory" "https://firebaserules.googleapis.com/v1/projects/$PROJECT_ID/releases/cloud.firestore/$DATABASE" "200,404"
           check_http "Custom gateway role REST inventory" "https://iam.googleapis.com/v1/projects/$PROJECT_ID/roles/proinspectGatewayPolicy" "200,404"
-          check_http "Firestore field-override REST inventory" "$BASE/collectionGroups/-/fields" "200"
+          check_http "Firestore index field-override REST inventory" "$BASE/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig%3Afalse" "200"
+          check_http "Firestore TTL field-override REST inventory" "$BASE/collectionGroups/-/fields?filter=ttlConfig%3A%2A" "200"
 
           TMP_FILE="$(mktemp)"
           printf '%s\n' "stage4-controller-diagnostic:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" > "$TMP_FILE"
