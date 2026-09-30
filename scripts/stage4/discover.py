@@ -54,13 +54,17 @@ def state_candidates(buckets,prefix):
         if p.returncode==0 and p.stdout.strip():result.append(name)
     return result
 
+def github_issuer(provider):
+    issuer=str(provider.get("oidc",{}).get("issuerUri","")).rstrip("/")
+    return issuer=="https://token.actions.githubusercontent.com"
+
 def verify_federation(terraform_sa,wif_provider):
     m=re.fullmatch(r"projects/(\d+)/locations/global/workloadIdentityPools/([^/]+)/providers/([^/]+)",wif_provider)
     if not m or m.group(1)!=PROJECT_NUMBER:raise RuntimeError("WIF provider is not in the frozen production project.")
     _,pool,provider_id=m.groups()
     provider=command(["iam","workload-identity-pools","providers","describe",provider_id,
                       "--workload-identity-pool="+pool,"--location=global"])
-    if provider.get("oidc",{}).get("issuerUri")!="https://token.actions.githubusercontent.com":
+    if not github_issuer(provider):
         raise RuntimeError("WIF provider issuer is not GitHub Actions.")
     condition=provider.get("attributeCondition","")
     required=["google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production'",
