@@ -236,7 +236,17 @@ def inventory(config):
     release='cloud.firestore' if database=='(default)' else 'cloud.firestore/'+database
     result['rulesRelease']=api(config,f'https://firebaserules.googleapis.com/v1/projects/{p}/releases/'+release,optional=True) if result['firebaseProject'] else None
     result['gatewayRole']=api(config,f'https://iam.googleapis.com/v1/projects/{p}/roles/proinspectGatewayPolicy',optional=True)
-    result['fieldOverrides']=api_list(config,base+'/collectionGroups/-/fields','fields') if exists else []
+    if exists:
+        field_filters=('indexConfig.usesAncestorConfig:false','ttlConfig:*')
+        field_overrides={}
+        for field_filter in field_filters:
+            url=base+'/collectionGroups/-/fields?'+urllib.parse.urlencode({'filter':field_filter})
+            for field in api_list(config,url,'fields'):
+                name=field.get('name')
+                if name: field_overrides[name]=field
+        result['fieldOverrides']=list(field_overrides.values())
+    else:
+        result['fieldOverrides']=[]
     save(workspace(config) / 'inventory.json', result)
     print('Inventory captured. Review current state ownership before planning imports.')
     return result
