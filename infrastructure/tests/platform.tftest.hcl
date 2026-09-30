@@ -113,7 +113,7 @@ run "production_cutover_boundaries" {
     error_message = "Preserve the reviewed existing production artifact repository."
   }
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "stage4-production.yml") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.environment == 'production'")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "stage4-production.yml") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production")
     error_message = "Production OIDC must be bound to the dedicated workflow and environment."
   }
 }
