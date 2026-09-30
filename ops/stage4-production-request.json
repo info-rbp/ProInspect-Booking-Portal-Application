@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "a280dbbf949e15f17a419519b408281915ced4be",
+  "sourceSha": "0a2cc589b73b04af604accada2938f9965f3998c",
   "approve": "",
-  "note": "Read-only Stage 4 readiness after Google WIF mapped condition and Terraform self Token Creator binding were verified. No infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Read-only Stage 4 readiness after fixing discovery to normalize the GitHub OIDC issuer trailing slash. No infrastructure apply, migration, deployment, traffic change or main merge."
 }
