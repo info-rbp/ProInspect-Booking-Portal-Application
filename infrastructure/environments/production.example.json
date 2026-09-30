@@ -44,7 +44,7 @@
     "document_request_notify_to": "info@proinspect.systems",
     "firestore_location": "asia-southeast1",
     "terraform_service_account_email": "proinspect-prod-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com",
-    "client_documents_bucket_name": "REQUIRED_EXISTING_DOCUMENT_BUCKET",
+    "client_documents_bucket_name": "proinspect-client-docs-696236368989-production",
     "additional_runtime_buckets": [],
     "report_tool_url": "https://report.creation.proinspect.systems",
     "auth_support_email": "info@proinspect.systems",
@@ -57,9 +57,9 @@
     "operator_principal": "user:REQUIRED_OPERATOR_EMAIL",
     "enable_github_federation": true,
     "operations_bucket_names": {
-      "release-evidence": "REQUIRED_EVIDENCE_BUCKET",
-      "migration-backups": "REQUIRED_BACKUP_BUCKET",
-      "build-sources": "REQUIRED_BUILD_SOURCE_BUCKET"
+      "release-evidence": "business-plan-applicatio-17047-proinspect-release-evidence",
+      "migration-backups": "business-plan-applicatio-17047-proinspect-migration-backups",
+      "build-sources": "business-plan-applicatio-17047-proinspect-build-sources"
     },
     "artifact_repository_id": "cloud-run-source-deploy",
     "github_repository": "info-rbp/ProInspect-Platform",
@@ -72,9 +72,9 @@
     "deployIdentity": "proinspect-prod-deploy@business-plan-applicatio-17047.iam.gserviceaccount.com",
     "migrationIdentity": "proinspect-prod-migration@business-plan-applicatio-17047.iam.gserviceaccount.com",
     "imageRepository": "europe-west1-docker.pkg.dev/business-plan-applicatio-17047/cloud-run-source-deploy/platform",
-    "evidenceBucket": "REQUIRED_EVIDENCE_BUCKET",
-    "backupBucket": "REQUIRED_BACKUP_BUCKET",
-    "buildSourceBucket": "REQUIRED_BUILD_SOURCE_BUCKET"
+    "evidenceBucket": "business-plan-applicatio-17047-proinspect-release-evidence",
+    "backupBucket": "business-plan-applicatio-17047-proinspect-migration-backups",
+    "buildSourceBucket": "business-plan-applicatio-17047-proinspect-build-sources"
   },
   "secretBindings": {
     "ACCESS_DATA_ENCRYPTION_KEY": "proinspect-production-access-data-encryption-key",
