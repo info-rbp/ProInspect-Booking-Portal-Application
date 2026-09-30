@@ -49,6 +49,35 @@ def encryption_fingerprint(value):
     return digest(decoded)
 
 
+def encryption_baseline(c, env):
+    current=env.get("ACCESS_DATA_ENCRYPTION_KEY")
+    if current:
+        if "value" in current:
+            current_key=current["value"]
+        else:
+            ref=current["valueFrom"]["secretKeyRef"]
+            require(re.fullmatch(r"[A-Za-z0-9_-]+",ref["name"]),
+                    "Inspect cross-project/aliased secret bindings manually.")
+            current_key=cloud(c,"secrets","versions","access",ref["key"],
+                              "--secret="+ref["name"],json_output=False)
+        key_hash=encryption_fingerprint(current_key)
+        require(encryption_fingerprint(secret(c,"ACCESS_DATA_ENCRYPTION_KEY"))==key_hash,
+                "Encryption-key rotation is not part of this cutover.")
+        require(env.get("ACCESS_DATA_ENCRYPTION_KEY_ID",{}).get("value","v1")
+                ==c["terraform"]["access_data_encryption_key_id"],
+                "Preserve the current encryption key ID.")
+        return key_hash,"existing"
+
+    root="https://firestore.googleapis.com/v1/projects/"+PROJECT+"/databases/"+DATABASE+"/documents/"
+    for collection in ("bookingAccessSecrets","documentRequestSecrets"):
+        page=api(c,root+collection+"?pageSize=1&mask.fieldPaths=keyId")
+        require(not page.get("documents"),
+                "Encrypted access records exist but the running production revision has no encryption-key binding; recover the existing key before continuing.")
+    require(c["terraform"]["access_data_encryption_key_id"]=="v1",
+            "A first production encryption key must start at key ID v1.")
+    return encryption_fingerprint(secret(c,"ACCESS_DATA_ENCRYPTION_KEY")),"initial"
+
+
 def tf(c,*args,json_output=False):
     env={**os.environ,"TF_DATA_DIR":str(workspace(c)/"terraform-data"),
          "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT":c["terraform"]["terraform_service_account_email"]}
@@ -89,18 +118,7 @@ def inventory(c):
     require(live_db.get("locationId")==c["terraform"]["firestore_location"],"Firestore location mismatch; do not relocate or recreate.")
     iam=cloud(c,"run","services","get-iam-policy",SERVICE,"--region="+REGION)
     env={x["name"]:x for x in spec["containers"][0].get("env",[])}
-    require("ACCESS_DATA_ENCRYPTION_KEY" in env,"Existing encryption-key binding must be inventoried explicitly.")
-    old=env["ACCESS_DATA_ENCRYPTION_KEY"]
-    if "value" in old: old_key=old["value"]
-    else:
-        ref=old["valueFrom"]["secretKeyRef"]
-        require(re.fullmatch(r"[A-Za-z0-9_-]+",ref["name"]),"Inspect cross-project/aliased secret bindings manually.")
-        old_key=cloud(c,"secrets","versions","access",ref["key"],"--secret="+ref["name"],json_output=False)
-    key_hash=encryption_fingerprint(old_key)
-    require(encryption_fingerprint(secret(c,"ACCESS_DATA_ENCRYPTION_KEY"))==key_hash,
-            "Encryption-key rotation is not part of this cutover.")
-    require(env.get("ACCESS_DATA_ENCRYPTION_KEY_ID",{}).get("value","v1")==c["terraform"]["access_data_encryption_key_id"],
-            "Preserve the current encryption key ID.")
+    key_hash,encryption_mode=encryption_baseline(c,env)
     inv=stage3.inventory(c)
     require(c.get("deploymentOwnershipReviewed") is True,
             "Review/disable competing production build and deployment triggers before continuing.")
@@ -115,7 +133,8 @@ def inventory(c):
     proposed={"allocation":traffic(current),
       "tags":[{"tag":x["tag"],"revisionName":x["revisionName"]} for x in current["status"].get("traffic",[]) if x.get("tag")],
       "serviceUrl":current["status"]["url"],"iamDigest":digest(iam),
-      "encryptionFingerprint":key_hash,"drainSeconds":int(spec.get("timeoutSeconds",300))+10}
+      "encryptionFingerprint":key_hash,"encryptionMode":encryption_mode,
+      "drainSeconds":int(spec.get("timeoutSeconds",300))+10}
     if existing.exists():
         base=evidence(c,"baseline")
         require(base["allocation"]==proposed["allocation"],"Baseline cannot be overwritten after traffic moves.")
