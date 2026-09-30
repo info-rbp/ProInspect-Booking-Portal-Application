@@ -42,7 +42,7 @@
     "booking_email_from": "ProInspect <bookings@proinspect.systems>",
     "booking_email_reply_to": "info@proinspect.systems",
     "document_request_notify_to": "info@proinspect.systems",
-    "firestore_location": "REQUIRED_VERIFIED_DATABASE_LOCATION",
+    "firestore_location": "asia-southeast1",
     "terraform_service_account_email": "proinspect-prod-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com",
     "client_documents_bucket_name": "REQUIRED_EXISTING_DOCUMENT_BUCKET",
     "additional_runtime_buckets": [],
@@ -61,7 +61,7 @@
       "migration-backups": "REQUIRED_BACKUP_BUCKET",
       "build-sources": "REQUIRED_BUILD_SOURCE_BUCKET"
     },
-    "artifact_repository_id": "REQUIRED_EXISTING_ARTIFACT_REPOSITORY",
+    "artifact_repository_id": "cloud-run-source-deploy",
     "github_repository": "info-rbp/ProInspect-Platform",
     "github_repository_id": "1390107826",
     "workload_identity_pool_id": "proinspect-property-services",
@@ -71,7 +71,7 @@
     "buildIdentity": "proinspect-prod-build@business-plan-applicatio-17047.iam.gserviceaccount.com",
     "deployIdentity": "proinspect-prod-deploy@business-plan-applicatio-17047.iam.gserviceaccount.com",
     "migrationIdentity": "proinspect-prod-migration@business-plan-applicatio-17047.iam.gserviceaccount.com",
-    "imageRepository": "europe-west1-docker.pkg.dev/business-plan-applicatio-17047/REQUIRED_EXISTING_ARTIFACT_REPOSITORY/platform",
+    "imageRepository": "europe-west1-docker.pkg.dev/business-plan-applicatio-17047/cloud-run-source-deploy/platform",
     "evidenceBucket": "REQUIRED_EVIDENCE_BUCKET",
     "backupBucket": "REQUIRED_BACKUP_BUCKET",
     "buildSourceBucket": "REQUIRED_BUILD_SOURCE_BUCKET"
