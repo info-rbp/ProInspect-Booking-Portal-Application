@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "readiness",
   "releaseId": "production-unification",
-  "sourceSha": "3528c9d986082f29183ef90c78fb3168e4aa5515",
+  "sourceSha": "48b3ed753439b2316381f1c68b1ef0536381e848",
   "approve": "",
-  "note": "Diagnostic read-only Stage 4 readiness. Print only non-secret GitHub OIDC claim values, then attempt WIF and production inventory. No infrastructure apply, migration, deployment, traffic change or main merge."
+  "note": "Read-only Stage 4 readiness after live Google WIF provider was updated and verified against observed immutable GitHub OIDC subject. No infrastructure apply, migration, deployment, traffic change or main merge."
 }
