@@ -134,6 +134,10 @@ class ProductionPolicy(unittest.TestCase):
         self.assertTrue(discover.github_issuer({"oidc":{"issuerUri":"https://token.actions.githubusercontent.com"}}))
         self.assertFalse(discover.github_issuer({"oidc":{"issuerUri":"https://example.invalid/"}}))
 
+    def test_bootstrap_normalizes_existing_provider_issuer(self):
+        source=(ROOT/"scripts/stage4/bootstrap.py").read_text()
+        self.assertIn('issuer=str(provider.get("oidc",{}).get("issuerUri","")).rstrip("/")',source)
+
     def test_checkpoints_exclude_credentials_and_caches(self):
         self.assertNotIn("runtime-env.private.json",checkpoints.ALLOWED)
         self.assertNotIn("staging.local.json",checkpoints.ALLOWED)
