@@ -115,6 +115,21 @@ class ProductionPolicy(unittest.TestCase):
         import base64
         value=base64.b64encode(bytes(range(32))).decode()
         self.assertEqual(release.encryption_fingerprint(value),release.encryption_fingerprint("base64:"+value))
+    def test_initial_encryption_key_requires_empty_encrypted_collections(self):
+        c=fixture()
+        key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        with patch.object(release,"api",return_value={}),patch.object(release,"secret",return_value=key):
+            fingerprint,mode=release.encryption_baseline(c,{})
+        self.assertEqual(mode,"initial")
+        self.assertEqual(fingerprint,release.encryption_fingerprint(key))
+
+    def test_initial_encryption_key_refuses_existing_encrypted_records(self):
+        c=fixture()
+        key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        with patch.object(release,"api",return_value={"documents":[{"fields":{"keyId":{"stringValue":"v1"}}}]}),patch.object(release,"secret",return_value=key):
+            with self.assertRaises(ValueError):
+                release.encryption_baseline(c,{})
+
     def test_resolved_traffic_only(self):
         with self.assertRaises(ValueError):common.traffic({"status":{"traffic":[{"percent":100,"latestRevision":True}]}})
         self.assertEqual(common.traffic({"status":{"traffic":[{"revisionName":"fixed","percent":100}]}}),{"fixed":100})
