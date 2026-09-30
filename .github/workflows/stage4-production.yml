@@ -232,6 +232,89 @@ jobs:
           fi
           echo "PLAN_DIAGNOSTIC: all non-secret prerequisite checks passed."
 
+      - name: Diagnose Stage 4 controller internals safely
+        if: needs.request.outputs.action == 'plan'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+        run: |
+          set -uo pipefail
+          failures=0
+          mark() {
+            local label="$1"
+            local status="$2"
+            if [ "$status" -eq 0 ]; then
+              echo "CONTROLLER_DIAGNOSTIC PASS: $label"
+            else
+              echo "CONTROLLER_DIAGNOSTIC FAIL: $label"
+              failures=$((failures + 1))
+            fi
+          }
+
+          EVIDENCE_BUCKET="business-plan-applicatio-17047-proinspect-release-evidence"
+          STATE_BUCKET="business-plan-applicatio-17047-proinspect-tfstate"
+          DATABASE="ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a"
+          PROJECT_NUMBER="696236368989"
+          WIF_POOL="proinspect-property-services"
+          WIF_PROVIDER="github"
+
+          TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$TERRAFORM_SA" 2>/dev/null)"
+
+          check_http() {
+            local label="$1"
+            local url="$2"
+            local allowed="$3"
+            local code
+            code="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}'               -H "Authorization: Bearer $TOKEN"               -H "Content-Type: application/json"               "$url" 2>/dev/null || true)"
+            if echo ",$allowed," | grep -q ",$code,"; then
+              echo "CONTROLLER_DIAGNOSTIC PASS: $label (HTTP $code)"
+            else
+              echo "CONTROLLER_DIAGNOSTIC FAIL: $label (HTTP ${code:-none})"
+              failures=$((failures + 1))
+            fi
+          }
+
+          BASE="https://firestore.googleapis.com/v1/projects/$PROJECT_ID/databases/$DATABASE"
+          check_http "Firestore composite-index REST inventory" "$BASE/collectionGroups/-/indexes" "200"
+          check_http "Firestore backup-schedule REST inventory" "$BASE/backupSchedules" "200"
+          check_http "Firebase project REST inventory" "https://firebase.googleapis.com/v1beta1/projects/$PROJECT_ID" "200,404"
+          check_http "Firebase web-app REST inventory" "https://firebase.googleapis.com/v1beta1/projects/$PROJECT_ID/webApps" "200,404"
+          check_http "WIF pool REST inventory" "https://iam.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL" "200,404"
+          check_http "WIF provider REST inventory" "https://iam.googleapis.com/v1/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$WIF_POOL/providers/$WIF_PROVIDER" "200,404"
+          check_http "Firestore rules release REST inventory" "https://firebaserules.googleapis.com/v1/projects/$PROJECT_ID/releases/cloud.firestore/$DATABASE" "200,404"
+          check_http "Custom gateway role REST inventory" "https://iam.googleapis.com/v1/projects/$PROJECT_ID/roles/proinspectGatewayPolicy" "200,404"
+          check_http "Firestore field-override REST inventory" "$BASE/collectionGroups/-/fields" "200"
+
+          TMP_FILE="$(mktemp)"
+          printf '%s\n' "stage4-controller-diagnostic:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" > "$TMP_FILE"
+          TEST_OBJECT="gs://$EVIDENCE_BUCKET/stage4/diagnostics/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.txt"
+          gcloud storage cp "$TMP_FILE" "$TEST_OBJECT"             --if-generation-match=0             --project="$PROJECT_ID"             --impersonate-service-account="$TERRAFORM_SA"             --quiet >/dev/null 2>&1
+          cp_status=$?
+          mark "Evidence checkpoint conditional object create" "$cp_status"
+          if [ "$cp_status" -eq 0 ]; then
+            gcloud storage rm "$TEST_OBJECT"               --project="$PROJECT_ID"               --impersonate-service-account="$TERRAFORM_SA"               --quiet >/dev/null 2>&1
+            mark "Evidence checkpoint diagnostic cleanup" "$?"
+          fi
+          rm -f "$TMP_FILE"
+
+          export TF_DATA_DIR="/tmp/stage4-controller-terraform-data"
+          export GOOGLE_IMPERSONATE_SERVICE_ACCOUNT="$TERRAFORM_SA"
+          rm -rf "$TF_DATA_DIR"
+          terraform -chdir=infrastructure init             -input=false             -reconfigure             -lockfile=readonly             -backend-config="bucket=$STATE_BUCKET"             -backend-config="prefix=booking-portal/production"             -backend-config="impersonate_service_account=$TERRAFORM_SA"             >/dev/null 2>&1
+          tf_init_status=$?
+          mark "Terraform GCS backend init" "$tf_init_status"
+
+          if [ "$tf_init_status" -eq 0 ]; then
+            terraform -chdir=infrastructure state list >/dev/null 2>&1
+            mark "Terraform state list" "$?"
+          fi
+
+          if [ "$failures" -ne 0 ]; then
+            echo "CONTROLLER_DIAGNOSTIC: $failures internal check(s) failed; plan execution is intentionally stopped."
+            exit 1
+          fi
+          echo "CONTROLLER_DIAGNOSTIC: all controller-internal checks passed."
+
       - name: Execute the explicitly requested production phase
         env:
           TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
