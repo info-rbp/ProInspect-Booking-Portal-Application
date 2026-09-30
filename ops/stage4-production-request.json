@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "76d2a41d400c42f27a2cc577a115177f1e0d0ca3",
+  "sourceSha": "22fca706b920fb47d421b179db5f8c51ccafe5c6",
   "approve": "",
-  "note": "Stage 4 plan diagnostic rerun with controller-internal REST, checkpoint-object and Terraform-backend checks. Source remains pinned to verified 76d2a41d400c42f27a2cc577a115177f1e0d0ca3. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Stage 4 production infrastructure plan after fixing Firestore field override inventory. Descriptor secret updated for the exact verified source. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
