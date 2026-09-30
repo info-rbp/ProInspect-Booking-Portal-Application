@@ -4,5 +4,5 @@
   "releaseId": "production-unification",
   "sourceSha": "76d2a41d400c42f27a2cc577a115177f1e0d0ca3",
   "approve": "",
-  "note": "Stage 4 plan diagnostic rerun. Source remains pinned to verified 76d2a41d400c42f27a2cc577a115177f1e0d0ca3. Added non-secret prerequisite diagnostics only; no Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Stage 4 plan diagnostic rerun with controller-internal REST, checkpoint-object and Terraform-backend checks. Source remains pinned to verified 76d2a41d400c42f27a2cc577a115177f1e0d0ca3. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
