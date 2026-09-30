@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import control as c
@@ -97,6 +98,42 @@ class Controls(unittest.TestCase):
             self.assertEqual(c.api_list(self.cfg,'https://firestore.googleapis.com/x','indexes'),[1,2])
             self.assertIn('pageToken=next',mocked.call_args[0][1])
         with patch.object(c,'api',return_value={'indexes':[],'nextPageToken':'repeat'}),self.assertRaises(ValueError): c.api_list(self.cfg,'https://firestore.googleapis.com/x','indexes')
+    def test_firestore_field_override_inventory_uses_required_filters(self):
+        project=self.cfg['projectId']
+        database=self.cfg['databaseId']
+        cloud_values={
+            'project': {'projectNumber':'123'},
+            'services': [],
+            'buckets': [],
+            'accounts': [],
+            'secrets': [],
+            'databases': [{'name':f'projects/{project}/databases/{database}'}],
+            'repositories': [],
+            'cloudRun': [],
+        }
+        def fake_cloud(_config,*args,**_kwargs):
+            key={
+                ('projects','describe',project):'project',
+                ('services','list','--enabled'):'services',
+                ('storage','buckets','list'):'buckets',
+                ('iam','service-accounts','list'):'accounts',
+                ('secrets','list'):'secrets',
+                ('firestore','databases','list'):'databases',
+                ('artifacts','repositories','list','--location='+self.cfg['terraform']['region']):'repositories',
+                ('run','services','list','--region='+self.cfg['terraform']['region']):'cloudRun',
+            }[args]
+            return cloud_values[key]
+        seen=[]
+        def fake_api_list(_config,url,field,optional=False):
+            seen.append((url,field))
+            return []
+        with tempfile.TemporaryDirectory() as root,patch.object(c,'ROOT',Path(root)),patch.object(c,'cloud',side_effect=fake_cloud),patch.object(c,'api_list',side_effect=fake_api_list),patch.object(c,'api',return_value=None):
+            c.inventory(self.cfg)
+        field_urls=[url for url,field in seen if field=='fields']
+        self.assertEqual(len(field_urls),2)
+        decoded=[urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get('filter',[''])[0] for url in field_urls]
+        self.assertCountEqual(decoded,['indexConfig.usesAncestorConfig:false','ttlConfig:*'])
+
     def test_existing_objects_are_imported_not_recreated(self):
         p=self.cfg['projectId']; e='staging'
         inv={'services':[],'project':{'projectNumber':'123'},'accounts':[],'buckets':[{'name':self.cfg['terraform']['client_documents_bucket_name']}],'secrets':[{'name':f'projects/{p}/secrets/proinspect-staging-access-data-encryption-key'}],'databases':[{'name':f'projects/{p}/databases/'+self.cfg['databaseId']}],'repositories':[],'webApps':[],'backupSchedules':[],'indexes':[]}
