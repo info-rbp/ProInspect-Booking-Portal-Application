@@ -164,7 +164,7 @@ def plan(c):
         if match: imports["google_artifact_registry_repository.platform"]=match[0]["name"]
     if "google_secret_manager_secret.production_release_token[0]" not in addresses:
         found=[x for x in inv["secrets"] if x["name"].endswith("/proinspect-production-release-token")]
-        if found: imports["google_secret_manager_secret.production_release_token[0]"]=found[0]["name"]
+        if found: imports["google_secret_manager_secret.production_release_token[0]"]=found[0]["name"].rsplit("/",1)[-1]
     generated="".join('import {\n  to = '+a+'\n  id = '+json.dumps(v)+'\n}\n' for a,v in imports.items())
     path=workspace(c)/"imports.generated.tf"; path.write_text(generated)
     (ROOT/"infrastructure/imports.generated.tf").write_text(generated)
