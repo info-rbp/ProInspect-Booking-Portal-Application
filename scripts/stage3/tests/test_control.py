@@ -141,6 +141,35 @@ class Controls(unittest.TestCase):
         self.assertIn('google_storage_bucket.client_documents',imported)
         self.assertIn('google_secret_manager_secret.runtime["access_data_encryption_key"]',imported)
         self.assertNotIn('google_storage_bucket.client_documents',c.adoption_imports(self.cfg,inv,{'google_storage_bucket.client_documents'}))
+    def test_secret_imports_use_secret_id_not_numeric_project_resource_name(self):
+        project=self.cfg['projectId']
+        self.cfg['environment']='production'
+        self.cfg['projectId']=project
+        self.cfg['terraform']['project_id']=project
+        inv={
+            'services':[],
+            'project':{'projectNumber':'696236368989'},
+            'accounts':[],
+            'buckets':[],
+            'secrets':[
+                {'name':'projects/696236368989/secrets/proinspect-production-access-data-encryption-key'},
+                {'name':'projects/696236368989/secrets/proinspect-production-report-ingest-token'},
+                {'name':'projects/696236368989/secrets/proinspect-production-google-signin-client-secret'},
+            ],
+            'databases':[],
+            'repositories':[],
+            'webApps':[],
+            'backupSchedules':[],
+            'indexes':[],
+        }
+        imported=c.adoption_imports(self.cfg,inv,set())
+        self.assertEqual(imported['google_secret_manager_secret.runtime["access_data_encryption_key"]'],
+                         'proinspect-production-access-data-encryption-key')
+        self.assertEqual(imported['google_secret_manager_secret.integration["report_ingest_token"]'],
+                         'proinspect-production-report-ingest-token')
+        self.assertEqual(imported['google_secret_manager_secret.auth_client'],
+                         'proinspect-production-google-signin-client-secret')
+
     def test_secret_aliases_and_disabled_versions_rejected(self):
         manifest={'requiredSecrets':['KEY'],'secretBindings':{'KEY':'managed-key'}}
         for version in ['latest','0','alias']:
