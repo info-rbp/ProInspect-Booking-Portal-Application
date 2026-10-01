@@ -279,9 +279,9 @@ def adoption_imports(config, inv, existing_addresses):
         for key in ['access_data_encryption_key','resend_api_key','google_maps_api_key','report_handoff_signing_key','report_ingest_token','payment_webhook_token']:
             if secret['name'].endswith('/'+prefix+'-'+key.replace('_','-')):
                 resource = 'runtime' if key in ['access_data_encryption_key','resend_api_key','google_maps_api_key'] else 'integration'
-                add(f'google_secret_manager_secret.{resource}["{key}"]', secret['name'])
+                add(f'google_secret_manager_secret.{resource}["{key}"]', secret['name'].rsplit('/',1)[-1])
     for secret in inv['secrets']:
-        if secret['name'].endswith('/proinspect-'+env+'-google-signin-client-secret'): add('google_secret_manager_secret.auth_client',secret['name'])
+        if secret['name'].endswith('/proinspect-'+env+'-google-signin-client-secret'): add('google_secret_manager_secret.auth_client',secret['name'].rsplit('/',1)[-1])
     for d in inv['databases']:
         if d['name'].endswith('/databases/'+config['databaseId']): add('google_firestore_database.platform', d['name'])
     for r in inv['repositories']:
