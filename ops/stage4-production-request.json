@@ -4,5 +4,5 @@
   "releaseId": "production-unification",
   "sourceSha": "22fca706b920fb47d421b179db5f8c51ccafe5c6",
   "approve": "",
-  "note": "Stage 4 production plan rerun with safe phase-labelled Terraform tracing. Application source remains pinned to verified 22fca706b920fb47d421b179db5f8c51ccafe5c6; descriptor unchanged. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Stage 4 production plan diagnostic rerun with redacted Terraform plan stderr. Application source remains pinned to verified 22fca706b920fb47d421b179db5f8c51ccafe5c6; descriptor unchanged. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
