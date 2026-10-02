@@ -305,7 +305,11 @@ def adoption_imports(config, inv, existing_addresses):
         if matches: add(f'google_firestore_index.canonical["{digest(idx)[:20]}"]', matches[0]['name'])
     for kind, resource in [('identityPool','google_iam_workload_identity_pool.github[0]'),('identityProvider','google_iam_workload_identity_pool_provider.github[0]')]:
         if t.get('enable_github_federation',True) and inv.get(kind): add(resource,inv[kind]['name'])
-    if inv.get('rulesRelease'): add('google_firebaserules_release.firestore',inv['rulesRelease']['name'])
+    if inv.get('rulesRelease'):
+        ruleset_name=inv['rulesRelease'].get('rulesetName')
+        require(ruleset_name and '/rulesets/' in ruleset_name, 'Existing Firebase Rules release does not reference a valid ruleset.')
+        add('google_firebaserules_ruleset.firestore', ruleset_name)
+        add('google_firebaserules_release.firestore', inv['rulesRelease']['name'])
     if inv.get('gatewayRole'): add('google_project_iam_custom_role.gateway_policy',inv['gatewayRole']['name'])
     for field in read(ROOT/'firestore.indexes.json').get('fieldOverrides',[]):
         suffix='/collectionGroups/'+field['collectionGroup']+'/fields/'+field['fieldPath']
