@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "22fca706b920fb47d421b179db5f8c51ccafe5c6",
+  "sourceSha": "048dbca0ead1c7b3726e97a389fa912d3b8f5c8e",
   "approve": "",
-  "note": "Stage 4 production plan diagnostic rerun with redacted Terraform plan stderr. Application source remains pinned to verified 22fca706b920fb47d421b179db5f8c51ccafe5c6; descriptor unchanged. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Stage 4 production infrastructure plan after Secret Manager import normalization and grpc security remediation. Private production descriptor updated to the exact verified source. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
