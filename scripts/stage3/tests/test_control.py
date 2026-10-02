@@ -141,6 +141,33 @@ class Controls(unittest.TestCase):
         self.assertIn('google_storage_bucket.client_documents',imported)
         self.assertIn('google_secret_manager_secret.runtime["access_data_encryption_key"]',imported)
         self.assertNotIn('google_storage_bucket.client_documents',c.adoption_imports(self.cfg,inv,{'google_storage_bucket.client_documents'}))
+    def test_firebase_rules_adoption_imports_active_ruleset_and_release(self):
+        inv={
+            'services':[],
+            'project':{'projectNumber':'696236368989'},
+            'accounts':[],
+            'buckets':[],
+            'secrets':[],
+            'databases':[],
+            'repositories':[],
+            'webApps':[],
+            'backupSchedules':[],
+            'indexes':[],
+            'rulesRelease':{
+                'name':'projects/example-project/releases/cloud.firestore/example-db',
+                'rulesetName':'projects/example-project/rulesets/ruleset-123',
+            },
+        }
+        imported=c.adoption_imports(self.cfg,inv,set())
+        self.assertEqual(
+            imported['google_firebaserules_ruleset.firestore'],
+            'projects/example-project/rulesets/ruleset-123',
+        )
+        self.assertEqual(
+            imported['google_firebaserules_release.firestore'],
+            'projects/example-project/releases/cloud.firestore/example-db',
+        )
+
     def test_secret_imports_use_secret_id_not_numeric_project_resource_name(self):
         project=self.cfg['projectId']
         self.cfg['environment']='production'
