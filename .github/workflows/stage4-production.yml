@@ -554,6 +554,10 @@ jobs:
           latest=status.get("latestCreatedRevisionName")
           print("STAGE4_MAINT_LATEST_CREATED="+str(latest or ""))
           print("STAGE4_MAINT_LATEST_READY="+str(status.get("latestReadyRevisionName") or ""))
+          print("STAGE4_MAINT_TRAFFIC="+json.dumps([
+              {"revisionName":x.get("revisionName"),"percent":x.get("percent"),"tag":x.get("tag")}
+              for x in status.get("traffic",[])
+          ],sort_keys=True,separators=(",",":")))
           if latest:
               pathlib.Path("/tmp/stage4-latest-revision.txt").write_text(latest)
           PY
@@ -572,6 +576,7 @@ jobs:
           revision=json.loads(p.read_text())
           status=revision.get("status") or {}
           safe={
+              "createdAt":(revision.get("metadata") or {}).get("creationTimestamp"),
               "conditions":[
                   {k:item.get(k) for k in ("type","status","reason","message")}
                   for item in status.get("conditions",[])
