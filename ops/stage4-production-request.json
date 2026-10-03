@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "build",
+  "action": "maintenance",
   "releaseId": "production-unification",
   "sourceSha": "7111ce548fa7d16bda9804ef89f4b1678098c7a9",
-  "approve": "",
-  "note": "Build the immutable production image for the fully verified Stage 4 source after successful production planning. This is the first step of the accelerated launch sequence; no maintenance, Terraform apply, migration, traffic change or main merge occurs in this run."
+  "approve": "FREEZE:7111ce548fa7d16bda9804ef89f4b1678098c7a9",
+  "note": "Enter the verified Stage 4 production maintenance window using the immutable image built for the fully verified source. Deploy maintenance with the explicit GA HTTP startup probe on /healthz, verify the tagged revision, IAM and booking mutation blocking, then move production traffic to maintenance. No Terraform apply, migration, candidate deployment or main merge."
 }
