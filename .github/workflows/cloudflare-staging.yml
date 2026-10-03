@@ -1,5 +1,8 @@
 name: Cloudflare staging rehearsal
 on:
+  push:
+    branches: [release/cloudflare-platform]
+    paths: [ops/cloudflare-staging-request.json]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -29,13 +32,187 @@ jobs:
           persist-credentials: false
       - id: source
         env:
-          SOURCE: ${{ inputs.source_sha }}
+          SOURCE_INPUT: ${{ inputs.source_sha }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            SOURCE="$(node -e "const r=require('./ops/cloudflare-staging-request.json');if(r.schemaVersion!==1||r.action!=='rehearse')process.exit(2);process.stdout.write(String(r.sourceSha||''))")"
+          else
+            SOURCE="$SOURCE_INPUT"
+          fi
+          export SOURCE
           [[ "$SOURCE" =~ ^[a-f0-9]{40}$ ]] || { echo "Exact source SHA required."; exit 1; }
           git cat-file -e "$SOURCE^{commit}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            CHANGED="$(git diff --name-only "$SOURCE" HEAD | grep -v '^ops/cloudflare-staging-request.json
+          git fetch origin release/cloudflare-platform
+          git merge-base --is-ancestor "$SOURCE" origin/release/cloudflare-platform
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/cloudflare-verify.yml/runs?head_sha=$SOURCE&status=completed&per_page=20" > /tmp/runs.json
+          SOURCE="$SOURCE" python3 - <<'PY'
+          import json,os
+          runs=json.load(open('/tmp/runs.json')).get('workflow_runs',[])
+          source=os.environ['SOURCE']
+          if not any(r.get('head_sha')==source and r.get('conclusion')=='success' for r in runs):
+              raise SystemExit('Exact source SHA has not passed Cloudflare verification.')
+          PY
+          echo "sha=$SOURCE" >> "$GITHUB_OUTPUT"
+
+  rehearse:
+    needs: validate
+    environment: staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: ${{ needs.validate.outputs.source }}
+      RELEASE_SHA: ${{ needs.validate.outputs.source }}
+      STAGING_INSTANCE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      STAGING_EMAIL_RECIPIENT: info@proinspect.systems
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      GCP_PROJECT_ID: business-plan-applicatio-17047
+      GCP_MIGRATION_SA: proinspect-prod-migration@business-plan-applicatio-17047.iam.gserviceaccount.com
+      GCP_RUNTIME_SA: proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com
+      GCP_FIREBASE_STORAGE_BUCKET: business-plan-applicatio-17047.firebasestorage.app
+      GOOGLE_CALENDAR_ID: c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Re-run exact source verification
+        run: npm run cloudflare:check
+
+      - name: Provision isolated staging resources
+        run: node scripts/cloudflare/provision-staging.mjs
+      - name: Build and configure staging maintenance Worker
+        env:
+          CLOUDFLARE_STAGING_LAUNCH_MODE: maintenance
+        run: |
+          npm run build
+          npm run cloudflare:schema
+          node scripts/cloudflare/configure-staging.mjs
+      - name: Apply staging D1 schema
+        run: npx --yes wrangler@4.147.0 d1 migrations apply DB --remote --config .cloudflare/wrangler.staging.json
+      - name: Deploy staging Worker in maintenance mode
+        run: npx --yes wrangler@4.147.0 deploy --config .cloudflare/wrangler.staging.json
+      - name: Verify staging maintenance runtime
+        run: |
+          STAGING_URL="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).appUrl)")"
+          CLOUDFLARE_SMOKE_URL="$STAGING_URL" CLOUDFLARE_EXPECT_MODE=maintenance node scripts/cloudflare/remote-smoke.mjs
+
+      - name: Authenticate read-only legacy migration source
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Install isolated staging runtime secrets
+        run: |
+          set -euo pipefail
+          umask 077
+          LEGACY_KEY="$(gcloud secrets versions access latest             --secret=proinspect-production-access-data-encryption-key             --project="$GCP_PROJECT_ID"             --impersonate-service-account="$GCP_RUNTIME_SA")"
+          ACTIVE_KEY="$(openssl rand -base64 32 | tr -d '\n')"
+          KEYRING="$(LEGACY_KEY="$LEGACY_KEY" node -e "process.stdout.write(JSON.stringify({v1:process.env.LEGACY_KEY}))")"
+          FILE_KEY="$(openssl rand -hex 32)"
+          REPORT_SIGNING="$(openssl rand -hex 32)"
+          REPORT_TOKEN="$(openssl rand -hex 32)"
+          PAYMENT_TOKEN="$(openssl rand -hex 32)"
+          TURNSTILE_SECRET="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-private.json')).turnstileSecret||'')")"
+          test -n "$LEGACY_KEY" && test -n "$ACTIVE_KEY" && test -n "$TURNSTILE_SECRET"
+          printf '%s' "$ACTIVE_KEY" | npx --yes wrangler@4.147.0 secret put ACCESS_DATA_ENCRYPTION_KEY --config .cloudflare/wrangler.staging.json
+          printf '%s' "$KEYRING" | npx --yes wrangler@4.147.0 secret put ENCRYPTION_KEYS_JSON --config .cloudflare/wrangler.staging.json
+          printf '%s' "$FILE_KEY" | npx --yes wrangler@4.147.0 secret put FILE_SIGNING_KEY --config .cloudflare/wrangler.staging.json
+          printf '%s' "$REPORT_SIGNING" | npx --yes wrangler@4.147.0 secret put REPORT_HANDOFF_SIGNING_KEY --config .cloudflare/wrangler.staging.json
+          printf '%s' "$REPORT_TOKEN" | npx --yes wrangler@4.147.0 secret put REPORT_INGEST_TOKEN --config .cloudflare/wrangler.staging.json
+          printf '%s' "$PAYMENT_TOKEN" | npx --yes wrangler@4.147.0 secret put PAYMENT_WEBHOOK_TOKEN --config .cloudflare/wrangler.staging.json
+          printf '%s' "$TURNSTILE_SECRET" | npx --yes wrangler@4.147.0 secret put TURNSTILE_SECRET_KEY --config .cloudflare/wrangler.staging.json
+          printf 'REPORT_INGEST_TOKEN=%s\nPAYMENT_WEBHOOK_TOKEN=%s\n' "$REPORT_TOKEN" "$PAYMENT_TOKEN" > /tmp/staging-integration-secrets.env
+          unset LEGACY_KEY ACTIVE_KEY KEYRING FILE_KEY REPORT_SIGNING REPORT_TOKEN PAYMENT_TOKEN TURNSTILE_SECRET
+
+      - name: Export stable production snapshot without freezing writers
+        run: |
+          set -euo pipefail
+          umask 077
+          MIGRATION_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_MIGRATION_SA")"
+          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" npx tsx scripts/cloudflare/export-source.ts             --project="$GCP_PROJECT_ID"             --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a             --out=private-migration
+          RUNTIME_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_RUNTIME_SA")"
+          GOOGLE_OAUTH_ACCESS_TOKEN="$RUNTIME_TOKEN" GOOGLE_CALENDAR_ID="$GOOGLE_CALENDAR_ID"             node scripts/cloudflare/import-legacy-calendar-busy.mjs private-migration
+          unset MIGRATION_TOKEN RUNTIME_TOKEN
+      - name: Rehearse exact Firestore to staging D1 migration twice
+        run: |
+          set -euo pipefail
+          DIGEST="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('private-migration/d1-import-plan.json')).digest)")"
+          CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs             private-migration/d1-import-plan.json .cloudflare/staging-resources.json > /tmp/staging-first.json
+          CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs             private-migration/d1-import-plan.json .cloudflare/staging-resources.json > /tmp/staging-second.json
+          node - <<'NODE'
+          const r=JSON.parse(require('fs').readFileSync('/tmp/staging-second.json','utf8'));
+          if(r.inserted!==0)throw new Error('Staging second migration pass was not zero-write.');
+          console.log('STAGING_D1_ZERO_WRITE_REPEAT=success');
+          NODE
+      - name: Rehearse Firebase Storage to isolated staging R2
+        env:
+          GCP_STORAGE_IMPERSONATE_SERVICE_ACCOUNT: ${{ env.GCP_MIGRATION_SA }}
+        run: node scripts/cloudflare/migrate-production-storage.mjs private-migration/canonical-export.json .cloudflare/staging-resources.json
+
+      - name: Deploy migrated staging Worker live
+        env:
+          CLOUDFLARE_STAGING_LAUNCH_MODE: live
+        run: |
+          node scripts/cloudflare/configure-staging.mjs
+          npx --yes wrangler@4.147.0 deploy --config .cloudflare/wrangler.staging.json
+      - name: Verify migrated staging runtime
+        run: |
+          STAGING_URL="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).appUrl)")"
+          CLOUDFLARE_SMOKE_URL="$STAGING_URL" CLOUDFLARE_EXPECT_MODE=live node scripts/cloudflare/remote-smoke.mjs
+      - name: Verify Cloudflare Email Service to controlled staging sink
+        run: |
+          set -euo pipefail
+          ACCOUNT="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).accountId)")"
+          curl -fsS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/email/sending/send"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data '{"to":"info@proinspect.systems","from":"bookings@proinspect.systems","subject":"ProInspect staging rehearsal verification","text":"The isolated ProInspect Cloudflare staging rehearsal completed its deployment and migration checks."}'             > /tmp/staging-email.json
+          node -e "const r=require('/tmp/staging-email.json');if(r.success!==true)process.exit(1);console.log('STAGING_EMAIL_SEND=success')"
+      - name: Write sanitized staging rehearsal evidence
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const resources=JSON.parse(fs.readFileSync('.cloudflare/staging-resources.json'));
+          const plan=JSON.parse(fs.readFileSync('private-migration/d1-import-plan.json'));
+          const storage=JSON.parse(fs.readFileSync('private-migration/storage-migration.json'));
+          const evidence={schemaVersion:1,sourceSha:process.env.SOURCE_SHA,workerName:resources.workerName,appUrl:resources.appUrl,databaseName:resources.database.name,migrationDigest:plan.digest,counts:plan.counts,storageObjects:storage.objects.length,storageBytes:storage.bytes,completedAt:new Date().toISOString()};
+          fs.writeFileSync('.cloudflare/staging-rehearsal-evidence.json',JSON.stringify(evidence,null,2)+'\n');
+          console.log(JSON.stringify(evidence,null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-staging-rehearsal-${{ needs.validate.outputs.source }}
+          path: |
+            .cloudflare/staging-resources.json
+            .cloudflare/staging-rehearsal-evidence.json
+          include-hidden-files: true
+          retention-days: 30
+      - name: Mark source staging rehearsal successful
+        if: success()
+        run: |
+          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/staging-rehearsal","description":"Isolated Cloudflare staging migration rehearsal passed"}' >/dev/null
+      - name: Mark source staging rehearsal failed
+        if: failure()
+        run: |
+          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"failure","context":"cloudflare/staging-rehearsal","description":"Cloudflare staging migration rehearsal failed"}' >/dev/null || true
+ || true)"
+            test -z "$CHANGED" || { echo "Staging request contains source changes outside the request file: $CHANGED"; exit 1; }
+          fi
           git fetch origin release/cloudflare-platform
           git merge-base --is-ancestor "$SOURCE" origin/release/cloudflare-platform
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/cloudflare-verify.yml/runs?head_sha=$SOURCE&status=completed&per_page=20" > /tmp/runs.json
