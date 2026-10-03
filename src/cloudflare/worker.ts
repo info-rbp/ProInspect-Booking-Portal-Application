@@ -42,8 +42,9 @@ export async function dispatch(request:Request,env:Bindings,ctx:any):Promise<Res
   if(new URL(request.url).origin!==new URL(env.APP_URL).origin)return security(apiError('Unrecognized application origin',403),path);
   const access=await verifyAccess(request,env);
   if(env.LAUNCH_MODE==='preview'&&!access)return security(apiError('This preview requires Cloudflare Access.',401),path);
-  const identity=path.startsWith('/api/admin')||path.startsWith('/admin')?access:(await sessionIdentity(request,env)||access);
-  if((path==='/admin'||path.startsWith('/admin/')||path.startsWith('/api/admin'))&&!access)return security(apiError('Staff access requires Cloudflare Access.',401),path);
+  const session=await sessionIdentity(request,env);
+  const identity=access||session;
+  if(path.startsWith('/api/admin')&&!identity)return security(apiError('Staff authentication required.',401),path);
   const payload=WRITE.has(request.method)?await readBodyBounded(request,path.includes('/attachments')||path.includes('/documents')||path==='/api/integrations/reports'?30*1024*1024:256*1024):undefined;
   const headers=new Headers(request.headers);
   headers.delete('Authorization');headers.delete('X-ProInspect-Identity');
