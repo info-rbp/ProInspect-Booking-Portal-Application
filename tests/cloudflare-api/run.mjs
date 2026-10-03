@@ -42,7 +42,7 @@ test('tenant request to work order, contractor and client approval stays on the 
  assert.equal(contractor.status,201,JSON.stringify(contractor.data));
  const workOrder=await api('/api/admin/work-orders',{actor:'admin',method:'POST',body:{sourceType:'tenant_request',sourceId:tenantRequest.data.request.id,propertyId:'p1',clientId:'c1',tenancyId:'ten1',title:'Repair leaking kitchen tap',description:'Inspect and repair the leaking kitchen tap.',priority:'routine'}});
  assert.equal(workOrder.status,201,JSON.stringify(workOrder.data));
- const assigned=await api('/api/admin/work-orders/'+workOrder.data.workOrder.id,{actor:'admin',method:'PATCH',body:{status:'assigned',contractorId:contractor.data.contractor.id}});
+ const assigned=await api('/api/admin/work-orders/'+workOrder.data.workOrder.id,{actor:'admin',method:'PATCH',body:{status:'assigned',contractorId:contractor.data.contractor.id,accessNotes:'PRIVATE-WORK-ORDER-ACCESS'}});
  assert.equal(assigned.status,200,JSON.stringify(assigned.data));
  const approval=await api('/api/admin/approvals',{actor:'admin',method:'POST',body:{clientId:'c1',propertyId:'p1',clientUserId:'cu',workOrderId:workOrder.data.workOrder.id,type:'quote',title:'Approve plumbing repair',summary:'Controlled approval',amountExGst:100}});
  assert.equal(approval.status,201,JSON.stringify(approval.data));
@@ -51,6 +51,14 @@ test('tenant request to work order, contractor and client approval stays on the 
  assert.equal((await db.collection('workOrders').doc(workOrder.data.workOrder.id).get()).data().status,'approved');
  const complete=await api('/api/admin/work-orders/'+workOrder.data.workOrder.id,{actor:'admin',method:'PATCH',body:{status:'completed',completionNotes:'Controlled completion recorded.'}});
  assert.equal(complete.status,200,JSON.stringify(complete.data));
+ const inspectionStart=new Date(Date.now()+3*86400000).toISOString();
+ const inspection=await api('/api/admin/tenant-inspections',{actor:'admin',method:'POST',body:{tenancyId:'ten1',propertyId:'p1',type:'routine',scheduledStart:inspectionStart}});
+ assert.equal(inspection.status,201,JSON.stringify(inspection.data));
+ const dashboard=await api('/api/client/dashboard',{actor:'client'});assert.equal(dashboard.status,200);
+ assert.ok(dashboard.data.dashboard.workOrders.some(item=>item.id===workOrder.data.workOrder.id));
+ assert.ok(dashboard.data.dashboard.inspections.some(item=>item.id===inspection.data.inspection.id));
+ assert.ok(!JSON.stringify(dashboard.data).includes('PRIVATE-WORK-ORDER-ACCESS'));
+ assert.ok(!JSON.stringify(dashboard.data).includes('Controlled completion recorded.'));
  const audits=await db.collection('auditEvents').where('entityId','==',workOrder.data.workOrder.id).get();assert.ok(audits.size>=2);
 });
 test('WA statutory workflow creates a client approval and propagates the response',async()=>{
