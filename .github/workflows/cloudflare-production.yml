@@ -53,6 +53,15 @@ jobs:
           if not any(r.get('head_sha')==os.environ['SOURCE'] and r.get('conclusion')=='success' for r in runs):
               raise SystemExit('Exact Cloudflare source SHA has not passed the permanent verification workflow.')
           PY
+          if [ "$ACTION" != "readiness" ]; then
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/$REPO/commits/$SOURCE/status" > /tmp/source-status.json
+            python3 - <<'PY'
+          import json
+          statuses=json.load(open('/tmp/source-status.json')).get('statuses',[])
+          if not any(s.get('context')=='cloudflare/staging-rehearsal' and s.get('state')=='success' for s in statuses):
+              raise SystemExit('Exact production source SHA has not passed the isolated Cloudflare staging rehearsal.')
+          PY
+          fi
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
