@@ -145,6 +145,13 @@ The `plan` and successful `backup` summaries display the exact approval digests.
 Review the full saved private plan, not only its checksum. The workflow does not
 publish plans/customer data to public GitHub artifacts.
 
+Before the first immutable production build, verify the one-time Stage 4
+bootstrap has completed for supporting IAM/storage/build/federation. A
+successful readiness/plan run proves keyless production access and the reviewed
+Terraform plan, but does not by itself prove the dedicated build identity can
+read the source bucket or push to Artifact Registry. The build workflow blocks
+with explicit missing-prerequisite labels if this bootstrap IAM is incomplete.
+
 Building is deliberately before maintenance: the same audited image contains
 the maintenance server. Customer traffic is not changed by `build`.
 The first production migration runs inside an acknowledged maintenance window.

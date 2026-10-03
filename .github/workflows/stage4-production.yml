@@ -180,6 +180,73 @@ jobs:
       - name: Install the locked application dependencies
         if: needs.request.outputs.action != 'readiness'
         run: npm ci
+      - name: Verify immutable build bootstrap prerequisites
+        if: needs.request.outputs.action == 'build'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+
+          config=json.load(open("infrastructure/environments/production.local.json"))
+          project=config["projectId"]
+          terraform_sa=config["terraform"]["terraform_service_account_email"]
+          build_sa=config["production"]["buildIdentity"]
+          deploy_sa=config["production"]["deployIdentity"]
+          source_bucket=config["production"]["buildSourceBucket"]
+          region=config["terraform"]["region"]
+          repository=config["production"]["imageRepository"].split("/")[2]
+
+          def g(*args):
+              cmd=["gcloud",*args,
+                   "--project="+project,
+                   "--impersonate-service-account="+terraform_sa,
+                   "--quiet","--format=json"]
+              result=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+              if result.returncode:
+                  print("STAGE4_BUILD_PREFLIGHT_LOOKUP_FAIL="+args[0],flush=True)
+                  raise SystemExit("Unable to verify immutable-build prerequisites safely.")
+              return json.loads(result.stdout or "{}")
+
+          def has(policy,role,member):
+              return any(
+                  binding.get("role")==role and member in binding.get("members",[])
+                  for binding in policy.get("bindings",[])
+              )
+
+          project_policy=g("projects","get-iam-policy",project)
+          build_policy=g("iam","service-accounts","get-iam-policy",build_sa)
+          deploy_policy=g("iam","service-accounts","get-iam-policy",deploy_sa)
+          source_policy=g("storage","buckets","get-iam-policy","gs://"+source_bucket)
+          repo_policy=g("artifacts","repositories","get-iam-policy",repository,"--location="+region)
+
+          build_member="serviceAccount:"+build_sa
+          deploy_member="serviceAccount:"+deploy_sa
+          terraform_member="serviceAccount:"+terraform_sa
+
+          required=[
+              ("project deploy cloudbuild editor",has(project_policy,"roles/cloudbuild.builds.editor",deploy_member)),
+              ("project deploy service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",deploy_member)),
+              ("project build logging",has(project_policy,"roles/logging.logWriter",build_member)),
+              ("project build service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",build_member)),
+              ("deploy impersonation by terraform",has(deploy_policy,"roles/iam.serviceAccountTokenCreator",terraform_member)),
+              ("build actAs by deploy",has(build_policy,"roles/iam.serviceAccountUser",deploy_member)),
+              ("source upload by deploy",has(source_policy,"roles/storage.objectAdmin",deploy_member)),
+              ("source read by build",has(source_policy,"roles/storage.objectViewer",build_member)),
+              ("artifact push by build",has(repo_policy,"roles/artifactregistry.writer",build_member)),
+          ]
+          missing=[label for label,ok in required if not ok]
+          if missing:
+              print("STAGE4_BUILD_PREFLIGHT=blocked",flush=True)
+              for label in missing:
+                  print("STAGE4_BUILD_MISSING="+label,flush=True)
+              raise SystemExit(
+                  "Immutable build bootstrap prerequisites are incomplete. "
+                  "Run the reviewed scripts/stage4/bootstrap.py supporting-resource plan before retrying."
+              )
+          print("STAGE4_BUILD_PREFLIGHT=success",flush=True)
+          PY
       - name: Diagnose plan prerequisites without exposing secrets
         if: needs.request.outputs.action == 'plan'
         env:
