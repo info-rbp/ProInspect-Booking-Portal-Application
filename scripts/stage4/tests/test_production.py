@@ -244,6 +244,8 @@ class ProductionPolicy(unittest.TestCase):
         self.assertIn('http(c,url,"/api/bookings/create",method="POST",body={})[0]==503',source)
         self.assertIn('http(c,tag["url"],"/api/release/health"',source)
         self.assertIn('"--service-account="+c["terraform"]["runtime_service_account_email"]',source)
+        self.assertIn("def cloud_run_deploy",source)
+        self.assertIn("Cloud Run deploy rejected:",source)
 
     def test_maintenance_requires_exact_source_approval_before_calls(self):
         with patch.object(release,"cloud") as cloud:
