@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "maintenance",
+  "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "5c3cdd8ba76b88a79ca1699f10565020f0e72b5d",
-  "approve": "FREEZE:5c3cdd8ba76b88a79ca1699f10565020f0e72b5d",
-  "note": "Enter the verified Stage 4 production maintenance window using the immutable image built for the corrected frozen source. Use Cloud Run default startup behavior, then verify the tagged maintenance revision via /healthz, confirm booking mutations return 503, verify IAM stability, and only then move production traffic to maintenance. No Terraform apply, migration, candidate deployment or main merge."
+  "sourceSha": "9c7e7297bfe3ce09338ee06a868b0244940c65e6",
+  "approve": "",
+  "note": "Regenerate the reviewed Stage 4 production plan after shortening Cloud Run cutover traffic tags to satisfy the service-name/tag hostname limit. No Terraform apply, migration, maintenance traffic change, candidate deployment or main merge."
 }
