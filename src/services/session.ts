@@ -47,18 +47,18 @@ window.fetch=async(input:RequestInfo|URL,init?:RequestInit)=>{
  return nativeFetch(new Request(req,{headers,credentials:'same-origin'}));
 };
 export function tenantEmailLinkIsActive(){return new URLSearchParams(location.search).has('cf_token');}
-export async function requestSignIn(email:string,audience:'client'|'tenant'){
+export async function requestSignIn(email:string,audience:'client'|'tenant'|'admin'){
  const turnstileToken=await securityCheck('login');
  const r=await nativeFetch('/api/auth/request',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,audience,turnstileToken})});
  const result=await r.json();if(!r.ok)throw new Error(result.error||'Unable to request sign-in.');
 }
 export async function sendTenantSignInLink(email:string){return requestSignIn(email,'tenant');}
-export async function completeSignIn(email:string,audience:'client'|'tenant'):Promise<{user:User}>{
+export async function completeSignIn(email:string,audience:'client'|'tenant'|'admin'):Promise<{user:User}>{
  const token=new URLSearchParams(location.search).get('cf_token');if(!token)throw new Error('Sign-in link missing.');
  const r=await nativeFetch('/api/auth/consume',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,audience,token})});
  const result=await r.json();if(!r.ok)throw new Error(result.error||'Unable to sign in.');
- const user=setUser(result.user)!;history.replaceState({},'',audience==='tenant'?'/tenant':'/client');return {user};
+ const target=audience==='tenant'?'/tenant':audience==='admin'?'/admin':'/client';const user=setUser(result.user)!;history.replaceState({},'',target);return {user};
 }
 export async function completeTenantSignIn(email?:string){if(!email)throw new Error('Enter your email and select Complete Sign In.');return completeSignIn(email,'tenant');}
 export async function logoutTenant(){const r=await nativeFetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf},credentials:'same-origin'});if(!r.ok)throw new Error('Sign-out could not be confirmed.');setUser(null);}
-export async function logoutAdmin(){await logoutTenant();window.location.assign('/cdn-cgi/access/logout');}
+export async function logoutAdmin(){const access=auth.currentUser?.provider==='access';await logoutTenant();if(access)window.location.assign('/cdn-cgi/access/logout');}
