@@ -91,11 +91,43 @@ def init(c):
        "-backend-config=impersonate_service_account="+c["terraform"]["terraform_service_account_email"])
 
 
+FIRESTORE_RULESET_ADDRESS="google_firebaserules_ruleset.firestore"
 FIRESTORE_RULES_RELEASE_ADDRESS="google_firebaserules_release.firestore"
 
 
 def expected_firestore_rules_release_name(c):
     return "cloud.firestore" if c["databaseId"]=="(default)" else "cloud.firestore/"+c["databaseId"]
+
+
+def expected_firestore_ruleset_replacement(resource,c):
+    if resource.get("type")!="google_firebaserules_ruleset" or resource.get("address")!=FIRESTORE_RULESET_ADDRESS:
+        return False
+    change=resource.get("change",{})
+    actions=change.get("actions",[])
+    if len(actions)!=2 or set(actions)!={"create","delete"}:
+        return False
+    before=change.get("before") or {}
+    after=change.get("after") or {}
+    if before.get("project")!=c["projectId"] or after.get("project")!=c["projectId"]:
+        return False
+    ruleset_prefix="projects/"+c["projectId"]+"/rulesets/"
+    before_name=before.get("name")
+    if not isinstance(before_name,str) or not before_name.startswith(ruleset_prefix):
+        return False
+    after_name=after.get("name")
+    after_name_unknown=(change.get("after_unknown") or {}).get("name") is True
+    if not after_name_unknown and (not isinstance(after_name,str) or not after_name.startswith(ruleset_prefix)):
+        return False
+    source=after.get("source")
+    if not isinstance(source,list) or len(source)!=1:
+        return False
+    files=source[0].get("files")
+    if not isinstance(files,list) or len(files)!=1 or files[0].get("name")!="firestore.rules":
+        return False
+    if after.get("deletion_policy")!="ABANDON":
+        return False
+    replace_paths=change.get("replace_paths") or []
+    return bool(replace_paths) and all(path and path[0]=="source" for path in replace_paths)
 
 
 def expected_firestore_rules_release_replacement(resource,c):
@@ -123,12 +155,27 @@ def expected_firestore_rules_release_replacement(resource,c):
     return change.get("replace_paths")==[["ruleset_name"]]
 
 
+def expected_firestore_rules_transition(resource,c):
+    return expected_firestore_ruleset_replacement(resource,c) or expected_firestore_rules_release_replacement(resource,c)
+
+
 def production_plan_guard(plan,c):
     require(plan.get("complete",True) is not False,"Incomplete/deferred Terraform plan cannot be applied.")
     changes=plan.get("resource_changes",[])
+    unexpected=[]
+    for r in changes:
+        if r.get("mode")=="data":
+            continue
+        actions=(r.get("change") or {}).get("actions",[])
+        if {"delete","forget"}.intersection(actions) and (
+            "forget" in actions or not expected_firestore_rules_transition(r,c)
+        ):
+            unexpected.append(r.get("address","<unknown>"))
+    require(not unexpected,
+            "Production plan contains unapproved destructive changes: "+", ".join(sorted(set(unexpected))))
     approved=[
         r.get("address") for r in changes
-        if expected_firestore_rules_release_replacement(r,c)
+        if expected_firestore_rules_transition(r,c)
     ]
     stage3.guard_plan(plan,{**c,"approvedEphemeralReplacements":approved})
     for r in changes:
@@ -137,8 +184,8 @@ def production_plan_guard(plan,c):
         destructive={"delete","forget"}.intersection(ch["actions"])
         if destructive:
             require(
-                "forget" not in ch["actions"] and expected_firestore_rules_release_replacement(r,c),
-                "Production deletions, replacements and forgetting state are prohibited except the canonical Firestore rules release ruleset transition."
+                "forget" not in ch["actions"] and expected_firestore_rules_transition(r,c),
+                "Production deletions, replacements and forgetting state are prohibited except the canonical Firestore ruleset/release transition."
             )
         require(not kind.endswith(("_iam_policy","_iam_binding")),"Authoritative IAM updates can remove unrelated permissions.")
         if kind in ("google_firestore_database","google_firebase_project","google_firebase_web_app"):

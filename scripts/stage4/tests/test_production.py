@@ -82,6 +82,56 @@ class ProductionPolicy(unittest.TestCase):
             plan={"resource_changes":[{"mode":"managed","address":kind+".test","type":kind,
               "change":{"actions":["delete","create"],"before":{},"after":{}}}]}
             with self.subTest(kind=kind),self.assertRaises(ValueError):release.production_plan_guard(plan,fixture())
+    def test_expected_firestore_ruleset_and_release_transition_accepted(self):
+        c=fixture()
+        release_name="cloud.firestore/"+c["databaseId"]
+        ruleset={"mode":"managed","address":"google_firebaserules_ruleset.firestore",
+          "type":"google_firebaserules_ruleset","change":{"actions":["create","delete"],
+          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing",
+                    "deletion_policy":"DELETE"},
+          "after":{"project":common.PROJECT,"name":None,"deletion_policy":"ABANDON",
+                   "source":[{"files":[{"name":"firestore.rules","content":"rules"}]}]},
+          "after_unknown":{"name":True},"replace_paths":[["source",0,"files"]]}}
+        release_change={"mode":"managed","address":"google_firebaserules_release.firestore",
+          "type":"google_firebaserules_release","change":{"actions":["delete","create"],
+          "before":{"project":common.PROJECT,"name":release_name,
+                    "ruleset_name":"projects/"+common.PROJECT+"/rulesets/existing"},
+          "after":{"project":common.PROJECT,"name":release_name,"ruleset_name":None},
+          "after_unknown":{"ruleset_name":True},"replace_paths":[["ruleset_name"]]}}
+        release.production_plan_guard({"resource_changes":[ruleset,release_change]},c)
+
+    def test_firestore_ruleset_replacement_requires_abandon_and_canonical_source(self):
+        c=fixture()
+        base={"mode":"managed","address":"google_firebaserules_ruleset.firestore",
+          "type":"google_firebaserules_ruleset","change":{"actions":["create","delete"],
+          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing",
+                    "deletion_policy":"DELETE"},
+          "after":{"project":common.PROJECT,"name":None,"deletion_policy":"ABANDON",
+                   "source":[{"files":[{"name":"firestore.rules","content":"rules"}]}]},
+          "after_unknown":{"name":True},"replace_paths":[["source",0,"files"]]}}
+        cases=[]
+        wrong_address=copy.deepcopy(base);wrong_address["address"]="google_firebaserules_ruleset.other";cases.append(wrong_address)
+        deletes_old=copy.deepcopy(base);deletes_old["change"]["after"]["deletion_policy"]="DELETE";cases.append(deletes_old)
+        wrong_file=copy.deepcopy(base);wrong_file["change"]["after"]["source"][0]["files"][0]["name"]="storage.rules";cases.append(wrong_file)
+        wrong_path=copy.deepcopy(base);wrong_path["change"]["replace_paths"]=[["project"]];cases.append(wrong_path)
+        delete_only=copy.deepcopy(base);delete_only["change"]["actions"]=["delete"];cases.append(delete_only)
+        for resource in cases:
+            with self.subTest(resource=resource),self.assertRaises(ValueError):
+                release.production_plan_guard({"resource_changes":[resource]},c)
+
+    def test_unapproved_destructive_changes_are_reported_together(self):
+        c=fixture()
+        plan={"resource_changes":[
+          {"mode":"managed","address":"google_storage_bucket.one","type":"google_storage_bucket",
+           "change":{"actions":["delete","create"],"before":{},"after":{}}},
+          {"mode":"managed","address":"google_firestore_index.two","type":"google_firestore_index",
+           "change":{"actions":["delete","create"],"before":{},"after":{}}},
+        ]}
+        with self.assertRaises(ValueError) as raised:
+            release.production_plan_guard(plan,c)
+        self.assertIn("google_storage_bucket.one",str(raised.exception))
+        self.assertIn("google_firestore_index.two",str(raised.exception))
+
     def test_expected_firestore_rules_release_replacement_accepted(self):
         c=fixture()
         release_name="cloud.firestore/"+c["databaseId"]
