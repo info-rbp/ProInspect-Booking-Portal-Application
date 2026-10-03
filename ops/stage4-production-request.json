@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "plan",
+  "action": "build",
   "releaseId": "production-unification",
   "sourceSha": "7111ce548fa7d16bda9804ef89f4b1678098c7a9",
   "approve": "",
-  "note": "Regenerate the reviewed Stage 4 production plan after replacing Preview readiness/liveness cutover probes with the GA startup-probe path. No Terraform apply, migration, maintenance traffic change, candidate deployment or main merge."
+  "note": "Build the immutable production image for the fully verified Stage 4 source after successful production planning. This is the first step of the accelerated launch sequence; no maintenance, Terraform apply, migration, traffic change or main merge occurs in this run."
 }
