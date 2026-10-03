@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "action": "readiness",
+  "sourceSha": "975723dec1c883d4f12e6148ce5be56d8ea48e6a",
+  "approve": "",
+  "note": "Read-only Cloudflare account and production capability discovery for the verified full Worker source. No production resources, data, secrets, DNS or traffic are modified."
+}
