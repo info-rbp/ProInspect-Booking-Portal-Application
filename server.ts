@@ -42,6 +42,7 @@ import type {
 import type {
   ClientRequestStatus,
   DocumentRequestStatus,
+  PaymentRecord,
   PaymentStatus,
   WorkOrderStatus,
 } from './src/types/platform.js';
