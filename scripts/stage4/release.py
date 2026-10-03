@@ -23,6 +23,27 @@ def checkpoint(c,name):
     return workspace(c)/(name+".json")
 
 
+def cloud_run_deploy(c,*args):
+    """Deploy through gcloud and expose only sanitized CLI rejection details."""
+    identity=c["production"]["deployIdentity"]
+    cmd=["gcloud","run","deploy",SERVICE,*args,
+         "--project="+PROJECT,
+         "--impersonate-service-account="+identity,
+         "--quiet","--format=json"]
+    result=subprocess.run(cmd,cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    if result.returncode:
+        raw=result.stderr or result.stdout or ""
+        raw=re.sub(r"ya29\.[A-Za-z0-9._-]+","[REDACTED_TOKEN]",raw)
+        raw=re.sub(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}","[REDACTED_JWT]",raw)
+        raw=re.sub(r"(?i)(authorization\s*[:=]\s*)([^\s]+)",r"\1[REDACTED]",raw)
+        raw=re.sub(r"(?<![A-Za-z0-9])[A-Za-z0-9+/]{120,}={0,2}(?![A-Za-z0-9])","[REDACTED_LONG_VALUE]",raw)
+        lines=[line.strip() for line in raw.splitlines()
+               if line.strip() and re.search(r"(?i)(error|failed|invalid|permission|denied|unsupported|unrecognized)",line)]
+        detail=" | ".join(lines[-8:])[:3000] or "gcloud returned a non-zero exit status without a safe diagnostic."
+        raise ValueError("Cloud Run deploy rejected: "+detail)
+    return json.loads(result.stdout) if result.stdout.strip() else {}
+
+
 def migration(c,path,action,*,output,extra=()):
     run(["node","--import","tsx","scripts/stage4/migrate.ts","--config",str(path),
          "--action",action,"--output",str(checkpoint(c,output)),*extra])
@@ -344,12 +365,11 @@ def maintenance(c,approve):
     # Empty environment and secrets for a minimal server that imports no application modules.
     env=workspace(c)/"maintenance-env.private.json"
     save(env,{"NODE_ENV":"production","PRODUCTION_SOURCE_SHA":c["sourceSha"],"PRODUCTION_RELEASE_ID":c["releaseId"]})
-    cloud(c,"run","deploy",SERVICE,"--region="+REGION,"--image="+image["image"],
+    cloud_run_deploy(c,"--region="+REGION,"--image="+image["image"],
           "--command=node","--args=--import,tsx,src/server/productionMaintenance.ts",
           "--env-vars-file="+str(env),"--clear-secrets",
           "--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--no-traffic","--tag=stage4-maint",
-          identity=c["production"]["deployIdentity"])
+          "--no-traffic","--tag=stage4-maint")
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
     require(traffic(live)==base["allocation"],"Deploying maintenance unexpectedly changed customer traffic.")
     url=next(x["url"] for x in live["status"]["traffic"] if x.get("tag")=="stage4-maint" and x.get("revisionName")==revision)
@@ -501,10 +521,10 @@ def candidate(c):
     m=evidence(c,"maintenance"); require(traffic(service(c))=={m["revision"]:100},"Production must still be in maintenance.")
     env=workspace(c)/"runtime-env.private.json"; save(env,runtime_env(c))
     bindings=",".join(k+"="+v+":"+str(c["secretVersions"][k]) for k,v in sorted(c["secretBindings"].items()))
-    cloud(c,"run","deploy",SERVICE,"--region="+REGION,"--image="+image["image"],
+    cloud_run_deploy(c,"--region="+REGION,"--image="+image["image"],
           "--command=node","--args=--import,tsx,server.ts","--env-vars-file="+str(env),
           "--set-secrets="+bindings,"--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--no-traffic","--tag=stage4-rc",identity=c["production"]["deployIdentity"])
+          "--no-traffic","--tag=stage4-rc")
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
     require(traffic(live)=={m["revision"]:100},"Candidate changed production traffic.")
     tag=next(x for x in live["status"]["traffic"] if x.get("tag")=="stage4-rc" and x.get("revisionName")==revision)
