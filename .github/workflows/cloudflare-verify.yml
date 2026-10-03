@@ -33,6 +33,8 @@ jobs:
         run: npm run lint
       - name: Build actual portals and Google-free Worker
         run: npm run cloudflare:build
+      - name: Exercise actual booking and portal business APIs against isolated SQLite
+        run: node --experimental-strip-types --test tests/cloudflare-api/run.mjs
       - name: Validate Worker upload without an account deployment
         run: npx --yes wrangler@4.147.0 deploy --dry-run --outdir .cloudflare/dry-run
       - name: Execute local Worker security and persistent API checks
