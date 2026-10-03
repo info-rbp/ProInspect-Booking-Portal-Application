@@ -161,12 +161,14 @@ staging bucket before upload, so the deploy identity needs the read-only
 Building is deliberately before maintenance: the same audited image contains
 the maintenance server. Customer traffic is not changed by `build`.
 
-Maintenance and candidate revisions pin the GA Cloud Run startup probe explicitly
-and clear inherited liveness/readiness probes. The maintenance startup probe
-uses `/healthz`; the full candidate uses `/api/health`. The controller then
-performs its own authenticated tagged-revision checks before any traffic change.
-This prevents historical probe inheritance and avoids depending on the Preview
-readiness-probe feature during the production cutover.
+Maintenance and candidate revisions use Cloud Run's built-in default TCP startup
+probe rather than mutating service probe configuration during the cutover. The
+controller then performs its own authenticated tagged-revision checks before any
+traffic change: maintenance must return 200 from `/healthz` and block booking
+mutations, while the full candidate must pass its release-health endpoint. This
+keeps application readiness checks explicit without relying on probe mutations
+that can be rejected before Cloud Run creates a revision. Deploy rejections are
+reported through sanitized CLI diagnostics; secret payloads remain suppressed.
 The first production migration runs inside an acknowledged maintenance window.
 Do not schedule it while customers need uninterrupted booking/portal access.
 
