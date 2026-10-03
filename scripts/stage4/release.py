@@ -348,9 +348,8 @@ def maintenance(c,approve):
           "--command=node","--args=--import,tsx,src/server/productionMaintenance.ts",
           "--env-vars-file="+str(env),"--clear-secrets",
           "--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--startup-probe=httpGet.path=/healthz,httpGet.port=8080",
-          "--liveness-probe=httpGet.path=/healthz,httpGet.port=8080",
-          "--readiness-probe=httpGet.path=/healthz,httpGet.port=8080",
+          "--startup-probe=httpGet.path=/healthz,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=15",
+          "--liveness-probe=","--readiness-probe=",
           "--no-traffic","--tag=stage4-maint",
           identity=c["production"]["deployIdentity"])
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
@@ -507,9 +506,8 @@ def candidate(c):
     cloud(c,"run","deploy",SERVICE,"--region="+REGION,"--image="+image["image"],
           "--command=node","--args=--import,tsx,server.ts","--env-vars-file="+str(env),
           "--set-secrets="+bindings,"--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--startup-probe=httpGet.path=/api/health,httpGet.port=8080",
-          "--liveness-probe=httpGet.path=/api/health,httpGet.port=8080",
-          "--readiness-probe=httpGet.path=/api/health,httpGet.port=8080",
+          "--startup-probe=httpGet.path=/api/health,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=30",
+          "--liveness-probe=","--readiness-probe=",
           "--no-traffic","--tag=stage4-rc",identity=c["production"]["deployIdentity"])
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
     require(traffic(live)=={m["revision"]:100},"Candidate changed production traffic.")
