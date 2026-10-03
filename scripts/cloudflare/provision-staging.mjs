@@ -2,7 +2,9 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 
 const API='https://api.cloudflare.com/client/v4';
 const token=(process.env.CLOUDFLARE_API_TOKEN||'').trim();
+const releaseSha=(process.env.RELEASE_SHA||process.env.GITHUB_SHA||'').trim();
 if(!token)throw new Error('CLOUDFLARE_API_TOKEN is required');
+if(!/^[a-f0-9]{40}$/.test(releaseSha))throw new Error('Exact staging release SHA is required');
 function safeErrors(body,status){return 'Cloudflare API request failed ('+status+'): '+((body?.errors||[]).map(x=>String(x?.message||x?.code||'unknown')).slice(0,5).join(' | ')||'no safe error detail');}
 async function api(path,{method='GET',body}={}){
  const response=await fetch(API+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
@@ -59,13 +61,13 @@ async function emailStatus(account){
 const account=await accountId();
 const subdomain=await api('/accounts/'+account+'/workers/subdomain');
 if(!subdomain?.subdomain)throw new Error('Workers account subdomain is not configured');
-const names={worker:'proinspect-platform-staging',database:'proinspect-platform-staging',documents:'proinspect-staging-documents',sensitive:'proinspect-staging-sensitive',queue:'proinspect-staging-mail',dead:'proinspect-staging-dead'};
+const names={worker:'proinspect-platform-staging',database:'proinspect-platform-staging-'+releaseSha.slice(0,12),documents:'proinspect-staging-documents',sensitive:'proinspect-staging-sensitive',queue:'proinspect-staging-mail',dead:'proinspect-staging-dead'};
 const appUrl='https://'+names.worker+'.'+subdomain.subdomain+'.workers.dev';
 const database=await ensureD1(account,names.database);
 await ensureBucket(account,names.documents);await ensureBucket(account,names.sensitive);await ensureQueue(account,names.queue);await ensureQueue(account,names.dead);
 const turnstile=await ensureTurnstile(account,new URL(appUrl).hostname),email=await emailStatus(account);
 mkdirSync('.cloudflare',{recursive:true});
-const state={schemaVersion:1,environment:'staging',accountId:account,appUrl,workerName:names.worker,database:{name:names.database,id:database.uuid},documentsBucket:names.documents,sensitiveBucket:names.sensitive,queue:names.queue,deadLetterQueue:names.dead,turnstileSiteKey:turnstile.sitekey,email,provisionedAt:new Date().toISOString()};
+const state={schemaVersion:1,environment:'staging',sourceSha:releaseSha,accountId:account,appUrl,workerName:names.worker,database:{name:names.database,id:database.uuid},documentsBucket:names.documents,sensitiveBucket:names.sensitive,queue:names.queue,deadLetterQueue:names.dead,turnstileSiteKey:turnstile.sitekey,email,provisionedAt:new Date().toISOString()};
 writeFileSync('.cloudflare/staging-resources.json',JSON.stringify(state,null,2)+'\n',{mode:0o600});
 writeFileSync('.cloudflare/staging-private.json',JSON.stringify({turnstileSecret:turnstile.secret})+'\n',{mode:0o600});
 console.log(JSON.stringify({...state,email:{enabled:email.enabled}},null,2));
