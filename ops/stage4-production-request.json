@@ -4,5 +4,5 @@
   "releaseId": "production-unification",
   "sourceSha": "69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
   "approve": "",
-  "note": "Retry immutable production image build after explicit Stage 4 bootstrap prerequisite verification. No maintenance, Terraform apply, migration, Cloud Run traffic change or main merge."
+  "note": "Retry immutable production image build after build-log access correction and sanitized Cloud Build diagnostics. No maintenance, Terraform apply, migration, Cloud Run traffic change or main merge."
 }

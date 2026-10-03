@@ -228,6 +228,7 @@ jobs:
           required=[
               ("project deploy cloudbuild editor",has(project_policy,"roles/cloudbuild.builds.editor",deploy_member)),
               ("project deploy service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",deploy_member)),
+              ("project deploy build-log viewer",has(project_policy,"roles/logging.viewer",deploy_member)),
               ("project build logging",has(project_policy,"roles/logging.logWriter",build_member)),
               ("project build service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",build_member)),
               ("deploy impersonation by terraform",has(deploy_policy,"roles/iam.serviceAccountTokenCreator",terraform_member)),
@@ -470,6 +471,66 @@ jobs:
           python3 scripts/stage4/release.py "$ACTION" \
             --config infrastructure/environments/production.local.json \
             --approve "$APPROVAL" "${RECEIPT[@]}"
+      - name: Diagnose failed immutable Cloud Build safely
+        if: failure() && needs.request.outputs.action == 'build'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+
+          config=json.load(open("infrastructure/environments/production.local.json"))
+          project=config["projectId"]
+          terraform_sa=config["terraform"]["terraform_service_account_email"]
+          source_sha=config["sourceSha"]
+          build_sa=config["production"]["buildIdentity"]
+
+          cmd=[
+              "gcloud","builds","list",
+              "--project="+project,
+              "--impersonate-service-account="+terraform_sa,
+              "--limit=25","--sort-by=~createTime","--quiet","--format=json",
+          ]
+          result=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+          if result.returncode:
+              print("STAGE4_BUILD_DIAGNOSTIC=lookup-failed")
+              raise SystemExit(0)
+
+          builds=json.loads(result.stdout or "[]")
+          matches=[]
+          for build in builds:
+              service_account=str(build.get("serviceAccount",""))
+              substitutions=build.get("substitutions") or {}
+              if service_account.endswith("/serviceAccounts/"+build_sa) and substitutions.get("_SOURCE_SHA")==source_sha:
+                  matches.append(build)
+
+          if not matches:
+              print("STAGE4_BUILD_DIAGNOSTIC=no-matching-build")
+              raise SystemExit(0)
+
+          build=matches[0]
+          safe={
+              "id":build.get("id"),
+              "status":build.get("status"),
+              "statusDetail":build.get("statusDetail"),
+              "failureInfo":build.get("failureInfo"),
+              "createTime":build.get("createTime"),
+              "startTime":build.get("startTime"),
+              "finishTime":build.get("finishTime"),
+              "logUrl":build.get("logUrl"),
+              "steps":[
+                  {
+                      "id":step.get("id"),
+                      "name":step.get("name"),
+                      "status":step.get("status"),
+                      "exitCode":step.get("exitCode"),
+                  }
+                  for step in build.get("steps",[])
+              ],
+          }
+          print("STAGE4_BUILD_DIAGNOSTIC="+json.dumps(safe,sort_keys=True,separators=(",",":")))
+          PY
       - name: Remove runner-only private configuration
         if: always()
         run: |

@@ -17,7 +17,8 @@ ROLES={
    "roles/logging.viewer","roles/cloudbuild.builds.viewer"],
  "build":["roles/logging.logWriter","roles/serviceusage.serviceUsageConsumer"],
  "deploy":["roles/run.developer","roles/run.invoker","roles/cloudbuild.builds.editor",
-   "roles/secretmanager.viewer","roles/artifactregistry.reader","roles/serviceusage.serviceUsageConsumer"],
+   "roles/logging.viewer","roles/secretmanager.viewer","roles/artifactregistry.reader",
+   "roles/serviceusage.serviceUsageConsumer"],
  "migration":["roles/datastore.user","roles/datastore.importExportAdmin","roles/datastore.owner",
    "roles/serviceusage.serviceUsageConsumer"],
 }

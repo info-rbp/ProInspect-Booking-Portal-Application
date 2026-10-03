@@ -151,6 +151,9 @@ successful readiness/plan run proves keyless production access and the reviewed
 Terraform plan, but does not by itself prove the dedicated build identity can
 read the source bucket or push to Artifact Registry. The build workflow blocks
 with explicit missing-prerequisite labels if this bootstrap IAM is incomplete.
+The deploy identity also needs `roles/logging.viewer` because the synchronous
+Cloud Build submission reads CLOUD_LOGGING_ONLY build logs while waiting for the
+immutable build result.
 
 Building is deliberately before maintenance: the same audited image contains
 the maintenance server. Customer traffic is not changed by `build`.
