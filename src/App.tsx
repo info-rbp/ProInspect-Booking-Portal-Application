@@ -182,6 +182,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (publicRoute === 'admin' && !currentUser) {
+      setIsAdminLoginOpen(true);
+    }
+  }, [publicRoute, currentUser]);
+
   // Step transition helpers
   const markStepCompleted = (step: WizardStepId) => {
     setCompletedSteps((prev) => (prev.includes(step) ? prev : [...prev, step]));
