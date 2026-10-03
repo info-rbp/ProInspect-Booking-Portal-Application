@@ -10,38 +10,12 @@ concurrency:
   group: cloudflare-verify-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  adapt-browser:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      source: ${{ steps.source.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - name: Commit deterministic browser import migration on the Cloudflare branch only
-        id: source
-        run: |
-          python3 scripts/cloudflare/adapt-browser.py
-          git add src
-          if ! git diff --cached --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'refactor(cloudflare): switch preserved portals to native sessions'
-            git push origin HEAD:release/cloudflare-platform
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   verify:
-    needs: adapt-browser
-    if: always() && (needs.adapt-browser.result == 'success' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.adapt-browser.outputs.source || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -60,11 +34,16 @@ jobs:
       - name: Build actual portals and Google-free Worker
         run: npm run cloudflare:build
       - name: Validate Worker upload without an account deployment
-        run: npx --yes wrangler@4 deploy --dry-run --outdir .cloudflare/dry-run
+        run: npx --yes wrangler@4.147.0 deploy --dry-run --outdir .cloudflare/dry-run
+      - name: Execute local Worker security and persistent API checks
+        run: node scripts/cloudflare/local-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cloudflare-build-evidence
-          path: .cloudflare/bundle-audit.json
+          path: |
+            .cloudflare/bundle-audit.json
+            .cloudflare/local-smoke.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
