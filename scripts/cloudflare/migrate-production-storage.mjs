@@ -8,6 +8,8 @@ const [exportPath='private-migration/canonical-export.json',resourcesPath='.clou
 const snapshot=JSON.parse(readFileSync(exportPath,'utf8'));
 const resources=JSON.parse(readFileSync(resourcesPath,'utf8'));
 const sourceBucket=process.env.GCP_FIREBASE_STORAGE_BUCKET||'business-plan-applicatio-17047.firebasestorage.app';
+const impersonate=(process.env.GCP_STORAGE_IMPERSONATE_SERVICE_ACCOUNT||'').trim();
+const gcloudArgs=(args)=>impersonate?[...args,'--impersonate-service-account='+impersonate]:args;
 if(!snapshot?.collections||!resources?.documentsBucket||!resources?.sensitiveBucket)throw new Error('Canonical export and production resource descriptor are required');
 
 const paths=new Set();
@@ -35,9 +37,9 @@ try{
   const roundtrip=local+'.verify';
   const source='gs://'+sourceBucket+'/'+storagePath;
   let metadata={};
-  try{metadata=JSON.parse(execFileSync('gcloud',['storage','objects','describe',source,'--format=json'],{encoding:'utf8'}));}
+  try{metadata=JSON.parse(execFileSync('gcloud',gcloudArgs(['storage','objects','describe',source,'--format=json']),{encoding:'utf8'}));}
   catch{throw new Error('Referenced legacy storage object is unavailable: '+storagePath);}
-  execFileSync('gcloud',['storage','cp',source,local,'--quiet'],{stdio:'ignore'});
+  execFileSync('gcloud',gcloudArgs(['storage','cp',source,local,'--quiet']),{stdio:'ignore'});
   const bytes=statSync(local).size;
   const sha256=createHash('sha256').update(readFileSync(local)).digest('hex');
   const args=['wrangler','r2','object','put',targetBucket+'/'+storagePath,'--file='+local,'--remote','--config=.cloudflare/wrangler.production.json','--force'];
