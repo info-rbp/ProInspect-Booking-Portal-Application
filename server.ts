@@ -192,6 +192,7 @@ import {
   createClientRequestRecord,
   createNotification,
   createContractor,
+  createPaymentRecord,
   createWorkOrder,
   listAdminOperations,
   listAuditEvents,
@@ -995,7 +996,7 @@ function sanitizeDocumentRequestDetails(
   if (state !== 'WA') {
     return {
       error:
-        'The current Residential document workflows are for Western Australian properties.',
+        'The current document workflows are for Western Australian properties.',
     };
   }
 
@@ -1790,7 +1791,7 @@ app.get('/api/settings', async (_req, res) => {
 app.get('/api/calendar/status', (_req, res) => {
   res.json({
     connected: calendarIsConfigured(),
-    provider: 'Google Calendar API',
+    provider: 'ProInspect Scheduling',
     timezone: TIMEZONE,
   });
 });
@@ -1963,7 +1964,7 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
   } catch (error) {
     console.error('Availability error:', error);
     return res.status(503).json({
-      error: 'Unable to confirm Google Calendar availability right now. Please try again shortly.',
+      error: 'Unable to confirm appointment availability right now. Please try again shortly.',
     });
   }
 });
@@ -3992,6 +3993,61 @@ app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminWritePer
   }, { type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email });
   if (!request) return res.status(404).json({ error:'Document request not found.' });
   return res.json({ success:true, request });
+});
+
+app.post('/api/admin/payments', requireAdmin, requireAdminWritePermission('payments'), async (req, res) => {
+  try {
+    const sourceType = normalizeText(req.body?.sourceType, 40) as PaymentRecord['sourceType'];
+    const sourceId = normalizeText(req.body?.sourceId, 128);
+    const description = normalizeText(req.body?.description, 300);
+    const amountExGst = Number(req.body?.amountExGst);
+    const clientId = normalizeText(req.body?.clientId, 128) || undefined;
+    const propertyId = normalizeText(req.body?.propertyId, 128) || undefined;
+    const provider = normalizeText(req.body?.provider, 30) as PaymentRecord['provider'] | '';
+    const checkoutUrl = normalizeText(req.body?.checkoutUrl, 1000) || undefined;
+    const providerOrderId = normalizeText(req.body?.providerOrderId, 160) || undefined;
+
+    if (!['booking','document_request','work_order','subscription','other'].includes(sourceType) ||
+        !sourceId || description.length < 3 || !Number.isFinite(amountExGst) || amountExGst < 0) {
+      return res.status(400).json({ error:'Source, description and a valid amount are required.' });
+    }
+    if (provider && !['manual','external','xero'].includes(provider)) {
+      return res.status(400).json({ error:'Invalid payment provider.' });
+    }
+    if (checkoutUrl) {
+      try {
+        const parsed = new URL(checkoutUrl);
+        if (parsed.protocol !== 'https:') throw new Error('invalid');
+      } catch {
+        return res.status(400).json({ error:'Checkout URL must be a valid HTTPS URL.' });
+      }
+    }
+
+    const payment = await createPaymentRecord({
+      clientId,
+      propertyId,
+      sourceType,
+      sourceId,
+      description,
+      amountExGst,
+      provider: provider || undefined,
+      checkoutUrl,
+      providerOrderId,
+    });
+    await writeAuditEvent({
+      entityType:'payment',
+      entityId:payment.id,
+      action:'created',
+      summary:`${payment.reference} created for ${payment.description}.`,
+      actor:{ type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email },
+      clientId:payment.clientId,
+      propertyId:payment.propertyId,
+    });
+    return res.status(201).json({ success:true, payment });
+  } catch (error) {
+    console.error('Payment creation failed:', error);
+    return res.status(500).json({ error:'Unable to create payment.' });
+  }
 });
 
 app.patch('/api/admin/payments/:id', requireAdmin, requireAdminWritePermission('payments'), async (req, res) => {
