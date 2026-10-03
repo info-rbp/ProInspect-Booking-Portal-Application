@@ -320,11 +320,11 @@ export interface UnifiedClientDashboard {
   workOrders: Array<Pick<WorkOrder,
     'id' | 'reference' | 'propertyId' | 'clientId' | 'tenancyId' | 'title' | 'description' |
     'priority' | 'status' | 'quoteAmountExGst' | 'approvalId' | 'scheduledStart' |
-    'scheduledEnd' | 'completionNotes' | 'completedAt' | 'createdAt' | 'updatedAt'
+    'scheduledEnd' | 'completedAt' | 'createdAt' | 'updatedAt'
   >>;
   inspections: Array<Pick<TenantInspection,
     'id' | 'tenancyId' | 'propertyId' | 'type' | 'status' | 'scheduledStart' |
-    'scheduledEnd' | 'noticeDocumentId' | 'createdAt' | 'updatedAt'
+    'scheduledEnd' | 'createdAt' | 'updatedAt'
   >>;
   documentRequests: DocumentRequest[];
   documents: Array<{
