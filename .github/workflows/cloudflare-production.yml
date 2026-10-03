@@ -1,0 +1,280 @@
+name: Cloudflare production release
+on:
+  push:
+    branches: [release/cloudflare-platform]
+    paths: [ops/cloudflare-production-request.json]
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.validate.outputs.action }}
+      source: ${{ steps.validate.outputs.source }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: validate
+        name: Validate immutable production request and successful source CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/request.env
+          import json,re
+          req=json.load(open('ops/cloudflare-production-request.json'))
+          if req.get('schemaVersion') != 1: raise SystemExit('Unsupported Cloudflare production request schema.')
+          action=req.get('action'); source=req.get('sourceSha',''); approve=req.get('approve','')
+          if action not in {'readiness','bootstrap','migrate','promote','close'}: raise SystemExit('Unsupported Cloudflare production action.')
+          if not re.fullmatch(r'[a-f0-9]{40}',source): raise SystemExit('An exact immutable source SHA is required.')
+          expected={'readiness':'','bootstrap':'PROVISION:'+source,'migrate':'CUTOVER:'+source,'promote':'LIVE:'+source,'close':'CLOSE:'+source}[action]
+          if approve != expected: raise SystemExit('Approval token does not match the requested Cloudflare production action.')
+          print('ACTION='+action);print('SOURCE='+source)
+          PY
+          source /tmp/request.env
+          git cat-file -e "$SOURCE^{commit}"
+          git merge-base --is-ancestor "$SOURCE" HEAD
+          changed="$(git diff --name-only "$SOURCE" HEAD | grep -v '^ops/cloudflare-production-request.json$' || true)"
+          test -z "$changed" || { echo "Production request contains source changes outside the request file: $changed"; exit 1; }
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/cloudflare-verify.yml/runs?head_sha=$SOURCE&status=completed&per_page=20" > /tmp/runs.json
+          python3 - <<'PY'
+          import json,os
+          runs=json.load(open('/tmp/runs.json')).get('workflow_runs',[])
+          if not any(r.get('head_sha')==os.environ['SOURCE'] and r.get('conclusion')=='success' for r in runs):
+              raise SystemExit('Exact Cloudflare source SHA has not passed the permanent verification workflow.')
+          PY
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+
+  readiness:
+    if: needs.request.outputs.action == 'readiness'
+    needs: request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run cloudflare:check
+      - name: Read-only Cloudflare production capability discovery
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/cloudflare/production-readiness.mjs
+
+  production:
+    if: needs.request.outputs.action != 'readiness'
+    needs: request
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ACTION: ${{ needs.request.outputs.action }}
+      SOURCE_SHA: ${{ needs.request.outputs.source }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_APP_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
+      GCP_PROJECT_ID: business-plan-applicatio-17047
+      GCP_MIGRATION_SA: proinspect-prod-migration@business-plan-applicatio-17047.iam.gserviceaccount.com
+      GCP_RUNTIME_SA: proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com
+      GCP_FIREBASE_STORAGE_BUCKET: business-plan-applicatio-17047.firebasestorage.app
+      GOOGLE_CALENDAR_ID: c_4bf5fc54ee54bf60371059cf824ec7e018fb6c43ca66bbdd4051fafaa74e3c32@group.calendar.google.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Re-run complete Cloudflare source verification before mutation
+        run: npm run cloudflare:check
+      - name: Provision or discover production Cloudflare resources
+        env:
+          CLOUDFLARE_NEED_TURNSTILE_SECRET: ${{ needs.request.outputs.action == 'bootstrap' && '1' || '0' }}
+          CLOUDFLARE_TURNSTILE_SECRET_KEY: ${{ secrets.CLOUDFLARE_TURNSTILE_SECRET_KEY }}
+        run: node scripts/cloudflare/provision-production.mjs
+      - name: Require Cloudflare transactional email before runtime deployment
+        if: needs.request.outputs.action != 'close'
+        run: |
+          node - <<'NODE'
+          const r=require('./.cloudflare/production-resources.json');
+          if(!r.email?.enabled)throw new Error('Cloudflare Email Service is not enabled for proinspect.systems; production remains blocked.');
+          NODE
+      - name: Build exact Worker and prepare maintenance runtime
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
+        env:
+          GITHUB_SHA: ${{ needs.request.outputs.source }}
+          CLOUDFLARE_LAUNCH_MODE: maintenance
+        run: |
+          npm run build
+          npm run cloudflare:schema
+          node scripts/cloudflare/configure-production.mjs
+      - name: Apply reviewed D1 schema
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
+        run: npx --yes wrangler@4.147.0 d1 migrations apply DB --remote --config .cloudflare/wrangler.production.json
+      - name: Authenticate one-time legacy Google source
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@v3
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close'
+
+      - name: Transfer existing production cryptographic/integration secrets to Worker
+        if: needs.request.outputs.action == 'bootstrap'
+        run: |
+          set -euo pipefail
+          umask 077
+          ACCESS_KEY="$(gcloud secrets versions access latest --secret=proinspect-production-access-data-encryption-key --project="$GCP_PROJECT_ID")"
+          REPORT_KEY="$(gcloud secrets versions access latest --secret=proinspect-production-report-handoff-signing-key --project="$GCP_PROJECT_ID")"
+          REPORT_TOKEN="$(gcloud secrets versions access latest --secret=proinspect-production-report-ingest-token --project="$GCP_PROJECT_ID")"
+          RELEASE_TOKEN="$(gcloud secrets versions access latest --secret=proinspect-production-release-token --project="$GCP_PROJECT_ID")"
+          TURNSTILE_SECRET="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/production-private.json')).turnstileSecret||'')")"
+          test -n "$ACCESS_KEY" && test -n "$REPORT_KEY" && test -n "$REPORT_TOKEN" && test -n "$RELEASE_TOKEN" && test -n "$TURNSTILE_SECRET"
+          ENCRYPTION_KEYS_JSON="$(ACCESS_KEY="$ACCESS_KEY" node -e "process.stdout.write(JSON.stringify({v1:process.env.ACCESS_KEY}))")"
+          FILE_SIGNING_KEY="$(printf 'proinspect-file-signing-v1\0%s' "$RELEASE_TOKEN" | sha256sum | awk '{print $1}')"
+          printf '%s' "$ACCESS_KEY" | npx --yes wrangler@4.147.0 secret put ACCESS_DATA_ENCRYPTION_KEY --config .cloudflare/wrangler.production.json
+          printf '%s' "$ENCRYPTION_KEYS_JSON" | npx --yes wrangler@4.147.0 secret put ENCRYPTION_KEYS_JSON --config .cloudflare/wrangler.production.json
+          printf '%s' "$FILE_SIGNING_KEY" | npx --yes wrangler@4.147.0 secret put FILE_SIGNING_KEY --config .cloudflare/wrangler.production.json
+          printf '%s' "$REPORT_KEY" | npx --yes wrangler@4.147.0 secret put REPORT_HANDOFF_SIGNING_KEY --config .cloudflare/wrangler.production.json
+          printf '%s' "$REPORT_TOKEN" | npx --yes wrangler@4.147.0 secret put REPORT_INGEST_TOKEN --config .cloudflare/wrangler.production.json
+          printf '%s' "$TURNSTILE_SECRET" | npx --yes wrangler@4.147.0 secret put TURNSTILE_SECRET_KEY --config .cloudflare/wrangler.production.json
+          unset ACCESS_KEY REPORT_KEY REPORT_TOKEN RELEASE_TOKEN TURNSTILE_SECRET ENCRYPTION_KEYS_JSON FILE_SIGNING_KEY
+      - name: Deploy full Worker in maintenance mode
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
+        run: npx --yes wrangler@4.147.0 deploy --config .cloudflare/wrangler.production.json
+      - name: Verify maintenance runtime is backend-backed, not a static SPA
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
+        env:
+          CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
+          CLOUDFLARE_EXPECT_MODE: maintenance
+        run: node scripts/cloudflare/remote-smoke.mjs
+
+      - name: Freeze legacy Cloud Run public writer
+        if: needs.request.outputs.action == 'migrate'
+        run: |
+          set -euo pipefail
+          gcloud run services get-iam-policy proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --format=json > /tmp/legacy-run-iam.json
+          if python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/legacy-run-iam.json'))
+          raise SystemExit(0 if any(b.get('role')=='roles/run.invoker' and 'allUsers' in b.get('members',[]) for b in p.get('bindings',[])) else 1)
+          PY
+          then
+            gcloud run services remove-iam-policy-binding proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --member=allUsers --role=roles/run.invoker --quiet
+            touch /tmp/legacy-public-removed
+          fi
+          echo "Legacy public writer is frozen."
+      - name: Export frozen Firestore source and preserve external calendar blocks
+        if: needs.request.outputs.action == 'migrate'
+        run: |
+          set -euo pipefail
+          umask 077
+          MIGRATION_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_MIGRATION_SA")"
+          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" npx tsx scripts/cloudflare/export-source.ts             --project="$GCP_PROJECT_ID"             --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a             --out=private-migration
+          RUNTIME_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_RUNTIME_SA")"
+          GOOGLE_OAUTH_ACCESS_TOKEN="$RUNTIME_TOKEN" GOOGLE_CALENDAR_ID="$GOOGLE_CALENDAR_ID"             node scripts/cloudflare/import-legacy-calendar-busy.mjs private-migration
+          unset MIGRATION_TOKEN RUNTIME_TOKEN
+      - name: Apply and reconcile frozen Firestore to production D1
+        if: needs.request.outputs.action == 'migrate'
+        run: |
+          set -euo pipefail
+          DIGEST="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('private-migration/d1-import-plan.json')).digest)")"
+          echo "CLOUDFLARE_MIGRATION_DIGEST=$DIGEST"
+          CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs | tee /tmp/d1-first.json
+          CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs > /tmp/d1-second.json
+          node - <<'NODE'
+          const fs=require('fs'),r=JSON.parse(fs.readFileSync('/tmp/d1-second.json','utf8'));
+          if(r.inserted!==0)throw new Error('Second production D1 migration pass was not zero-write.');
+          console.log('D1_ZERO_WRITE_REPEAT=success');
+          NODE
+      - name: Copy and checksum referenced Firebase Storage objects into private R2
+        if: needs.request.outputs.action == 'migrate'
+        env:
+          GCP_STORAGE_IMPERSONATE_SERVICE_ACCOUNT: ${{ env.GCP_MIGRATION_SA }}
+        run: node scripts/cloudflare/migrate-production-storage.mjs
+      - name: Write sanitized migration evidence
+        if: needs.request.outputs.action == 'migrate'
+        run: |
+          node - <<'NODE'
+          const fs=require('fs'),crypto=require('crypto');
+          const p=JSON.parse(fs.readFileSync('private-migration/d1-import-plan.json'));
+          const s=JSON.parse(fs.readFileSync('private-migration/storage-migration.json'));
+          const evidence={sourceSha:process.env.SOURCE_SHA,migrationDigest:p.digest,sourceSha256:p.sourceSha256,counts:p.counts,storageObjects:s.objects.length,storageBytes:s.bytes,completedAt:new Date().toISOString()};
+          fs.writeFileSync('.cloudflare/migration-evidence.json',JSON.stringify(evidence,null,2)+'\n');
+          console.log(JSON.stringify(evidence,null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
+        with:
+          name: cloudflare-production-evidence-${{ needs.request.outputs.action }}
+          path: |
+            .cloudflare/production-resources.json
+            .cloudflare/migration-evidence.json
+          if-no-files-found: ignore
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: Build and deploy accepted Worker live on workers.dev
+        if: needs.request.outputs.action == 'promote'
+        env:
+          GITHUB_SHA: ${{ needs.request.outputs.source }}
+          CLOUDFLARE_LAUNCH_MODE: live
+        run: |
+          npm run build
+          node scripts/cloudflare/configure-production.mjs
+          npx --yes wrangler@4.147.0 deploy --config .cloudflare/wrangler.production.json
+      - name: Verify live Cloudflare application
+        if: needs.request.outputs.action == 'promote'
+        env:
+          CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
+          CLOUDFLARE_EXPECT_MODE: live
+        run: node scripts/cloudflare/remote-smoke.mjs
+      - name: Send controlled Cloudflare Email Service production check
+        if: needs.request.outputs.action == 'promote'
+        run: |
+          set -euo pipefail
+          ACCOUNT="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/production-resources.json')).accountId)")"
+          curl -fsS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/email/sending/send"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data '{"to":"info@proinspect.systems","from":"bookings@proinspect.systems","subject":"ProInspect Cloudflare production verification","text":"The ProInspect Cloudflare production runtime passed its automated live deployment checks."}'             > /tmp/email-result.json
+          node -e "const r=require('/tmp/email-result.json');if(r.success!==true)process.exit(1);console.log('CLOUDFLARE_EMAIL_SEND=success')"
+
+      - name: Verify closure state
+        if: needs.request.outputs.action == 'close'
+        run: |
+          CLOUDFLARE_SMOKE_URL=https://proinspect-platform.delicate-dream-e4c9.workers.dev CLOUDFLARE_EXPECT_MODE=live node scripts/cloudflare/remote-smoke.mjs
+          gcloud run services get-iam-policy proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --format=json > /tmp/legacy-run-iam.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/legacy-run-iam.json'))
+          if any(b.get('role')=='roles/run.invoker' and 'allUsers' in b.get('members',[]) for b in p.get('bindings',[])):
+              raise SystemExit('Legacy Cloud Run service is still publicly invokable.')
+          print('LEGACY_CLOUD_RUN_PUBLIC=disabled')
+          PY
+
+      - name: Restore legacy public application if final migration fails
+        if: failure() && needs.request.outputs.action == 'migrate'
+        run: |
+          if [ -f /tmp/legacy-public-removed ]; then
+            gcloud run services add-iam-policy-binding proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --member=allUsers --role=roles/run.invoker --quiet
+            echo "Legacy Cloud Run public access restored after migration failure."
+          fi
