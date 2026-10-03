@@ -54,7 +54,7 @@ export async function verifyAccess(request:Request,env:Bindings):Promise<Identit
 }
 export async function identityForEmail(env:Bindings,email:string):Promise<any>{
  let found:any=await env.DB.prepare('SELECT * FROM auth_identities WHERE email=?').bind(email).first();if(found)return found;
- const rows:any=await env.DB.prepare("SELECT json_extract(data,'$.firebaseUid') uid FROM clientUsers WHERE lower(json_extract(data,'$.email'))=? UNION SELECT json_extract(data,'$.firebaseUid') uid FROM tenantUsers WHERE lower(json_extract(data,'$.email'))=?").bind(email,email).all();
+ const rows:any=await env.DB.prepare("SELECT json_extract(data,'$.firebaseUid') uid FROM clientUsers WHERE lower(json_extract(data,'$.email'))=? UNION SELECT json_extract(data,'$.firebaseUid') uid FROM tenantUsers WHERE lower(json_extract(data,'$.email'))=? UNION SELECT id uid FROM adminUsers WHERE lower(json_extract(data,'$.email'))=? AND json_extract(data,'$.active') IS NOT 0").bind(email,email,email).all();
  const uids=[...new Set(rows.results.map((r:any)=>r.uid).filter(Boolean))];
  if(uids.length>1)throw new Error('IDENTITY_RECONCILIATION_REQUIRED');
  const id=String(uids[0]||randomUUID());
