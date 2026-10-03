@@ -160,6 +160,11 @@ staging bucket before upload, so the deploy identity needs the read-only
 
 Building is deliberately before maintenance: the same audited image contains
 the maintenance server. Customer traffic is not changed by `build`.
+
+Maintenance and candidate revisions pin their Cloud Run health probes explicitly.
+The maintenance revision probes `/healthz`; the full candidate probes
+`/api/health`. This prevents historical Cloud Run probe settings from being
+inherited by a revision with a different entrypoint.
 The first production migration runs inside an acknowledged maintenance window.
 Do not schedule it while customers need uninterrupted booking/portal access.
 
