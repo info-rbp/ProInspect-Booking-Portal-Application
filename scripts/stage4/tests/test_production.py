@@ -235,15 +235,14 @@ class ProductionPolicy(unittest.TestCase):
         self.assertNotIn("staging.local.json",checkpoints.ALLOWED)
         self.assertNotIn("gha-creds.json",checkpoints.ALLOWED)
         self.assertNotIn("terraform-data",checkpoints.ALLOWED)
-    def test_cutover_pins_explicit_cloud_run_health_probes(self):
+    def test_cutover_uses_default_cloud_run_startup_probe_and_explicit_app_checks(self):
         source=(ROOT/"scripts/stage4/release.py").read_text()
-        for flag in (
-            "--startup-probe=httpGet.path=/healthz,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=15",
-            "--startup-probe=httpGet.path=/api/health,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=30",
-            '"--liveness-probe="',
-            '"--readiness-probe="',
-        ):
-            self.assertIn(flag,source)
+        self.assertNotIn("--startup-probe=",source)
+        self.assertNotIn("--liveness-probe=",source)
+        self.assertNotIn("--readiness-probe=",source)
+        self.assertIn('http(c,url,"/healthz")',source)
+        self.assertIn('http(c,url,"/api/bookings/create",method="POST",body={})[0]==503',source)
+        self.assertIn('http(c,tag["url"],"/api/release/health"',source)
         self.assertIn('"--service-account="+c["terraform"]["runtime_service_account_email"]',source)
 
     def test_maintenance_requires_exact_source_approval_before_calls(self):
