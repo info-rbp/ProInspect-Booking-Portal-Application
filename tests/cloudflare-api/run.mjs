@@ -19,3 +19,54 @@ test('real booking API reserves once, persists, queues email, manages and cancel
  assert.equal((await api('/api/bookings/manage/'+booking.managementToken)).status,200);
  const cancelled=await api('/api/bookings/manage/'+booking.managementToken+'/cancel',{method:'POST',body:{}});assert.equal(cancelled.status,200,JSON.stringify(cancelled.data));assert.equal((await stored.docs[0].ref.get()).data().status,'cancelled');
 });
+
+test('tenant request to work order, contractor and client approval stays on the canonical graph',async()=>{
+ const tenantRequest=await api('/api/tenant/requests',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',requestType:'maintenance',title:'Leaking kitchen tap',details:'Tap is leaking continuously under normal use.',priority:'normal',accessPermission:true}});
+ assert.equal(tenantRequest.status,201,JSON.stringify(tenantRequest.data));
+ const contractor=await api('/api/admin/contractors',{actor:'admin',method:'POST',body:{name:'Controlled Plumbing',trade:'Plumbing',email:'contractor@example.test'}});
+ assert.equal(contractor.status,201,JSON.stringify(contractor.data));
+ const workOrder=await api('/api/admin/work-orders',{actor:'admin',method:'POST',body:{sourceType:'tenant_request',sourceId:tenantRequest.data.request.id,propertyId:'p1',clientId:'c1',tenancyId:'ten1',title:'Repair leaking kitchen tap',description:'Inspect and repair the leaking kitchen tap.',priority:'routine'}});
+ assert.equal(workOrder.status,201,JSON.stringify(workOrder.data));
+ const assigned=await api('/api/admin/work-orders/'+workOrder.data.workOrder.id,{actor:'admin',method:'PATCH',body:{status:'assigned',contractorId:contractor.data.contractor.id}});
+ assert.equal(assigned.status,200,JSON.stringify(assigned.data));
+ const approval=await api('/api/admin/approvals',{actor:'admin',method:'POST',body:{clientId:'c1',propertyId:'p1',clientUserId:'cu',workOrderId:workOrder.data.workOrder.id,type:'quote',title:'Approve plumbing repair',summary:'Controlled approval',amountExGst:100}});
+ assert.equal(approval.status,201,JSON.stringify(approval.data));
+ const response=await api('/api/client/approvals/'+approval.data.approval.id+'/respond',{actor:'client',method:'POST',body:{status:'approved'}});
+ assert.equal(response.status,200,JSON.stringify(response.data));
+ assert.equal((await db.collection('workOrders').doc(workOrder.data.workOrder.id).get()).data().status,'approved');
+ const complete=await api('/api/admin/work-orders/'+workOrder.data.workOrder.id,{actor:'admin',method:'PATCH',body:{status:'completed',completionNotes:'Controlled completion recorded.'}});
+ assert.equal(complete.status,200,JSON.stringify(complete.data));
+ const audits=await db.collection('auditEvents').where('entityId','==',workOrder.data.workOrder.id).get();assert.ok(audits.size>=2);
+});
+test('WA statutory workflow creates a client approval and propagates the response',async()=>{
+ const created=await api('/api/tenant/forms',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',formDefinitionId:'form-24-furniture-safety',payload:{furnitureDescription:'Tall bedroom cabinet',location:'Bedroom',safetyReason:'child'}}});
+ assert.equal(created.status,201,JSON.stringify(created.data));assert.ok(created.data.request.clientApprovalId);
+ const responded=await api('/api/client/approvals/'+created.data.request.clientApprovalId+'/respond',{actor:'client',method:'POST',body:{status:'approved'}});
+ assert.equal(responded.status,200,JSON.stringify(responded.data));
+ assert.equal((await db.collection('tenantFormRequests').doc(created.data.request.id).get()).data().status,'approved');
+});
+test('restricted Form 2 evidence remains outside ordinary client and operations views',async()=>{
+ const termination=new Date(Date.now()+10*86400000).toISOString().slice(0,10);
+ const draft=await api('/api/tenant/forms-sensitive',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',formDefinitionId:'form-2-family-violence',payload:{evidenceType:'dvo',proposedTerminationDate:termination,privateNote:'restricted-test-marker'}}});
+ assert.equal(draft.status,201,JSON.stringify(draft.data));
+ const evidence=await api('/api/tenant/forms-sensitive/'+draft.data.request.id+'/evidence',{actor:'tenant',method:'POST',rawBody:Buffer.from('%PDF-1.4\ncontrolled private evidence'),headers:{'Content-Type':'application/pdf','X-File-Name':'evidence.pdf'}});
+ assert.equal(evidence.status,201,JSON.stringify(evidence.data));
+ const submitted=await api('/api/tenant/forms-sensitive/'+draft.data.request.id+'/submit',{actor:'tenant',method:'POST',body:{}});
+ assert.equal(submitted.status,200,JSON.stringify(submitted.data));
+ const client=await api('/api/client/dashboard',{actor:'client'});assert.equal(client.status,200);assert.ok(!JSON.stringify(client.data).includes('restricted-test-marker'));assert.ok(!JSON.stringify(client.data).includes(draft.data.request.id));
+ const ordinary=await api('/api/admin/operations',{actor:'admin'});assert.equal(ordinary.status,200);assert.ok(!JSON.stringify(ordinary.data).includes('restricted-test-marker'));
+ const restricted=await api('/api/admin/sensitive-tenant-forms',{actor:'admin'});assert.equal(restricted.status,200);assert.ok(JSON.stringify(restricted.data).includes(draft.data.request.id));
+});
+test('Report Tool ingestion stores a verified PDF once and exposes it through canonical audiences',async()=>{
+ const headers={'Content-Type':'application/pdf','X-Report-Ingest-Token':process.env.REPORT_INGEST_TOKEN,'X-Property-Id':'p1','X-Tenancy-Id':'ten1','X-Document-Title':'Controlled inspection report','X-File-Name':'controlled-report.pdf','X-Document-Category':'inspection_report','X-Document-Audiences':'client,tenant','X-Report-Source-Id':'controlled-source-1'};
+ const first=await api('/api/integrations/reports',{method:'POST',rawBody:Buffer.from('%PDF-1.4\ncontrolled report'),headers});assert.equal(first.status,201,JSON.stringify(first.data));
+ const second=await api('/api/integrations/reports',{method:'POST',rawBody:Buffer.from('%PDF-1.4\ncontrolled report'),headers});assert.equal(second.status,200,JSON.stringify(second.data));assert.equal(second.data.idempotent,true);
+ const client=await api('/api/client/dashboard',{actor:'client'});assert.ok(JSON.stringify(client.data).includes('Controlled inspection report'));
+ const tenant=await api('/api/tenant/dashboard',{actor:'tenant'});assert.ok(JSON.stringify(tenant.data).includes('Controlled inspection report'));
+});
+test('payment webhook updates canonical status and both client and staff views',async()=>{
+ const webhook=await api('/api/integrations/payments/pay1/status',{method:'POST',headers:{'X-Payment-Webhook-Token':process.env.PAYMENT_WEBHOOK_TOKEN},body:{status:'paid'}});
+ assert.equal(webhook.status,200,JSON.stringify(webhook.data));assert.equal(webhook.data.payment.status,'paid');
+ const client=await api('/api/client/dashboard',{actor:'client'});assert.equal(client.status,200);assert.ok(JSON.stringify(client.data).includes('PAY-TEST'));
+ const staff=await api('/api/admin/operations',{actor:'admin'});assert.equal(staff.status,200);assert.ok(JSON.stringify(staff.data).includes('PAY-TEST'));
+});
