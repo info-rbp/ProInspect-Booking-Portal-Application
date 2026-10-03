@@ -1,0 +1,5 @@
+{
+  "migration": "0001_platform.sql",
+  "sha256": "d1bd2d78469f99008e9b2fce2a75474a3282b734bcaba27831b8a7d600f70bca",
+  "domains": 35
+}

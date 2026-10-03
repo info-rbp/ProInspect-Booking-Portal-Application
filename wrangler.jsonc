@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proinspect-local",
+  "main": ".cloudflare/worker.mjs",
+  "compatibility_date": "2026-10-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "no_bundle": true,
+  "workers_dev": false,
+  "assets": {"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":true},
+  "d1_databases": [{"binding":"DB","database_name":"proinspect-local","database_id":"00000000-0000-0000-0000-000000000000","migrations_dir":"migrations/cloudflare"}],
+  "r2_buckets": [{"binding":"DOCUMENTS","bucket_name":"proinspect-local-documents"},{"binding":"SENSITIVE","bucket_name":"proinspect-local-sensitive"}],
+  "durable_objects": {"bindings":[{"name":"BOOKING_COORDINATOR","class_name":"BookingCoordinator"}]},
+  "migrations": [{"tag":"cf-v1","new_sqlite_classes":["BookingCoordinator"]}],
+  "queues": {"producers":[{"binding":"JOBS","queue":"proinspect-local-mail"}],"consumers":[{"queue":"proinspect-local-mail","max_batch_size":10,"max_retries":8,"dead_letter_queue":"proinspect-local-dead"}]},
+  "send_email": [{"name":"EMAIL"}],
+  "vars": {"APP_URL":"http://localhost:8787","PLATFORM_ENVIRONMENT":"staging","LAUNCH_MODE":"live","BOOKING_EMAIL_FROM":"bookings@proinspect.systems","BOOKING_EMAIL_REPLY_TO":"info@proinspect.systems","STAGING_EMAIL_RECIPIENT":"test@example.test","ACCESS_DATA_ENCRYPTION_KEY_ID":"v1","RELEASE_SHA":"local"},
+  "observability": {"enabled":true},
+  "triggers": {"crons":["*/5 * * * *"]}
+}
