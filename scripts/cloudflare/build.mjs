@@ -38,9 +38,9 @@ const plugin={name:'reviewed-platform-boundaries',setup(b){
  });
 }};
 await mkdir('.cloudflare',{recursive:true});
-// Express dependencies use CommonJS require for Node built-ins. Workers exposes
-// those built-ins through createRequire; no dynamic third-party module loading.
-const banner={js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"};
+// Only Node built-ins remain external. A valid virtual file URL avoids assuming
+// import.meta.url is populated by the Workers runtime.
+const banner={js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire('file:///worker.mjs');"};
 const result=await build({entryPoints:['src/cloudflare/worker.ts'],outfile:'.cloudflare/worker.mjs',bundle:true,format:'esm',platform:'node',target:'es2022',external:['node:*','cloudflare:*'],conditions:['workerd','worker','node'],banner,sourcemap:true,metafile:true,plugins:[plugin],define:{'process.env.NODE_ENV':'"production"'},logLevel:'info'});
 const inputs=Object.keys(result.metafile.inputs);
 const forbidden=inputs.filter(x=>/node_modules\/(firebase|firebase-admin|google-auth-library|@google-cloud)\//.test(x)||x.endsWith('src/server/firebaseAdmin.ts')||x.endsWith('src/server/calendar.ts'));
