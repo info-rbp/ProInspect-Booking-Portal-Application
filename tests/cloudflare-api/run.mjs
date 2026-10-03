@@ -95,9 +95,12 @@ test('Report Tool ingestion stores a verified PDF once and exposes it through ca
  const client=await api('/api/client/dashboard',{actor:'client'});assert.ok(JSON.stringify(client.data).includes('Controlled inspection report'));
  const tenant=await api('/api/tenant/dashboard',{actor:'tenant'});assert.ok(JSON.stringify(tenant.data).includes('Controlled inspection report'));
 });
-test('payment webhook updates canonical status and both client and staff views',async()=>{
- const webhook=await api('/api/integrations/payments/pay1/status',{method:'POST',headers:{'X-Payment-Webhook-Token':process.env.PAYMENT_WEBHOOK_TOKEN},body:{status:'paid'}});
+test('payment checkout creation, authenticated status updates and portal visibility share one canonical record',async()=>{
+ const created=await api('/api/admin/payments',{actor:'admin',method:'POST',body:{clientId:'c1',propertyId:'p1',sourceType:'work_order',sourceId:'controlled-work-order',description:'Controlled payment',amountExGst:100,provider:'external'}});
+ assert.equal(created.status,201,JSON.stringify(created.data));assert.equal(created.data.payment.status,'payment_required');assert.match(created.data.payment.checkoutUrl,/^https:\/\/payments\.example\.test\/pay\//);assert.equal(created.data.payment.totalAmount,110);
+ const webhook=await api('/api/integrations/payments/'+created.data.payment.id+'/status',{method:'POST',headers:{'X-Payment-Webhook-Token':process.env.PAYMENT_WEBHOOK_TOKEN},body:{status:'paid'}});
  assert.equal(webhook.status,200,JSON.stringify(webhook.data));assert.equal(webhook.data.payment.status,'paid');
- const client=await api('/api/client/dashboard',{actor:'client'});assert.equal(client.status,200);assert.ok(JSON.stringify(client.data).includes('PAY-TEST'));
- const staff=await api('/api/admin/operations',{actor:'admin'});assert.equal(staff.status,200);assert.ok(JSON.stringify(staff.data).includes('PAY-TEST'));
+ const client=await api('/api/client/dashboard',{actor:'client'});assert.equal(client.status,200);assert.ok(JSON.stringify(client.data).includes(created.data.payment.reference));
+ const staff=await api('/api/admin/operations',{actor:'admin'});assert.equal(staff.status,200);assert.ok(JSON.stringify(staff.data).includes(created.data.payment.reference));
+ const audits=await db.collection('auditEvents').where('entityId','==',created.data.payment.id).get();assert.ok(audits.size>=2);
 });
