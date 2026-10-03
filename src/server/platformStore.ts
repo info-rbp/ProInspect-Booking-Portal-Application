@@ -27,6 +27,7 @@ import type {
   ClientUserRecord,
   PortalAudience,
   TenantDocument,
+  TenantInspection,
   TenantProperty,
 } from '../types/tenant.js';
 import type { BookingRecord } from '../types/booking.js';
@@ -844,6 +845,49 @@ export async function buildUnifiedClientDashboard(params: {
       },
     }));
 
+  const [workOrderSnapshot, inspectionSnapshot] = await Promise.all([
+    adminDb.collection('workOrders').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('tenantInspections').orderBy('updatedAt', 'desc').limit(500).get(),
+  ]);
+  const workOrders = workOrderSnapshot.docs
+    .map((doc) => docWithId<WorkOrder>(doc))
+    .filter((item) =>
+      (item.clientId ? allowedClientIds.has(item.clientId) : false) ||
+      propertyIds.has(item.propertyId)
+    )
+    .map((item) => ({
+      id:item.id,
+      reference:item.reference,
+      propertyId:item.propertyId,
+      clientId:item.clientId,
+      tenancyId:item.tenancyId,
+      title:item.title,
+      description:item.description,
+      priority:item.priority,
+      status:item.status,
+      quoteAmountExGst:item.quoteAmountExGst,
+      approvalId:item.approvalId,
+      scheduledStart:item.scheduledStart,
+      scheduledEnd:item.scheduledEnd,
+      completedAt:item.completedAt,
+      createdAt:item.createdAt,
+      updatedAt:item.updatedAt,
+    }));
+  const inspections = inspectionSnapshot.docs
+    .map((doc) => docWithId<TenantInspection>(doc))
+    .filter((item) => propertyIds.has(item.propertyId))
+    .map((item) => ({
+      id:item.id,
+      tenancyId:item.tenancyId,
+      propertyId:item.propertyId,
+      type:item.type,
+      status:item.status,
+      scheduledStart:item.scheduledStart,
+      scheduledEnd:item.scheduledEnd,
+      createdAt:item.createdAt,
+      updatedAt:item.updatedAt,
+    }));
+
   const memberships: ClientMembership[] = params.user.clientIds.map((clientId) => ({
     clientId,
     role: params.user.clientRoles?.[clientId] || 'member',
@@ -863,6 +907,8 @@ export async function buildUnifiedClientDashboard(params: {
     propertyLinks: params.propertyLinks,
     bookings,
     requests,
+    workOrders,
+    inspections,
     documentRequests: params.documentRequests || [],
     documents: params.documents,
     approvals,
