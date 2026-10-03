@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "maintenance",
+  "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
-  "approve": "FREEZE:69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
-  "note": "Enter the verified Stage 4 production maintenance window using the immutable image already built for the frozen source."
+  "sourceSha": "0174aaf3e5290f456c53441ec2c4246f869bbed5",
+  "approve": "",
+  "note": "Regenerate the reviewed Stage 4 production infrastructure plan for the corrected Cloud Run health-probe controller. No Terraform apply, migration, maintenance traffic change, candidate deployment or main merge."
 }
