@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "plan",
+  "action": "build",
   "releaseId": "production-unification",
   "sourceSha": "69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
   "approve": "",
-  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan after production adoption normalization. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Build the immutable production image for the verified Stage 4 source. No maintenance, Terraform apply, migration, Cloud Run traffic change or main merge."
 }
