@@ -6,6 +6,7 @@ import type {
   ClientUserRecord,
   PortalAudience,
   TenantDocumentCategory,
+  TenantInspection,
   TenantProperty,
 } from './tenant';
 
@@ -316,6 +317,15 @@ export interface UnifiedClientDashboard {
     };
   }>;
   requests: ClientRequest[];
+  workOrders: Array<Pick<WorkOrder,
+    'id' | 'reference' | 'propertyId' | 'clientId' | 'tenancyId' | 'title' | 'description' |
+    'priority' | 'status' | 'quoteAmountExGst' | 'approvalId' | 'scheduledStart' |
+    'scheduledEnd' | 'completionNotes' | 'completedAt' | 'createdAt' | 'updatedAt'
+  >>;
+  inspections: Array<Pick<TenantInspection,
+    'id' | 'tenancyId' | 'propertyId' | 'type' | 'status' | 'scheduledStart' |
+    'scheduledEnd' | 'noticeDocumentId' | 'createdAt' | 'updatedAt'
+  >>;
   documentRequests: DocumentRequest[];
   documents: Array<{
     id: string;
