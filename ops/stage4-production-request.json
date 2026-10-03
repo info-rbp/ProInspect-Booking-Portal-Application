@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "e186d32d7ae4a52938cfb5b81c78565286608f3d",
+  "sourceSha": "69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
   "approve": "",
-  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan for the verified Firebase ruleset rotation fix. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan after production adoption normalization. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
