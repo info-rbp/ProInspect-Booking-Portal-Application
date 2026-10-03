@@ -41,6 +41,7 @@ jobs:
           print('ACTION='+action);print('SOURCE='+source)
           PY
           source /tmp/request.env
+          export ACTION SOURCE
           git cat-file -e "$SOURCE^{commit}"
           git merge-base --is-ancestor "$SOURCE" HEAD
           changed="$(git diff --name-only "$SOURCE" HEAD | grep -v '^ops/cloudflare-production-request.json$' || true)"
