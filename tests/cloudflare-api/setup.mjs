@@ -20,6 +20,7 @@ await db.collection('clientUsers').doc('cu').set({id:'cu',firebaseUid:'c-uid',em
 await db.collection('clientMemberships').doc('cm').set({id:'cm',clientId:'c1',clientUserId:'cu',role:'owner',active:true,status:'active',...dates});
 await db.collection('clientPropertyLinks').doc('link').set({id:'link',clientId:'c1',propertyId:'p1',role:'owner',active:true,...dates});
 await db.collection('propertyDocuments').doc('private-doc').set({id:'private-doc',propertyId:'p2',tenancyId:'ten2',clientIds:[],audiences:['tenant'],storagePath:'test/private.pdf',category:'correspondence',status:'active',...dates});
+await db.collection('propertyDocuments').doc('pcr-doc').set({id:'pcr-doc',propertyId:'p1',tenancyId:'ten1',clientIds:['c1'],audiences:['tenant','client'],storagePath:'test/pcr.pdf',title:'Entry Property Condition Report',fileName:'pcr.pdf',contentType:'application/pdf',size:100,category:'property_condition_report',status:'issued',uploadedAt:now,updatedAt:now});
 await db.collection('sensitiveTenantForms').doc('restricted').set({id:'restricted',tenantUserId:'t2-uid',tenancyId:'ten2',propertyId:'p2',secret:'must-not-leak',...dates});
 await db.collection('adminUsers').doc('reader-uid').set({id:'reader-uid',email:'reader@example.test',role:'read_only',active:true,...dates});
 
