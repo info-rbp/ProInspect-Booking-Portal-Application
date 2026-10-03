@@ -4,12 +4,13 @@ import { randomUUID } from 'node:crypto';
 export interface BusyInterval {start:string;end:string}
 export function calendarIsConfigured(){return true;}
 export function getCalendarId(resource?:string){return resource||'proinspect-primary';}
+function utc(value:string){const date=new Date(value);if(!Number.isFinite(date.getTime()))throw new Error('INVALID_CALENDAR_DATE');return date.toISOString();}
 export async function freeBusy(params:{timeMin:string;timeMax:string;timezone:string;calendarId?:string}):Promise<BusyInterval[]>{
- const rows=await adminDb.collection('nativeCalendarEvents').where('resourceId','==',getCalendarId(params.calendarId)).where('start','<',params.timeMax).where('end','>',params.timeMin).get();
+ const rows=await adminDb.collection('nativeCalendarEvents').where('resourceId','==',getCalendarId(params.calendarId)).where('start','<',utc(params.timeMax)).where('end','>',utc(params.timeMin)).get();
  return rows.docs.map(d=>({start:d.data().start,end:d.data().end}));
 }
 export async function createEvent(booking:any,resource?:string){
- const id='event_'+booking.id;const ref=adminDb.collection('nativeCalendarEvents').doc(id);const start=booking.appointment.start,end=booking.appointment.end;
+ const id='event_'+booking.id;const ref=adminDb.collection('nativeCalendarEvents').doc(id);const start=utc(booking.appointment.start),end=utc(booking.appointment.end);if(start>=end)throw new Error('INVALID_CALENDAR_INTERVAL');
  await adminDb.runTransaction(async tx=>{
   const existing=await tx.get(ref);if(existing.exists)return;
   const busy=await tx.get(adminDb.collection('nativeCalendarEvents').where('resourceId','==',getCalendarId(resource)).where('start','<',end).where('end','>',start));
