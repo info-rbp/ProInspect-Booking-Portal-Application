@@ -7,6 +7,7 @@ import type {
   PortalAudience,
   TenantDocumentCategory,
   TenantInspection,
+  TenancyRecord,
   TenantProperty,
 } from './tenant';
 
@@ -288,6 +289,10 @@ export interface UnifiedClientDashboard {
   };
   clients: ClientRecord[];
   properties: TenantProperty[];
+  tenancies: Array<Pick<TenancyRecord,
+    'id' | 'propertyId' | 'clientId' | 'status' | 'startDate' | 'endDate' |
+    'rentAmount' | 'rentFrequency' | 'createdAt' | 'updatedAt'
+  >>;
   propertyLinks: Array<{
     id: string;
     clientId: string;
