@@ -179,6 +179,13 @@ export const ClientPortal: React.FC<{
     data?.approvals.filter((approval) => approval.clientId === selectedClient?.id) || [];
   const selectedPayments =
     data?.payments.filter((payment) => payment.clientId === selectedClient?.id) || [];
+  const selectedWorkOrders =
+    data?.workOrders.filter((workOrder) =>
+      (workOrder.clientId && workOrder.clientId === selectedClient?.id) ||
+      selectedPropertyIds.has(workOrder.propertyId)
+    ) || [];
+  const selectedInspections =
+    data?.inspections.filter((inspection) => selectedPropertyIds.has(inspection.propertyId)) || [];
   const selectedDocuments =
     data?.documents.filter((document) =>
       selectedClient ? document.clientIds.includes(selectedClient.id) : false
@@ -386,6 +393,9 @@ export const ClientPortal: React.FC<{
                 ).length +
                   selectedDocumentRequests.filter(
                     (request) => !['completed', 'cancelled'].includes(request.status)
+                  ).length +
+                  selectedWorkOrders.filter(
+                    (workOrder) => !['completed', 'cancelled'].includes(workOrder.status)
                   ).length,
                 Wrench,
               ],
@@ -598,6 +608,64 @@ export const ClientPortal: React.FC<{
             {!selectedRequests.length && (
               <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
                 No operational requests yet.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+              Work orders
+            </h2>
+            {selectedWorkOrders.map((workOrder) => (
+              <div key={workOrder.id} className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-[#1A2B4A]">{workOrder.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {workOrder.reference} · {workOrder.priority}
+                    </div>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-slate-600">
+                    {workOrder.status.replaceAll('_', ' ')}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-slate-700">{workOrder.description}</p>
+                {workOrder.scheduledStart && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Scheduled: {new Date(workOrder.scheduledStart).toLocaleString('en-AU')}
+                  </p>
+                )}
+              </div>
+            ))}
+            {!selectedWorkOrders.length && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                No work orders yet.
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">
+              Inspections
+            </h2>
+            {selectedInspections.map((inspection) => (
+              <div key={inspection.id} className="rounded-xl border border-slate-200 bg-white p-5 flex justify-between gap-3">
+                <div>
+                  <div className="font-bold text-[#1A2B4A]">
+                    {inspection.type.replaceAll('_', ' ')}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {new Date(inspection.scheduledStart).toLocaleString('en-AU')}
+                  </div>
+                </div>
+                <span className="text-[10px] uppercase font-bold text-slate-600">
+                  {inspection.status.replaceAll('_', ' ')}
+                </span>
+              </div>
+            ))}
+            {!selectedInspections.length && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                No inspections scheduled.
               </div>
             )}
           </div>
