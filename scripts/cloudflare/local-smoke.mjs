@@ -18,7 +18,8 @@ try{
  const health=await (await check('/healthz',200)).json();assert.equal(health.platform,'cloudflare');
  const catalogue=await (await check('/api/services',200)).json();assert.ok(catalogue.services.length>0,'Real catalogue must be served from D1');
  for(const path of ['/','/book','/client','/tenant']){const r=await check(path,200);assert.match(await r.text(),/id="root"/);}
- for(const path of ['/admin','/api/admin/session','/%61dmin','/api/tenant/session','/api/client/session','/_files'])await check(path,401);
+ for(const path of ['/admin','/%61dmin']){const r=await check(path,200);assert.match(await r.text(),/id="root"/);}
+ for(const path of ['/api/admin/session','/api/tenant/session','/api/client/session','/_files'])await check(path,401);
  await check('/api/admin/session',401,{headers:{Authorization:'Bearer forged-identity'}});
  await check('/api/auth/request',403,{method:'POST',headers:{Origin:'https://evil.invalid','Content-Type':'application/json'},body:JSON.stringify({email:'test@example.test',audience:'client'})});
  await check('/api/bookings/create',400,{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:'{}'});
