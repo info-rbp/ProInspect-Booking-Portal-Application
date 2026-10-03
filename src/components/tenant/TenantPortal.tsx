@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { User } from '../../services/session';
 import { TenantStatutoryForms } from './TenantStatutoryForms';
 import {
   AlertTriangle,
@@ -202,20 +202,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({
   }, [authUser?.uid]);
 
   useEffect(() => {
-    if (authUser || !tenantEmailLinkIsActive()) return;
-
-    setAuthBusy(true);
-    setAuthError(null);
-    completeTenantSignIn()
-      .then(({ user }) => {
-        onAuthenticated(user);
-        window.history.replaceState({}, '', '/tenant');
-      })
-      .catch((error) => {
-        setNeedsCompletionEmail(true);
-        setAuthError(error instanceof Error ? error.message : 'Unable to complete sign in.');
-      })
-      .finally(() => setAuthBusy(false));
+    if (!authUser && tenantEmailLinkIsActive()) setNeedsCompletionEmail(true);
   }, []);
 
   const activeTenancy = useMemo(

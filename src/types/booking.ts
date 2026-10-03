@@ -140,7 +140,7 @@ export interface AppointmentSlot {
 
 export type BookingStatus = 'confirmed' | 'completed' | 'cancelled';
 export type BookingReadinessStatus = 'ready' | 'pending_notice' | 'access_action_required';
-export type ConfirmationEmailStatus = 'sent' | 'failed' | 'not_configured';
+export type ConfirmationEmailStatus = 'queued' | 'sent' | 'failed' | 'not_configured';
 
 export interface BookingRecord {
   id: string;

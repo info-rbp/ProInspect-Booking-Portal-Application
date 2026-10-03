@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { User } from '../../services/session';
 import {
   Activity,
   BadgeDollarSign,

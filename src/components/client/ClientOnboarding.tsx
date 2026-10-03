@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { User } from '../../services/session';
 import { Building2, Loader2, LogOut } from 'lucide-react';
 import { completeClientOnboarding } from '../../services/api';
 import type { ClientType } from '../../types/tenant';

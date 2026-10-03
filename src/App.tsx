@@ -29,7 +29,7 @@ import {
 } from './types/booking';
 import { fetchServices, submitBooking, verifyAdminSession } from './services/api';
 import { initAuthListener, logoutAdmin, logoutTenant } from './services/firebase';
-import { User } from 'firebase/auth';
+import { User } from './services/session';
 import { Search } from 'lucide-react';
 
 type PublicRoute = 'gateway' | 'hub' | 'book' | 'request-document' | 'signin' | 'tenant' | 'client' | 'admin';
@@ -49,7 +49,7 @@ function publicRouteFromPath(): PublicRoute {
   if (pathname === '/admin') return 'admin';
   if (pathname === '/book') return 'book';
   if (pathname === '/request-document') return 'request-document';
-  if (pathname === '/signin') return 'signin';
+  if (pathname === '/signin') return 'client';
   if (pathname === '/tenant' || pathname === '/tenant/complete-signin') return 'tenant';
   if (pathname === '/client') return 'client';
   return 'gateway';

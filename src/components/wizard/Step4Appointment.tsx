@@ -89,7 +89,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
       } catch (err) {
         if (!isCancelled) {
           console.error('Failed to load slots:', err);
-          setFetchError('Unable to connect to Google Calendar scheduling engine.');
+          setFetchError('Unable to connect to ProInspect calendar scheduling engine.');
         }
       } finally {
         if (!isCancelled) {
@@ -278,7 +278,7 @@ export const Step4Appointment: React.FC<Step4AppointmentProps> = ({
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-2">
               <Loader2 className="w-6 h-6 text-[#006D70] animate-spin" />
               <span className="text-xs font-semibold text-slate-600">
-                Checking Google Calendar availability...
+                Checking ProInspect calendar availability...
               </span>
             </div>
           ) : fetchError ? (

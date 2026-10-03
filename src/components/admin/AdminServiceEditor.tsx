@@ -459,7 +459,7 @@ export const AdminServiceEditor: React.FC<AdminServiceEditorProps> = ({
 
               <label className="space-y-1.5 block">
                 <span className="text-xs font-bold text-slate-700">
-                  Service-specific Google Calendar ID
+                  Service-specific ProInspect calendar ID
                 </span>
                 <input
                   className={fieldClass}

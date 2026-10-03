@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { User } from 'firebase/auth';
+import type { User } from '../../services/session';
 import type { InspectionService } from '../../types/booking';
 import { AdminDashboard } from './AdminDashboard';
 import { AdminPortal } from './AdminPortal';

@@ -40,7 +40,7 @@ import {
   EyeOff,
   Power,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
+import { User } from '../../services/session';
 
 interface AdminDashboardProps {
   currentUser: User | null;
@@ -796,7 +796,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-6 shadow-xs space-y-6">
           <div className="border-b border-slate-100 pb-4">
             <h3 className="font-bold text-base text-[#1A2B4A]">
-              Google Calendar &amp; Operating Settings
+              ProInspect calendar &amp; Operating Settings
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               Scheduling engine parameters for Western Australia
@@ -818,14 +818,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="space-y-2">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                Google Calendar Engine
+                ProInspect calendar Engine
               </span>
               <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 space-y-1 text-xs text-emerald-900">
                 <div className="flex items-center gap-1.5 font-bold">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>{settings?.calendarConnected ? 'Google Calendar integration configured' : 'Google Calendar configuration required'}</span>
+                  <span>{settings?.calendarConnected ? 'ProInspect calendar integration configured' : 'ProInspect calendar configuration required'}</span>
                 </div>
-                <div>Availability is calculated server-side from Google Calendar and service rules.</div>
+                <div>Availability is calculated server-side from ProInspect calendar and service rules.</div>
                 <div>The server rechecks availability immediately before confirmation.</div>
               </div>
             </div>
