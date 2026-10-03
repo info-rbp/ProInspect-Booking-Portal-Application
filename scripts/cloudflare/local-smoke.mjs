@@ -1,12 +1,16 @@
 import {spawn,execFileSync} from 'node:child_process';
-import {readFileSync,writeFileSync,openSync,closeSync} from 'node:fs';
+import {readFileSync,writeFileSync,openSync,closeSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import assert from 'node:assert/strict';
 const env={...process.env,WRANGLER_SEND_METRICS:'false'};
 delete env.CLOUDFLARE_API_TOKEN;delete env.CLOUDFLARE_ACCOUNT_ID;
 execFileSync('npx',['--yes','wrangler@4.147.0','d1','migrations','apply','DB','--local'],{stdio:'inherit',env,timeout:120000});
-const log='.cloudflare/local-worker.log',fd=openSync(log,'w');
-const child=spawn('npx',['--yes','wrangler@4.147.0','dev','--local','--ip','127.0.0.1','--port','8787'],{env,stdio:['ignore',fd,fd],detached:true});
-const base='http://localhost:8787';let checks=0;
+// Writing logs beside the Worker caused the dev file watcher to reload forever.
+const temp=mkdtempSync(join(tmpdir(),'proinspect-worker-')),log=join(temp,'worker.log'),fd=openSync(log,'w');
+const base='http://127.0.0.1:8787';
+const child=spawn('npx',['--yes','wrangler@4.147.0','dev','--local','--ip','127.0.0.1','--port','8787','--var','APP_URL:'+base],{env,stdio:['ignore',fd,fd],detached:true});
+let checks=0;
 async function check(path,status,options){console.log('WORKER_CHECK',path);const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(15000),...options});assert.equal(r.status,status,path+': '+await r.clone().text());checks++;return r;}
 try{
  let ready=false;for(let i=0;i<60;i++){try{const r=await fetch(base+'/healthz',{signal:AbortSignal.timeout(1000)});if(r.ok){ready=true;break;}}catch{}if(child.exitCode!==null)break;await new Promise(r=>setTimeout(r,500));}
@@ -21,5 +25,5 @@ try{
  const address=await (await check('/api/address/autocomplete?input=Ashby',200)).json();assert.deepEqual(address.suggestions,[]);
  const result={status:'passed',checks,runtime:'workerd',scope:'isolated local bindings; no production resources or email delivery tested'};
  writeFileSync('.cloudflare/local-smoke.json',JSON.stringify(result,null,2)+'\n');console.log(result);
-}catch(error){console.error(readFileSync(log,'utf8').slice(-16000));throw error;}
-finally{try{process.kill(-child.pid,'SIGTERM');}catch{}closeSync(fd);}
+}catch(error){console.error(readFileSync(log,'utf8').slice(-20000));throw error;}
+finally{try{process.kill(-child.pid,'SIGTERM');}catch{}closeSync(fd);rmSync(temp,{recursive:true,force:true});}
