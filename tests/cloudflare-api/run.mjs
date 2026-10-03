@@ -20,6 +20,21 @@ test('real booking API reserves once, persists, queues email, manages and cancel
  const cancelled=await api('/api/bookings/manage/'+booking.managementToken+'/cancel',{method:'POST',body:{}});assert.equal(cancelled.status,200,JSON.stringify(cancelled.data));assert.equal((await stored.docs[0].ref.get()).data().status,'cancelled');
 });
 
+test('public document requests persist across residential commercial and strata workflows',async()=>{
+ const baseDetails={streetAddress:'19 Bonnard Crescent',suburb:'Ashby',state:'WA',postcode:'6065',customerName:'Controlled Requester',customerEmail:'controlled@example.test',customerPhone:'0432432554'};
+ const today=new Date().toISOString().slice(0,10),entry=new Date(Date.now()+8*86400000).toISOString().slice(0,10);
+ const cases=[
+  {documentId:'notice-proposed-entry-form-19',documentCategory:'residential',workflow:{version:1,requesterRole:'property-manager',lessors:[{id:'lessor-1',name:'Controlled Owner'}],tenants:[{id:'tenant-1',name:'Controlled Tenant'}],answers:{entryDate:entry,entryPeriod:'before-noon',entryReason:'routine-inspection',noticeDate:today,negotiationContact:'0432432554',issuedBy:'property-manager'}}},
+  {documentId:'commercial-lease',documentCategory:'commercial',workflow:{version:1,requesterRole:'other',lessors:[],tenants:[],answers:{instructions:'Prepare a controlled commercial lease draft for review.'}}},
+  {documentId:'strata-owner-notice',documentCategory:'strata-building',workflow:{version:1,requesterRole:'other',lessors:[],tenants:[],answers:{instructions:'Prepare a controlled strata owner notice for review.'}}}
+ ];
+ for(const item of cases){
+  const result=await api('/api/document-requests',{method:'POST',body:{...item,details:baseDetails}});
+  assert.equal(result.status,201,item.documentId+': '+JSON.stringify(result.data));
+  assert.equal(result.data.request.documentCategory,item.documentCategory);
+ }
+ const stored=await db.collection('documentRequests').get();assert.ok(stored.size>=3);
+});
 test('tenant request to work order, contractor and client approval stays on the canonical graph',async()=>{
  const tenantRequest=await api('/api/tenant/requests',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',requestType:'maintenance',title:'Leaking kitchen tap',details:'Tap is leaking continuously under normal use.',priority:'normal',accessPermission:true}});
  assert.equal(tenantRequest.status,201,JSON.stringify(tenantRequest.data));
