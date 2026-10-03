@@ -363,6 +363,7 @@ const ADMIN_READ_PERMISSION_ALIASES: Record<string, AdminPermission> = {
   settings: 'settings.read',
   audit: 'audit.read',
   tenant_forms: 'tenants.read',
+  sensitive_tenancy: 'security.manage',
 };
 
 const ADMIN_WRITE_PERMISSION_ALIASES: Record<string, AdminPermission> = {
@@ -376,6 +377,7 @@ const ADMIN_WRITE_PERMISSION_ALIASES: Record<string, AdminPermission> = {
   settings: 'settings.update',
   audit: 'security.manage',
   tenant_forms: 'tenants.manage',
+  sensitive_tenancy: 'security.manage',
 };
 
 function canonicalAdminPermission(permission: string, write = false): AdminPermission | null {
