@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "plan",
+  "action": "build",
   "releaseId": "production-unification",
   "sourceSha": "0174aaf3e5290f456c53441ec2c4246f869bbed5",
   "approve": "",
-  "note": "Regenerate the reviewed Stage 4 production infrastructure plan for the corrected Cloud Run health-probe controller. No Terraform apply, migration, maintenance traffic change, candidate deployment or main merge."
+  "note": "Build the immutable production image for the corrected Stage 4 source after successful production planning. No maintenance, Terraform apply, migration, Cloud Run traffic change or main merge."
 }
