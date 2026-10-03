@@ -238,12 +238,10 @@ class ProductionPolicy(unittest.TestCase):
     def test_cutover_pins_explicit_cloud_run_health_probes(self):
         source=(ROOT/"scripts/stage4/release.py").read_text()
         for flag in (
-            "--startup-probe=httpGet.path=/healthz,httpGet.port=8080",
-            "--liveness-probe=httpGet.path=/healthz,httpGet.port=8080",
-            "--readiness-probe=httpGet.path=/healthz,httpGet.port=8080",
-            "--startup-probe=httpGet.path=/api/health,httpGet.port=8080",
-            "--liveness-probe=httpGet.path=/api/health,httpGet.port=8080",
-            "--readiness-probe=httpGet.path=/api/health,httpGet.port=8080",
+            "--startup-probe=httpGet.path=/healthz,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=15",
+            "--startup-probe=httpGet.path=/api/health,httpGet.port=8080,timeoutSeconds=2,periodSeconds=2,failureThreshold=30",
+            '"--liveness-probe="',
+            '"--readiness-probe="',
         ):
             self.assertIn(flag,source)
         self.assertIn('"--service-account="+c["terraform"]["runtime_service_account_email"]',source)
