@@ -1,5 +1,5 @@
 /** Cloudflare-backed browser sessions. No cloud credentials are exposed here. */
-export interface User {uid:string;email:string;displayName?:string;photoURL?:string|null;provider:'session'|'access';getIdToken:(forceRefresh?:boolean)=>Promise<string>}
+export interface User {uid:string;email:string;displayName?:string;photoURL?:string|null;phoneNumber?:string|null;provider:'session'|'access';getIdToken:(forceRefresh?:boolean)=>Promise<string>}
 let csrf='';const listeners=new Set<{success?:(user:User)=>void;failure?:()=>void}>();
 export const auth:{currentUser:User|null}={currentUser:null};
 const nativeFetch=window.fetch.bind(window);

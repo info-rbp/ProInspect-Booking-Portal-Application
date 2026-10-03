@@ -74,7 +74,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
   const [isValidatingAddress, setIsValidatingAddress] = useState(false);
   const [addressVerificationMessage, setAddressVerificationMessage] = useState<string | null>(
     initialData.addressVerification?.status === 'verified'
-      ? 'Address verified by Manual address entry.'
+      ? 'Address entered manually. Confirm the details before attendance.'
       : null
   );
 
@@ -228,7 +228,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       setAddressVerificationMessage(
         result.requiresConfirmation
           ? 'Manual address entry standardized this address. Review the details below before continuing.'
-          : 'Address verified by Manual address entry.'
+          : 'Address entered manually. Confirm the details before attendance.'
       );
     } catch {
       setAddressVerificationMessage(
@@ -291,7 +291,7 @@ export const Step2Property: React.FC<Step2PropertyProps> = ({
       setAddressVerificationMessage(
         result.requiresConfirmation
           ? 'Manual address entry standardized this address. The standardized address will be used for the booking.'
-          : 'Address verified by Manual address entry.'
+          : 'Address entered manually. Confirm the details before attendance.'
       );
       onNext();
     } catch {

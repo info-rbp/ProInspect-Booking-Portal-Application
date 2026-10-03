@@ -98,7 +98,7 @@ export class Query {
   }
 }
 export class CollectionReference extends Query {
-  doc(id=randomUUID()){return new DocumentReference(this.db,this.name,validId(id));}
+  doc(id:string=randomUUID()){return new DocumentReference(this.db,this.name,validId(id));}
   async add(data:unknown){const doc=this.doc();await doc.create(data);return doc;}
 }
 export class DocumentReference {
