@@ -27,9 +27,18 @@ await capability('turnstile','/accounts/'+account+'/challenges/widgets?per_page=
 const zoneResult=await raw('/zones?name=proinspect.systems&account.id='+account+'&per_page=50');
 checks.zone={ok:zoneResult.ok,status:zoneResult.status,errors:zoneResult.errors,count:zoneResult.ok?(zoneResult.result||[]).length:0};
 if(zoneResult.ok&&(zoneResult.result||[]).length===1){
- const email=await raw('/zones/'+zoneResult.result[0].id+'/email/sending/subdomains');
+ const zoneId=zoneResult.result[0].id;
+ const email=await raw('/zones/'+zoneId+'/email/sending/subdomains');
  checks.email={ok:email.ok,status:email.status,errors:email.errors,enabled:email.ok&&(email.result||[]).some(x=>x.name==='proinspect.systems'&&x.enabled===true)};
-}else checks.email={ok:false,status:zoneResult.status,errors:['proinspect.systems zone is not uniquely readable by this token'],enabled:false};
+ const routes=await raw('/zones/'+zoneId+'/workers/routes');
+ checks.workersRoutes={ok:routes.ok,status:routes.status,errors:routes.errors,count:routes.ok?(routes.result||[]).length:0};
+ const waf=await raw('/zones/'+zoneId+'/rulesets/phases/http_request_firewall_custom/entrypoint');
+ checks.waf={ok:waf.ok||waf.status===404,status:waf.status,errors:waf.status===404?[]:waf.errors,entrypointExists:waf.ok};
+}else{
+ checks.email={ok:false,status:zoneResult.status,errors:['proinspect.systems zone is not uniquely readable by this token'],enabled:false};
+ checks.workersRoutes={ok:false,status:zoneResult.status,errors:['proinspect.systems zone is not uniquely readable by this token'],count:0};
+ checks.waf={ok:false,status:zoneResult.status,errors:['proinspect.systems zone is not uniquely readable by this token'],entrypointExists:false};
+}
 
 const required={
  d1:'Account > D1: Edit/Write',
@@ -37,7 +46,9 @@ const required={
  queues:'Account > Queues: Edit/Write (or Workers Scripts Write where accepted)',
  turnstile:'Account > Turnstile: Edit/Write',
  zone:'Zone > Zone: Read for proinspect.systems',
- email:'Account > Email Sending: Edit plus Zone: Read for proinspect.systems'
+ email:'Account > Email Sending: Edit plus Zone: Read for proinspect.systems',
+ workersRoutes:'Zone > Workers Routes: Write for proinspect.systems',
+ waf:'Zone > WAF: Write (or Rulesets Write where accepted) for proinspect.systems'
 };
 const missing=Object.entries(checks).filter(([,value])=>!value.ok).map(([name])=>({capability:name,requiredPermission:required[name]}));
 console.log(JSON.stringify({accountId:account,checks,missing},null,2));
