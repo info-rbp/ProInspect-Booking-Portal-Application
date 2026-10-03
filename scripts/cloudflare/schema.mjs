@@ -43,7 +43,7 @@ CREATE INDEX client_email ON clientUsers(json_extract(data,'$.emailLower'));
 CREATE INDEX tenant_email ON tenantUsers(json_extract(data,'$.emailLower'));
 CREATE INDEX native_events_resource ON nativeCalendarEvents(json_extract(data,'$.resourceId'),json_extract(data,'$.start'),json_extract(data,'$.end'));
 CREATE TABLE auth_identities (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, display_name TEXT, created_at INTEGER NOT NULL);
-CREATE TABLE login_challenges (token_hash TEXT PRIMARY KEY, email TEXT NOT NULL, audience TEXT NOT NULL CHECK(audience IN ('client','tenant')), expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE login_challenges (token_hash TEXT PRIMARY KEY, email TEXT NOT NULL, audience TEXT NOT NULL CHECK(audience IN ('client','tenant','admin')), expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES auth_identities(id), csrf TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE INDEX auth_sessions_user ON auth_sessions(user_id);
 CREATE TABLE rate_windows (key TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL CHECK(count >= 0));
