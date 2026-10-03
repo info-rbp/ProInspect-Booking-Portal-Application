@@ -91,13 +91,55 @@ def init(c):
        "-backend-config=impersonate_service_account="+c["terraform"]["terraform_service_account_email"])
 
 
+FIRESTORE_RULES_RELEASE_ADDRESS="google_firebaserules_release.firestore"
+
+
+def expected_firestore_rules_release_name(c):
+    return "cloud.firestore" if c["databaseId"]=="(default)" else "cloud.firestore/"+c["databaseId"]
+
+
+def expected_firestore_rules_release_replacement(resource,c):
+    if resource.get("type")!="google_firebaserules_release" or resource.get("address")!=FIRESTORE_RULES_RELEASE_ADDRESS:
+        return False
+    change=resource.get("change",{})
+    actions=change.get("actions",[])
+    if len(actions)!=2 or set(actions)!={"create","delete"}:
+        return False
+    before=change.get("before") or {}
+    after=change.get("after") or {}
+    expected_name=expected_firestore_rules_release_name(c)
+    if before.get("project")!=c["projectId"] or after.get("project")!=c["projectId"]:
+        return False
+    if before.get("name")!=expected_name or after.get("name")!=expected_name:
+        return False
+    ruleset_prefix="projects/"+c["projectId"]+"/rulesets/"
+    before_ruleset=before.get("ruleset_name")
+    if not isinstance(before_ruleset,str) or not before_ruleset.startswith(ruleset_prefix):
+        return False
+    after_unknown=(change.get("after_unknown") or {}).get("ruleset_name") is True
+    after_ruleset=after.get("ruleset_name")
+    if not after_unknown and (not isinstance(after_ruleset,str) or not after_ruleset.startswith(ruleset_prefix)):
+        return False
+    return change.get("replace_paths")==[["ruleset_name"]]
+
+
 def production_plan_guard(plan,c):
     require(plan.get("complete",True) is not False,"Incomplete/deferred Terraform plan cannot be applied.")
-    stage3.guard_plan(plan,{**c,"approvedEphemeralReplacements":[]})
-    for r in plan.get("resource_changes",[]):
+    changes=plan.get("resource_changes",[])
+    approved=[
+        r.get("address") for r in changes
+        if expected_firestore_rules_release_replacement(r,c)
+    ]
+    stage3.guard_plan(plan,{**c,"approvedEphemeralReplacements":approved})
+    for r in changes:
         if r.get("mode")=="data": continue
         kind=r["type"]; ch=r["change"]
-        require(not {"delete","forget"}.intersection(ch["actions"]),"Production deletions, replacements and forgetting state are prohibited.")
+        destructive={"delete","forget"}.intersection(ch["actions"])
+        if destructive:
+            require(
+                "forget" not in ch["actions"] and expected_firestore_rules_release_replacement(r,c),
+                "Production deletions, replacements and forgetting state are prohibited except the canonical Firestore rules release ruleset transition."
+            )
         require(not kind.endswith(("_iam_policy","_iam_binding")),"Authoritative IAM updates can remove unrelated permissions.")
         if kind in ("google_firestore_database","google_firebase_project","google_firebase_web_app"):
             require("create" not in ch["actions"] or ch.get("importing"),"Existing production data/auth resources must be imported, never recreated.")

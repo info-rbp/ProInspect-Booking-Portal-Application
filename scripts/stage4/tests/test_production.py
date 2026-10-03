@@ -82,6 +82,35 @@ class ProductionPolicy(unittest.TestCase):
             plan={"resource_changes":[{"mode":"managed","address":kind+".test","type":kind,
               "change":{"actions":["delete","create"],"before":{},"after":{}}}]}
             with self.subTest(kind=kind),self.assertRaises(ValueError):release.production_plan_guard(plan,fixture())
+    def test_expected_firestore_rules_release_replacement_accepted(self):
+        c=fixture()
+        release_name="cloud.firestore/"+c["databaseId"]
+        plan={"resource_changes":[{"mode":"managed","address":"google_firebaserules_release.firestore",
+          "type":"google_firebaserules_release","change":{"actions":["delete","create"],
+          "before":{"project":common.PROJECT,"name":release_name,
+                    "ruleset_name":"projects/"+common.PROJECT+"/rulesets/existing"},
+          "after":{"project":common.PROJECT,"name":release_name,"ruleset_name":None},
+          "after_unknown":{"ruleset_name":True},"replace_paths":[["ruleset_name"]]}}]}
+        release.production_plan_guard(plan,c)
+
+    def test_firestore_rules_release_replacement_is_narrowly_scoped(self):
+        c=fixture()
+        release_name="cloud.firestore/"+c["databaseId"]
+        base={"mode":"managed","address":"google_firebaserules_release.firestore",
+          "type":"google_firebaserules_release","change":{"actions":["delete","create"],
+          "before":{"project":common.PROJECT,"name":release_name,
+                    "ruleset_name":"projects/"+common.PROJECT+"/rulesets/existing"},
+          "after":{"project":common.PROJECT,"name":release_name,"ruleset_name":None},
+          "after_unknown":{"ruleset_name":True},"replace_paths":[["ruleset_name"]]}}
+        cases=[]
+        wrong_address=copy.deepcopy(base);wrong_address["address"]="google_firebaserules_release.other";cases.append(wrong_address)
+        wrong_name=copy.deepcopy(base);wrong_name["change"]["after"]["name"]="cloud.firestore/other";cases.append(wrong_name)
+        wrong_path=copy.deepcopy(base);wrong_path["change"]["replace_paths"]=[["name"]];cases.append(wrong_path)
+        delete_only=copy.deepcopy(base);delete_only["change"]["actions"]=["delete"];cases.append(delete_only)
+        for resource in cases:
+            with self.subTest(resource=resource),self.assertRaises(ValueError):
+                release.production_plan_guard({"resource_changes":[resource]},c)
+
     def test_no_authoritative_iam(self):
         plan={"resource_changes":[{"type":"google_project_iam_binding","address":"google_project_iam_binding.test",
               "change":{"actions":["create"],"after":{"project":common.PROJECT}}}]}
