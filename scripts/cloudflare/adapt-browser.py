@@ -1,4 +1,4 @@
-"""One-time, idempotent source migration confined to reviewed browser surfaces.
+"""Idempotent, reviewed source migration for browser/platform compatibility.
 No cloud APIs, credentials, deployment or database writes are used.
 """
 import os
@@ -11,6 +11,7 @@ for file in (ROOT / 'src').rglob('*.tsx'):
     if not relative.startswith('.'): relative = './' + relative
     text = text.replace("from 'firebase/auth'", "from '" + relative + "'")
     text = text.replace('Google Calendar', 'ProInspect calendar').replace('Google Workspace account', 'authorised staff identity').replace('Google Maps', 'Manual address entry')
+    text = text.replace('Address verified by Manual address entry.', 'Address entered manually. Confirm the details before attendance.')
     file.write_text(text)
 file=ROOT/'src/App.tsx'
 text=file.read_text().replace("if (pathname === '/signin') return 'signin';", "if (pathname === '/signin') return 'client';")
@@ -34,4 +35,8 @@ if addition not in text:
     if anchor not in text: raise RuntimeError('Confirmation anchor changed')
     text=text.replace(anchor,addition+anchor)
 file.write_text(text)
-print('Browser sources adapted to Cloudflare sessions and native scheduling.')
+file=ROOT/'src/cloudflare/database.ts'
+file.write_text(file.read_text().replace('doc(id=randomUUID())','doc(id:string=randomUUID())'))
+file=ROOT/'src/services/session.ts'
+file.write_text(file.read_text().replace("photoURL?:string|null;provider", "photoURL?:string|null;phoneNumber?:string|null;provider"))
+print('Source compatibility migration complete.')
