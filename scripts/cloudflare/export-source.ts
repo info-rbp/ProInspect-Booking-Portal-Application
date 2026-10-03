@@ -8,7 +8,9 @@ import {createImportPlan} from './migration.mjs';
 const args=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=');return [a.slice(0,i),a.slice(i+1)];}));
 const project=args['--project'],database=args['--database'],out=args['--out'];
 if(project!=='business-plan-applicatio-17047'||database!=='ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a'||!out)throw new Error('Reviewed ProInspect source project/database and a private output directory are required.');
-const app=initializeApp({projectId:project,credential:applicationDefault()},'cloudflare-readonly-export');
+const migrationToken=(process.env.GOOGLE_OAUTH_ACCESS_TOKEN||'').trim();
+const credential:any=migrationToken?{getAccessToken:async()=>({access_token:migrationToken,expires_in:3300})}:applicationDefault();
+const app=initializeApp({projectId:project,credential},'cloudflare-readonly-export');
 try{
  const db=getFirestore(app,database),before=await snapshot(db);validateSources(before);
  const capturedAt=new Date().toISOString();const shadow=planningDatabase(before);await transform(shadow.db);validateIntegrity(shadow.data);
