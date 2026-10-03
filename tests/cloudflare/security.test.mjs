@@ -30,6 +30,12 @@ test('legacy linked IDs survive without trusting a supplied UID',async()=>{
  const token=randomToken();await binding.prepare('INSERT INTO login_challenges VALUES(?,?,?,?,?)').bind(digest(token),identity.email,'tenant',Date.now()+10000,Date.now()).run();
  assert.equal((await consumeChallenge(env,token,identity.email,'tenant')).identity.uid,'old-firebase-id');
 });
+test('staff magic links preserve the authorised admin record identity',async()=>{
+ const {db,binding}=fixture(),env={...baseEnv(),DB:binding};const email='staff@example.test';
+ await db.collection('adminUsers').doc('staff-record').set({id:'staff-record',email,role:'administrator',active:true});
+ const token=randomToken();await binding.prepare('INSERT INTO login_challenges VALUES(?,?,?,?,?)').bind(digest(token),email,'admin',Date.now()+10000,Date.now()).run();
+ const result=await consumeChallenge(env,token,email,'admin');assert.equal(result.identity.uid,'staff-record');assert.equal(result.identity.email,email);
+});
 test('rate windows enforce counts and origin checks reject cross-origin',async()=>{
  const {binding}=fixture(),env={...baseEnv(),DB:binding};assert.equal(await checkRate(env,'a',2,60000),true);assert.equal(await checkRate(env,'a',2,60000),true);assert.equal(await checkRate(env,'a',2,60000),false);
  assert.equal(sameOrigin(new Request(env.APP_URL,{headers:{Origin:'https://evil.test'}}),env),false);
