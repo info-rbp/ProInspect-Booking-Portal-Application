@@ -28,6 +28,7 @@ import type {
   PortalAudience,
   TenantDocument,
   TenantInspection,
+  TenancyRecord,
   TenantProperty,
 } from '../types/tenant.js';
 import type { BookingRecord } from '../types/booking.js';
@@ -845,10 +846,30 @@ export async function buildUnifiedClientDashboard(params: {
       },
     }));
 
-  const [workOrderSnapshot, inspectionSnapshot] = await Promise.all([
+  const [workOrderSnapshot, inspectionSnapshot, tenancySnapshot] = await Promise.all([
     adminDb.collection('workOrders').orderBy('updatedAt', 'desc').limit(500).get(),
     adminDb.collection('tenantInspections').orderBy('updatedAt', 'desc').limit(500).get(),
+    adminDb.collection('tenancies').orderBy('updatedAt', 'desc').limit(500).get(),
   ]);
+  const tenancies = tenancySnapshot.docs
+    .map((doc) => docWithId<TenancyRecord>(doc))
+    .filter((item) =>
+      (item.clientId ? allowedClientIds.has(item.clientId) : false) ||
+      propertyIds.has(item.propertyId)
+    )
+    .map((item) => ({
+      id:item.id,
+      propertyId:item.propertyId,
+      clientId:item.clientId,
+      status:item.status,
+      startDate:item.startDate,
+      endDate:item.endDate,
+      rentAmount:item.rentAmount,
+      rentFrequency:item.rentFrequency,
+      createdAt:item.createdAt,
+      updatedAt:item.updatedAt,
+    }));
+
   const workOrders = workOrderSnapshot.docs
     .map((doc) => docWithId<WorkOrder>(doc))
     .filter((item) =>
@@ -904,6 +925,7 @@ export async function buildUnifiedClientDashboard(params: {
     },
     clients: params.clients,
     properties: params.properties,
+    tenancies,
     propertyLinks: params.propertyLinks,
     bookings,
     requests,
