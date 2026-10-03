@@ -18,7 +18,7 @@ const config={
  durable_objects:{bindings:[{name:'BOOKING_COORDINATOR',class_name:'BookingCoordinator'}]},migrations:[{tag:'cf-v1',new_sqlite_classes:['BookingCoordinator']}],
  queues:{producers:[{binding:'JOBS',queue:resources.queue}],consumers:[{queue:resources.queue,max_batch_size:10,max_retries:8,dead_letter_queue:resources.deadLetterQueue}]},
  send_email:[{name:'EMAIL'}],
- vars:{APP_URL:resources.appUrl,PLATFORM_ENVIRONMENT:'staging',LAUNCH_MODE:launchMode,BOOKING_EMAIL_FROM:'bookings@proinspect.systems',BOOKING_EMAIL_REPLY_TO:'info@proinspect.systems',STAGING_EMAIL_RECIPIENT:sink,ACCESS_DATA_ENCRYPTION_KEY_ID:'v1',RELEASE_SHA:sha,TURNSTILE_SITE_KEY:resources.turnstileSiteKey,ACCESS_TEAM_DOMAIN:'',ACCESS_AUDIENCE:'',ADMIN_EMAILS:'info@proinspect.systems,info@remotebusinesspartner.com.au'},
+ vars:{APP_URL:resources.appUrl,PLATFORM_ENVIRONMENT:'staging',LAUNCH_MODE:launchMode,BOOKING_EMAIL_FROM:'bookings@proinspect.systems',BOOKING_EMAIL_REPLY_TO:'info@proinspect.systems',STAGING_EMAIL_RECIPIENT:sink,ACCESS_DATA_ENCRYPTION_KEY_ID:'staging-v1',RELEASE_SHA:sha,TURNSTILE_SITE_KEY:resources.turnstileSiteKey,ACCESS_TEAM_DOMAIN:'',ACCESS_AUDIENCE:'',ADMIN_EMAILS:'info@proinspect.systems,info@remotebusinesspartner.com.au'},
  observability:{enabled:true},triggers:{crons:['*/5 * * * *']}
 };
 mkdirSync('.cloudflare',{recursive:true});writeFileSync('.cloudflare/wrangler.staging.json',JSON.stringify(config,null,2)+'\n',{mode:0o600});
