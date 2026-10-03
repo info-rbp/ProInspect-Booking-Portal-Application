@@ -153,7 +153,10 @@ read the source bucket or push to Artifact Registry. The build workflow blocks
 with explicit missing-prerequisite labels if this bootstrap IAM is incomplete.
 The deploy identity also needs `roles/logging.viewer` because the synchronous
 Cloud Build submission reads CLOUD_LOGGING_ONLY build logs while waiting for the
-immutable build result.
+immutable build result. Manual `gcloud builds submit` also inspects the source
+staging bucket before upload, so the deploy identity needs the read-only
+`roles/storage.bucketViewer` project role in addition to bucket-scoped
+`roles/storage.objectAdmin`.
 
 Building is deliberately before maintenance: the same audited image contains
 the maintenance server. Customer traffic is not changed by `build`.

@@ -229,6 +229,7 @@ jobs:
               ("project deploy cloudbuild editor",has(project_policy,"roles/cloudbuild.builds.editor",deploy_member)),
               ("project deploy service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",deploy_member)),
               ("project deploy build-log viewer",has(project_policy,"roles/logging.viewer",deploy_member)),
+              ("project deploy bucket metadata viewer",has(project_policy,"roles/storage.bucketViewer",deploy_member)),
               ("project build logging",has(project_policy,"roles/logging.logWriter",build_member)),
               ("project build service usage",has(project_policy,"roles/serviceusage.serviceUsageConsumer",build_member)),
               ("deploy impersonation by terraform",has(deploy_policy,"roles/iam.serviceAccountTokenCreator",terraform_member)),
