@@ -19,6 +19,11 @@ import uuid
 from common import *
 from checkpoints import session
 
+# Cloud Run requires service name + traffic tag to stay within its combined
+# hostname/tag length limit. Keep cutover tags intentionally short and stable.
+MAINT_TAG="m"
+CANDIDATE_TAG="rc"
+
 def checkpoint(c,name):
     return workspace(c)/(name+".json")
 
@@ -369,17 +374,17 @@ def maintenance(c,approve):
           "--command=node","--args=--import,tsx,src/server/productionMaintenance.ts",
           "--env-vars-file="+str(env),"--clear-secrets",
           "--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--no-traffic","--tag=stage4-maint")
+          "--no-traffic","--tag="+MAINT_TAG)
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
     require(traffic(live)==base["allocation"],"Deploying maintenance unexpectedly changed customer traffic.")
-    url=next(x["url"] for x in live["status"]["traffic"] if x.get("tag")=="stage4-maint" and x.get("revisionName")==revision)
+    url=next(x["url"] for x in live["status"]["traffic"] if x.get("tag")==MAINT_TAG and x.get("revisionName")==revision)
     code,body=http(c,url,"/healthz")
     require(code==200 and json.loads(body).get("maintenance") is True,"Maintenance revision failed readiness.")
     require(http(c,url,"/api/bookings/create",method="POST",body={})[0]==503,"Maintenance revision allowed a booking mutation.")
     assert_policy(c)
     # Remove old revision tags as well: they can otherwise still reach legacy writers.
     cloud(c,"run","services","update-traffic",SERVICE,"--region="+REGION,
-          "--to-revisions="+revision+"=100","--set-tags=stage4-maint="+revision,
+          "--to-revisions="+revision+"=100","--set-tags="+MAINT_TAG+"="+revision,
           identity=c["production"]["deployIdentity"])
     record(c,"maintenance",revision=revision,url=url,activatedAt=now(),drainSeconds=base["drainSeconds"])
     print("Production is in maintenance. Writes stay paused until migration and acceptance pass.")
@@ -524,10 +529,10 @@ def candidate(c):
     cloud_run_deploy(c,"--region="+REGION,"--image="+image["image"],
           "--command=node","--args=--import,tsx,server.ts","--env-vars-file="+str(env),
           "--set-secrets="+bindings,"--service-account="+c["terraform"]["runtime_service_account_email"],
-          "--no-traffic","--tag=stage4-rc")
+          "--no-traffic","--tag="+CANDIDATE_TAG)
     live=service(c); revision=live["status"]["latestReadyRevisionName"]
     require(traffic(live)=={m["revision"]:100},"Candidate changed production traffic.")
-    tag=next(x for x in live["status"]["traffic"] if x.get("tag")=="stage4-rc" and x.get("revisionName")==revision)
+    tag=next(x for x in live["status"]["traffic"] if x.get("tag")==CANDIDATE_TAG and x.get("revisionName")==revision)
     assert_policy(c)
     require(http(c,tag["url"],"/book")[0]==503,"Unauthenticated users can reach the candidate before acceptance.")
     code,raw=http(c,tag["url"],"/api/release/health",token=secret(c,"PRODUCTION_RELEASE_TOKEN"))
