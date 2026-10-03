@@ -169,6 +169,10 @@ mutations, while the full candidate must pass its release-health endpoint. This
 keeps application readiness checks explicit without relying on probe mutations
 that can be rejected before Cloud Run creates a revision. Deploy rejections are
 reported through sanitized CLI diagnostics; secret payloads remain suppressed.
+Cloud Run traffic tags also form part of the tagged service hostname, so the
+cutover uses deliberately short fixed tags: `m` for maintenance and `rc` for
+the candidate. Permanent CI enforces that each service-name/tag combination
+stays within Cloud Run's combined length limit.
 The first production migration runs inside an acknowledged maintenance window.
 Do not schedule it while customers need uninterrupted booking/portal access.
 
