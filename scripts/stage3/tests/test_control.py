@@ -141,7 +141,7 @@ class Controls(unittest.TestCase):
         self.assertIn('google_storage_bucket.client_documents',imported)
         self.assertIn('google_secret_manager_secret.runtime["access_data_encryption_key"]',imported)
         self.assertNotIn('google_storage_bucket.client_documents',c.adoption_imports(self.cfg,inv,{'google_storage_bucket.client_documents'}))
-    def test_firebase_rules_adoption_imports_active_ruleset_and_release(self):
+    def test_firebase_rules_adoption_imports_release_only(self):
         inv={
             'services':[],
             'project':{'projectNumber':'696236368989'},
@@ -159,14 +159,65 @@ class Controls(unittest.TestCase):
             },
         }
         imported=c.adoption_imports(self.cfg,inv,set())
-        self.assertEqual(
-            imported['google_firebaserules_ruleset.firestore'],
-            'projects/example-project/rulesets/ruleset-123',
-        )
+        self.assertNotIn('google_firebaserules_ruleset.firestore',imported)
         self.assertEqual(
             imported['google_firebaserules_release.firestore'],
             'projects/example-project/releases/cloud.firestore/example-db',
         )
+
+    def test_wif_adoption_normalizes_imports_to_configured_project_id(self):
+        project=self.cfg['projectId']
+        self.cfg['terraform']['workload_identity_pool_id']='proinspect-property-services'
+        self.cfg['terraform']['workload_identity_pool_provider_id']='github'
+        inv={
+            'services':[],
+            'project':{'projectNumber':'696236368989'},
+            'accounts':[],
+            'buckets':[],
+            'secrets':[],
+            'databases':[],
+            'repositories':[],
+            'webApps':[],
+            'backupSchedules':[],
+            'indexes':[],
+            'identityPool':{
+                'name':'projects/696236368989/locations/global/workloadIdentityPools/proinspect-property-services',
+            },
+            'identityProvider':{
+                'name':'projects/696236368989/locations/global/workloadIdentityPools/proinspect-property-services/providers/github',
+            },
+        }
+        imported=c.adoption_imports(self.cfg,inv,set())
+        self.assertEqual(
+            imported['google_iam_workload_identity_pool.github[0]'],
+            f'projects/{project}/locations/global/workloadIdentityPools/proinspect-property-services',
+        )
+        self.assertEqual(
+            imported['google_iam_workload_identity_pool_provider.github[0]'],
+            f'projects/{project}/locations/global/workloadIdentityPools/proinspect-property-services/providers/github',
+        )
+
+    def test_wif_adoption_rejects_unreviewed_discovered_ids(self):
+        self.cfg['terraform']['workload_identity_pool_id']='proinspect-property-services'
+        self.cfg['terraform']['workload_identity_pool_provider_id']='github'
+        inv={
+            'services':[],
+            'project':{'projectNumber':'696236368989'},
+            'accounts':[],
+            'buckets':[],
+            'secrets':[],
+            'databases':[],
+            'repositories':[],
+            'webApps':[],
+            'backupSchedules':[],
+            'indexes':[],
+            'identityPool':{
+                'name':'projects/696236368989/locations/global/workloadIdentityPools/other-pool',
+            },
+            'identityProvider':None,
+        }
+        with self.assertRaises(ValueError):
+            c.adoption_imports(self.cfg,inv,set())
 
     def test_secret_imports_use_secret_id_not_numeric_project_resource_name(self):
         project=self.cfg['projectId']

@@ -303,12 +303,29 @@ def adoption_imports(config, inv, existing_addresses):
         matches = [i for i in inv['indexes'] if i['name'].split('/collectionGroups/')[1].split('/')[0] == idx['collectionGroup'] and i.get('queryScope') == idx['queryScope'] and [f for f in i['fields'] if f['fieldPath']!='__name__'] == [f for f in desired_fields if f['fieldPath']!='__name__']]
         require(len(matches)<=1, 'Duplicate matching Firestore indexes require reconciliation.')
         if matches: add(f'google_firestore_index.canonical["{digest(idx)[:20]}"]', matches[0]['name'])
-    for kind, resource in [('identityPool','google_iam_workload_identity_pool.github[0]'),('identityProvider','google_iam_workload_identity_pool_provider.github[0]')]:
-        if t.get('enable_github_federation',True) and inv.get(kind): add(resource,inv[kind]['name'])
+    if t.get('enable_github_federation',True):
+        pool_id=t.get('workload_identity_pool_id') or f'proinspect-{config["environment"]}'
+        provider_id=t.get('workload_identity_pool_provider_id') or 'github'
+        project_number=str(inv['project']['projectNumber'])
+        discovered_pool=f'projects/{project_number}/locations/global/workloadIdentityPools/{pool_id}'
+        import_pool=f'projects/{p}/locations/global/workloadIdentityPools/{pool_id}'
+        if inv.get('identityPool'):
+            require(inv['identityPool'].get('name')==discovered_pool,
+                    'Discovered Workload Identity Pool does not match the reviewed pool ID.')
+            add('google_iam_workload_identity_pool.github[0]',import_pool)
+        if inv.get('identityProvider'):
+            discovered_provider=discovered_pool+f'/providers/{provider_id}'
+            require(inv['identityProvider'].get('name')==discovered_provider,
+                    'Discovered Workload Identity Provider does not match the reviewed provider ID.')
+            add('google_iam_workload_identity_pool_provider.github[0]',
+                import_pool+f'/providers/{provider_id}')
     if inv.get('rulesRelease'):
         ruleset_name=inv['rulesRelease'].get('rulesetName')
-        require(ruleset_name and '/rulesets/' in ruleset_name, 'Existing Firebase Rules release does not reference a valid ruleset.')
-        add('google_firebaserules_ruleset.firestore', ruleset_name)
+        require(ruleset_name and '/rulesets/' in ruleset_name,
+                'Existing Firebase Rules release does not reference a valid ruleset.')
+        # Rulesets are immutable. Keep the currently active historical ruleset
+        # outside Terraform state; create the new desired ruleset and adopt only
+        # the stable release pointer that will be moved to it.
         add('google_firebaserules_release.firestore', inv['rulesRelease']['name'])
     if inv.get('gatewayRole'): add('google_project_iam_custom_role.gateway_policy',inv['gatewayRole']['name'])
     for field in read(ROOT/'firestore.indexes.json').get('fieldOverrides',[]):
