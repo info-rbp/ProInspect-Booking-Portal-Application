@@ -87,9 +87,8 @@ class ProductionPolicy(unittest.TestCase):
         release_name="cloud.firestore/"+c["databaseId"]
         ruleset={"mode":"managed","address":"google_firebaserules_ruleset.firestore",
           "type":"google_firebaserules_ruleset","change":{"actions":["create","delete"],
-          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing",
-                    "deletion_policy":"DELETE"},
-          "after":{"project":common.PROJECT,"name":None,"deletion_policy":"ABANDON",
+          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing"},
+          "after":{"project":common.PROJECT,"name":None,
                    "source":[{"files":[{"name":"firestore.rules","content":"rules"}]}]},
           "after_unknown":{"name":True},"replace_paths":[["source",0,"files"]]}}
         release_change={"mode":"managed","address":"google_firebaserules_release.firestore",
@@ -104,16 +103,15 @@ class ProductionPolicy(unittest.TestCase):
         c=fixture()
         base={"mode":"managed","address":"google_firebaserules_ruleset.firestore",
           "type":"google_firebaserules_ruleset","change":{"actions":["create","delete"],
-          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing",
-                    "deletion_policy":"DELETE"},
-          "after":{"project":common.PROJECT,"name":None,"deletion_policy":"ABANDON",
+          "before":{"project":common.PROJECT,"name":"projects/"+common.PROJECT+"/rulesets/existing"},
+          "after":{"project":common.PROJECT,"name":None,
                    "source":[{"files":[{"name":"firestore.rules","content":"rules"}]}]},
           "after_unknown":{"name":True},"replace_paths":[["source",0,"files"]]}}
         cases=[]
         wrong_address=copy.deepcopy(base);wrong_address["address"]="google_firebaserules_ruleset.other";cases.append(wrong_address)
-        deletes_old=copy.deepcopy(base);deletes_old["change"]["after"]["deletion_policy"]="DELETE";cases.append(deletes_old)
         wrong_file=copy.deepcopy(base);wrong_file["change"]["after"]["source"][0]["files"][0]["name"]="storage.rules";cases.append(wrong_file)
         wrong_path=copy.deepcopy(base);wrong_path["change"]["replace_paths"]=[["project"]];cases.append(wrong_path)
+        destroy_first=copy.deepcopy(base);destroy_first["change"]["actions"]=["delete","create"];cases.append(destroy_first)
         delete_only=copy.deepcopy(base);delete_only["change"]["actions"]=["delete"];cases.append(delete_only)
         for resource in cases:
             with self.subTest(resource=resource),self.assertRaises(ValueError):

@@ -104,7 +104,7 @@ def expected_firestore_ruleset_replacement(resource,c):
         return False
     change=resource.get("change",{})
     actions=change.get("actions",[])
-    if len(actions)!=2 or set(actions)!={"create","delete"}:
+    if actions!=["create","delete"]:
         return False
     before=change.get("before") or {}
     after=change.get("after") or {}
@@ -123,8 +123,6 @@ def expected_firestore_ruleset_replacement(resource,c):
         return False
     files=source[0].get("files")
     if not isinstance(files,list) or len(files)!=1 or files[0].get("name")!="firestore.rules":
-        return False
-    if after.get("deletion_policy")!="ABANDON":
         return False
     replace_paths=change.get("replace_paths") or []
     return bool(replace_paths) and all(path and path[0]=="source" for path in replace_paths)

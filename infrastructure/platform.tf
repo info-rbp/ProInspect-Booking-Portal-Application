@@ -172,13 +172,15 @@ data "google_firebase_web_app_config" "platform" {
   web_app_id = google_firebase_web_app.platform.app_id
 }
 resource "google_firebaserules_ruleset" "firestore" {
-  project         = var.project_id
-  deletion_policy = "ABANDON"
+  project = var.project_id
   source {
     files {
       name    = "firestore.rules"
       content = file("${path.module}/../firestore.rules")
     }
+  }
+  lifecycle {
+    create_before_destroy = true
   }
   depends_on = [google_project_service.stage3, google_firebase_project.platform]
 }
