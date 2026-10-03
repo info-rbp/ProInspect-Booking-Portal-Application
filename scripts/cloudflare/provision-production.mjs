@@ -58,13 +58,14 @@ async function ensureTurnstile(account){
   const current=[...(widget.domains||[])].sort().join(',');
   const required=[...domains].sort().join(',');
   if(current!==required)widget=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey,{method:'PUT',body:{name,domains,mode:'managed'}});
-  if(!secret){
+  if(!secret&&process.env.CLOUDFLARE_NEED_TURNSTILE_SECRET==='1'){
    const rotated=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey+'/rotate_secret',{method:'POST'});
    secret=rotated.secret||'';
   }
  }
- if(!widget?.sitekey||!secret)throw new Error('Turnstile widget exists but its secret could not be established');
- return {sitekey:widget.sitekey,secret};
+ if(!widget?.sitekey)throw new Error('Turnstile widget could not be established');
+ if(process.env.CLOUDFLARE_NEED_TURNSTILE_SECRET==='1'&&!secret)throw new Error('Turnstile secret could not be established for bootstrap');
+ return {sitekey:widget.sitekey,secret:secret||null};
 }
 async function ensureEmail(account){
  const zones=await api('/zones?name=proinspect.systems&account.id='+account+'&per_page=50');
