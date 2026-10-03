@@ -14,7 +14,6 @@ import { AdminLoginModal } from './components/admin/AdminLoginModal';
 import { PublicBookingManageModal } from './components/manage/PublicBookingManageModal';
 import { ClientHub } from './components/hub/ClientHub';
 import { PortalGateway } from './components/hub/PortalGateway';
-import { PlaceholderPage } from './components/hub/PlaceholderPage';
 import { DocumentRequestFlow } from './components/documents/DocumentRequestFlow';
 import { ClientPortal } from './components/client/ClientPortal';
 import { ClientSignIn } from './components/client/ClientSignIn';
@@ -32,8 +31,8 @@ import { initAuthListener, logoutAdmin, logoutTenant } from './services/firebase
 import { User } from './services/session';
 import { Search } from 'lucide-react';
 
-type PublicRoute = 'gateway' | 'hub' | 'book' | 'request-document' | 'signin' | 'tenant' | 'client' | 'admin';
-type PublicPath = '/' | '/services' | '/book' | '/request-document' | '/signin' | '/tenant' | '/tenant/complete-signin' | '/client' | '/admin';
+type PublicRoute = 'gateway' | 'hub' | 'book' | 'request-document' | 'tenant' | 'client' | 'admin';
+type PublicPath = '/' | '/services' | '/book' | '/request-document' | '/tenant' | '/tenant/complete-signin' | '/client' | '/admin';
 
 function manageTokenFromPath(): string | null {
   const match = window.location.pathname.match(/^\/manage\/(pi_[A-Za-z0-9_-]{24,})\/?$/);
@@ -425,8 +424,6 @@ export default function App() {
             }}
             onBack={() => navigatePublic('/')}
           />
-        ) : publicRoute === 'signin' ? (
-          <PlaceholderPage type="signin" onBack={() => navigatePublic('/')} />
         ) : confirmedBooking ? (
           // Dedicated Booking Confirmation Screen
           <StepConfirmation
