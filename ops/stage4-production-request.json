@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "build",
+  "action": "maintenance",
   "releaseId": "production-unification",
   "sourceSha": "5c3cdd8ba76b88a79ca1699f10565020f0e72b5d",
-  "approve": "",
-  "note": "Build the immutable production image for the fully verified Stage 4 source after the successful replan. No maintenance, Terraform apply, migration, traffic change or main merge."
+  "approve": "FREEZE:5c3cdd8ba76b88a79ca1699f10565020f0e72b5d",
+  "note": "Enter the verified Stage 4 production maintenance window using the immutable image built for the corrected frozen source. Use Cloud Run default startup behavior, then verify the tagged maintenance revision via /healthz, confirm booking mutations return 503, verify IAM stability, and only then move production traffic to maintenance. No Terraform apply, migration, candidate deployment or main merge."
 }
