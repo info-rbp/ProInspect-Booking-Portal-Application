@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "preview": "vite preview",
+    "build": "npm run build:web && node scripts/cloudflare/build.mjs",
+    "preview": "npm run build && wrangler dev",
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
@@ -26,8 +26,10 @@
     "stage4:test": "node --import tsx --test scripts/stage4/tests/*.test.ts",
     "cloudflare:schema": "node scripts/cloudflare/schema.mjs --check",
     "cloudflare:test": "node --experimental-strip-types --test tests/cloudflare/*.test.mjs",
-    "cloudflare:build": "npm run build && node scripts/cloudflare/build.mjs",
-    "cloudflare:check": "npm run cloudflare:schema && npm run cloudflare:test && npm run lint && npm run cloudflare:build"
+    "cloudflare:build": "npm run build",
+    "cloudflare:check": "npm run cloudflare:schema && npm run cloudflare:test && npm run lint && npm run cloudflare:build",
+    "build:web": "vite build",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -55,6 +57,10 @@
     "@types/express": "^4.17.21"
   },
   "packageManager": "npm@10.9.2",
-  "engines": {"node": ">=22 <23"},
-  "overrides": {"@grpc/grpc-js": "1.13.6"}
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.13.6"
+  }
 }
