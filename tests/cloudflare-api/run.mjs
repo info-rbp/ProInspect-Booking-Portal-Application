@@ -45,6 +45,22 @@ test('WA statutory workflow creates a client approval and propagates the respons
  assert.equal(responded.status,200,JSON.stringify(responded.data));
  assert.equal((await db.collection('tenantFormRequests').doc(created.data.request.id).get()).data().status,'approved');
 });
+test('all non-sensitive WA statutory V1 workflows validate and persist',async()=>{
+ const cases=[
+  ['form-25-pet-request',{petType:'dog',petName:'Milo',petDescription:'Small desexed dog'}],
+  ['form-26-minor-modification',{modificationType:'picture hooks',location:'Living room',description:'Install removable picture hooks'}],
+  ['form-27-major-modification',{description:'Install accessibility handrail',location:'Bathroom'}],
+  ['security-bond-release',{tenancyEndDate:'2026-12-31',totalBondAmount:1000,proposedDistributions:[{recipient:'tenant',amount:900},{recipient:'lessor',amount:100}]}],
+  ['security-bond-variation',{changeType:'tenant_details'}],
+  ['form-1-pcr-response',{sourceDocumentId:'pcr-doc',responses:[{itemId:'entry-1',agreement:'disagree',comments:'Existing mark recorded by tenant.'},{itemId:'entry-2',agreement:'agree',comments:''}]}]
+ ];
+ for(const [formDefinitionId,payload] of cases){
+  const response=await api('/api/tenant/forms',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',formDefinitionId,payload}});
+  assert.equal(response.status,201,formDefinitionId+': '+JSON.stringify(response.data));
+  assert.equal(response.data.request.formDefinitionId,formDefinitionId);
+  assert.equal((await db.collection('tenantFormRequests').doc(response.data.request.id).get()).exists,true);
+ }
+});
 test('restricted Form 2 evidence remains outside ordinary client and operations views',async()=>{
  const termination=new Date(Date.now()+10*86400000).toISOString().slice(0,10);
  const draft=await api('/api/tenant/forms-sensitive',{actor:'tenant',method:'POST',body:{tenancyId:'ten1',formDefinitionId:'form-2-family-violence',payload:{evidenceType:'dvo',proposedTerminationDate:termination,privateNote:'restricted-test-marker'}}});
