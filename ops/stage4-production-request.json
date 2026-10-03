@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "69022929685d70009b4faadb118ecfda4a0dbb91",
+  "sourceSha": "0d668d86851d77aa170a0857b7ea9cb919316604",
   "approve": "",
-  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan for the frozen release candidate. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan for the verified Firebase rules release guard fix. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
