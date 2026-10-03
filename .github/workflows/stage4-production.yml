@@ -532,6 +532,62 @@ jobs:
           }
           print("STAGE4_BUILD_DIAGNOSTIC="+json.dumps(safe,sort_keys=True,separators=(",",":")))
           PY
+      - name: Diagnose failed maintenance revision safely
+        if: failure() && needs.request.outputs.action == 'maintenance'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+        run: |
+          set +e
+          gcloud run services describe proinspect-booking-portal-application \
+            --region=europe-west1 \
+            --project=business-plan-applicatio-17047 \
+            --impersonate-service-account="$TERRAFORM_SA" \
+            --format=json > /tmp/stage4-service.json
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path("/tmp/stage4-service.json")
+          if not p.exists() or not p.read_text().strip():
+              print("STAGE4_MAINT_DIAGNOSTIC=service-lookup-failed")
+              raise SystemExit(0)
+          service=json.loads(p.read_text())
+          status=service.get("status") or {}
+          latest=status.get("latestCreatedRevisionName")
+          print("STAGE4_MAINT_LATEST_CREATED="+str(latest or ""))
+          print("STAGE4_MAINT_LATEST_READY="+str(status.get("latestReadyRevisionName") or ""))
+          if latest:
+              pathlib.Path("/tmp/stage4-latest-revision.txt").write_text(latest)
+          PY
+          if [ -s /tmp/stage4-latest-revision.txt ]; then
+            REVISION="$(cat /tmp/stage4-latest-revision.txt)"
+            gcloud run revisions describe "$REVISION" \
+              --region=europe-west1 \
+              --project=business-plan-applicatio-17047 \
+              --impersonate-service-account="$TERRAFORM_SA" \
+              --format=json > /tmp/stage4-revision.json
+            python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path("/tmp/stage4-revision.json")
+          if not p.exists() or not p.read_text().strip():
+              raise SystemExit(0)
+          revision=json.loads(p.read_text())
+          status=revision.get("status") or {}
+          safe={
+              "conditions":[
+                  {k:item.get(k) for k in ("type","status","reason","message")}
+                  for item in status.get("conditions",[])
+              ]
+          }
+          spec=revision.get("spec") or {}
+          containers=spec.get("containers") or []
+          if containers:
+              safe["probes"]={
+                  "startupProbe":containers[0].get("startupProbe"),
+                  "livenessProbe":containers[0].get("livenessProbe"),
+                  "readinessProbe":containers[0].get("readinessProbe"),
+              }
+          print("STAGE4_MAINT_DIAGNOSTIC="+json.dumps(safe,sort_keys=True,separators=(",",":")))
+          PY
+          fi
       - name: Remove runner-only private configuration
         if: always()
         run: |
