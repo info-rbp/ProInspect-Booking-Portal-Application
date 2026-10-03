@@ -381,6 +381,11 @@ jobs:
         run: |
           curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-pretraffic-acceptance","description":"Production-resource human acceptance passed"}' >/dev/null
 
+      - name: Reconcile production WAF baseline before custom-domain cutover
+        if: needs.request.outputs.action == 'cutover'
+        env:
+          CLOUDFLARE_CUSTOM_DOMAIN: bookings.proinspect.systems
+        run: node scripts/cloudflare/provision-waf.mjs
       - name: Build and deploy accepted Worker to bookings.proinspect.systems
         if: needs.request.outputs.action == 'cutover'
         env:
