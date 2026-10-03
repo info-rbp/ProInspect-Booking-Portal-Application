@@ -247,6 +247,12 @@ class ProductionPolicy(unittest.TestCase):
         self.assertIn("def cloud_run_deploy",source)
         self.assertIn("Cloud Run deploy rejected:",source)
 
+    def test_cutover_tags_fit_cloud_run_combined_length_limit(self):
+        self.assertLessEqual(len(release.SERVICE)+len(release.MAINT_TAG),46)
+        self.assertLessEqual(len(release.SERVICE)+len(release.CANDIDATE_TAG),46)
+        self.assertEqual(release.MAINT_TAG,"m")
+        self.assertEqual(release.CANDIDATE_TAG,"rc")
+
     def test_maintenance_requires_exact_source_approval_before_calls(self):
         with patch.object(release,"cloud") as cloud:
             with self.assertRaises(ValueError):release.maintenance(fixture(),"yes")
