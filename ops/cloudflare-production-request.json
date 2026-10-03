@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "action": "readiness",
-  "sourceSha": "7b5366c9d6c50b44049e49b92a6e11e94bb4a424",
+  "sourceSha": "3fba12126e87bd6a05bda96113887958d4b8582d",
   "approve": "",
-  "note": "Read-only Cloudflare account and production capability discovery for the verified full Worker source after correcting production request environment export. No production resources, data, secrets, DNS or traffic are modified."
+  "note": "Read-only Cloudflare production capability matrix for the verified full Worker source. Reports all missing token capabilities in one run. No production resources, data, secrets, DNS or traffic are modified."
 }
