@@ -7,8 +7,20 @@ import {seal,unseal,digest,randomToken} from '../../src/cloudflare/crypto.ts';
 import {consumeChallenge,sessionIdentity,verifyAccess,sameOrigin,checkRate} from '../../src/cloudflare/auth.ts';
 import {adminBucket,downloadFile} from '../../src/cloudflare/storage.ts';
 import {enqueueMail,deliverMail} from '../../src/cloudflare/mail.ts';
+import {DEFAULT_DOCUMENT_PRODUCTS} from '../../src/documents/defaultDocumentProducts.ts';
+import {getDocumentWorkflowDefinition} from '../../src/documents/documentWorkflowDefinitions.ts';
 const baseEnv=()=>({ACCESS_DATA_ENCRYPTION_KEY:randomBytes(32).toString('base64'),ACCESS_DATA_ENCRYPTION_KEY_ID:'v1',FILE_SIGNING_KEY:randomToken(),APP_URL:'https://test.proinspect.systems',PLATFORM_ENVIRONMENT:'staging',STAGING_EMAIL_RECIPIENT:'controlled@example.test',BOOKING_EMAIL_FROM:'bookings@proinspect.systems'});
 const identity={uid:'alice',email:'alice@example.test',email_verified:true,provider:'session'};
+test('every public document product has a reviewed workflow across all V1 property categories',()=>{
+ const active=DEFAULT_DOCUMENT_PRODUCTS.filter(product=>product.active&&product.publiclyRequestable);
+ const categories=new Set(active.flatMap(product=>product.categories));
+ assert.deepEqual([...categories].sort(),['commercial','residential','strata-building']);
+ assert.ok(active.filter(product=>product.categories.includes('residential')).length>=17);
+ assert.ok(active.filter(product=>product.categories.includes('commercial')).length>=5);
+ assert.ok(active.filter(product=>product.categories.includes('strata-building')).length>=5);
+ for(const product of active)assert.ok(getDocumentWorkflowDefinition(product.id),product.id+' is missing a workflow');
+});
+
 test('encrypted values authenticate domain, integrity and key version',()=>{
  const env=baseEnv(),plain=Buffer.from('sensitive evidence');const c=seal(env,plain,'file:a');assert.equal(unseal(env,c,'file:a').toString(),plain.toString());
  assert.throws(()=>unseal(env,c,'file:b'));const altered=Buffer.from(c);altered[altered.length-1]^=1;assert.throws(()=>unseal(env,altered,'file:a'));
