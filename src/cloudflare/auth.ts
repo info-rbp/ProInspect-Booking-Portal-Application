@@ -70,7 +70,7 @@ export async function sessionIdentity(request:Request,env:Bindings):Promise<Iden
 }
 export function publicIdentity(identity?:Identity){return identity?{uid:identity.uid,email:identity.email,displayName:identity.name,provider:identity.provider,csrf:identity.csrf}:null;}
 export async function consumeChallenge(env:Bindings,token:string,email:string,audience:string){
- if(!TOKEN.test(token)||!['client','tenant'].includes(audience))throw new Error('INVALID_SIGNIN_LINK');
+ if(!TOKEN.test(token)||!['client','tenant','admin'].includes(audience))throw new Error('INVALID_SIGNIN_LINK');
  const challenge:any=await env.DB.prepare('DELETE FROM login_challenges WHERE token_hash=? AND email=? AND audience=? AND expires_at>? RETURNING email').bind(digest(token),email,audience,Date.now()).first();
  if(!challenge)throw new Error('INVALID_SIGNIN_LINK');
  const user=await identityForEmail(env,email),session=randomToken(),csrf=randomToken(),now=Date.now();
@@ -92,7 +92,7 @@ export async function authRoute(request:Request,env:Bindings,identity?:Identity)
   return Response.json({ok:true},{headers:{'Set-Cookie':COOKIE+'=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'}});
  }
  const body:any=await request.json();const email=normalizedEmail(body.email),audience=body.audience;
- if(!['client','tenant'].includes(audience))return Response.json({error:'Invalid portal'},{status:400});
+ if(!['client','tenant','admin'].includes(audience))return Response.json({error:'Invalid portal'},{status:400});
  const ip=request.headers.get('CF-Connecting-IP')||'unknown';
  if(!await checkRate(env,'auth:'+ip,20,900000)||!await checkRate(env,'auth:'+email,6,900000))return Response.json({error:'Too many attempts'},{status:429});
  if(path==='/api/auth/consume'){
@@ -104,9 +104,19 @@ export async function authRoute(request:Request,env:Bindings,identity?:Identity)
   const tenant=await env.DB.prepare("SELECT id FROM tenantUsers WHERE lower(json_extract(data,'$.email'))=? AND json_extract(data,'$.active') IS NOT 0 LIMIT 1").bind(email).first();
   if(!tenant)return Response.json({ok:true,message:'Check your inbox if this email is eligible.'});
  }
+ if(audience==='admin'){
+  const configured=new Set(['info@proinspect.systems','info@remotebusinesspartner.com.au',...String(env.ADMIN_EMAILS||'').split(',').map((value:string)=>value.trim().toLowerCase()).filter(Boolean)]);
+  let eligible=configured.has(email);
+  if(!eligible){
+   const admin=await env.DB.prepare("SELECT id FROM adminUsers WHERE lower(json_extract(data,'$.email'))=? AND json_extract(data,'$.active') IS NOT 0 LIMIT 1").bind(email).first();
+   eligible=Boolean(admin);
+  }
+  if(!eligible)return Response.json({ok:true,message:'Check your inbox if this email is eligible.'});
+ }
  const token=randomToken(),expires=Date.now()+15*60000;
  await env.DB.prepare('INSERT INTO login_challenges(token_hash,email,audience,expires_at,created_at) VALUES(?,?,?,?,?)').bind(digest(token),email,audience,expires,Date.now()).run();
- const url=new URL(audience==='tenant'?'/tenant/complete-signin':'/client',env.APP_URL);url.searchParams.set('cf_token',token);
+ const target=audience==='tenant'?'/tenant/complete-signin':audience==='admin'?'/admin':'/client';
+ const url=new URL(target,env.APP_URL);url.searchParams.set('cf_token',token);
  await enqueueMail({to:[email],subject:'Your ProInspect sign-in link',text:'Sign in to the '+audience+' portal using this one-time link. It expires in 15 minutes.\n\n'+url.href+'\n\nDo not forward this link.'});
  return Response.json({ok:true,message:'Check your inbox if this email is eligible.'});
 }
