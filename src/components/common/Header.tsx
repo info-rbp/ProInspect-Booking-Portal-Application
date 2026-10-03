@@ -5,7 +5,7 @@ import { Calendar, LogIn } from 'lucide-react';
 interface HeaderProps {
   activeView: 'booking' | 'admin';
   setActiveView: (view: 'booking' | 'admin') => void;
-  onNavigate: (path: '/' | '/book' | '/signin' | '/tenant') => void;
+  onNavigate: (path: '/' | '/book' | '/tenant') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
