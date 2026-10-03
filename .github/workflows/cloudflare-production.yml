@@ -186,6 +186,58 @@ jobs:
             touch /tmp/legacy-public-removed
           fi
           echo "Legacy public writer is frozen."
+      - name: Capture pre-migration D1 rollback bookmark
+        if: needs.request.outputs.action == 'migrate'
+        run: node scripts/cloudflare/capture-d1-bookmark.mjs pre-migration
+      - name: Take final managed GCP backup and reconcile Firebase Storage mirror
+        if: needs.request.outputs.action == 'migrate'
+        env:
+          GCP_BACKUP_BUCKET: business-plan-applicatio-17047-proinspect-migration-backups
+        run: |
+          set -euo pipefail
+          umask 077
+          BACKUP_PREFIX="cloudflare-cutover/$SOURCE_SHA/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          FIRESTORE_URI="gs://$GCP_BACKUP_BUCKET/$BACKUP_PREFIX/firestore"
+          STORAGE_URI="gs://$GCP_BACKUP_BUCKET/$BACKUP_PREFIX/firebase-storage"
+          gcloud firestore export "$FIRESTORE_URI" \
+            --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a \
+            --project="$GCP_PROJECT_ID" \
+            --impersonate-service-account="$GCP_MIGRATION_SA" \
+            --quiet
+          gcloud storage ls "$FIRESTORE_URI/**" \
+            --impersonate-service-account="$GCP_MIGRATION_SA" > /tmp/firestore-backup-files.txt
+          test -s /tmp/firestore-backup-files.txt
+          gcloud storage rsync "gs://$GCP_FIREBASE_STORAGE_BUCKET" "$STORAGE_URI" \
+            --recursive \
+            --checksums-only \
+            --impersonate-service-account="$GCP_MIGRATION_SA"
+          MIGRATION_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_MIGRATION_SA")"
+          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" node scripts/cloudflare/verify-gcs-backup.mjs \
+            --source-bucket="$GCP_FIREBASE_STORAGE_BUCKET" \
+            --backup-bucket="$GCP_BACKUP_BUCKET" \
+            --backup-prefix="$BACKUP_PREFIX/firebase-storage" \
+            --output=.cloudflare/storage-backup-evidence.json
+          export FIRESTORE_URI STORAGE_URI BACKUP_PREFIX
+          node - <<'NODE'
+          const fs=require('fs');
+          const storage=JSON.parse(fs.readFileSync('.cloudflare/storage-backup-evidence.json','utf8'));
+          const evidence={
+            schemaVersion:1,
+            sourceSha:process.env.SOURCE_SHA,
+            firestoreExportUri:process.env.FIRESTORE_URI,
+            firebaseStorageBackupUri:process.env.STORAGE_URI,
+            storageObjectCount:storage.objectCount,
+            storageTotalBytes:storage.totalBytes,
+            storageManifestSha256:storage.sourceManifestSha256,
+            storageBackupManifestSha256:storage.backupManifestSha256,
+            reconciled:storage.reconciled===true,
+            completedAt:new Date().toISOString()
+          };
+          if(!evidence.reconciled)throw new Error('Final Firebase Storage backup did not reconcile.');
+          fs.writeFileSync('.cloudflare/gcp-backup-evidence.json',JSON.stringify(evidence,null,2)+'\n',{mode:0o600});
+          console.log(JSON.stringify({...evidence,firestoreExportUri:'[recorded]',firebaseStorageBackupUri:'[recorded]'},null,2));
+          NODE
+          unset MIGRATION_TOKEN
       - name: Export frozen Firestore source and preserve external calendar blocks
         if: needs.request.outputs.action == 'migrate'
         run: |
@@ -214,6 +266,9 @@ jobs:
         env:
           GCP_STORAGE_IMPERSONATE_SERVICE_ACCOUNT: ${{ env.GCP_MIGRATION_SA }}
         run: node scripts/cloudflare/migrate-production-storage.mjs
+      - name: Capture post-migration D1 rollback bookmark
+        if: needs.request.outputs.action == 'migrate'
+        run: node scripts/cloudflare/capture-d1-bookmark.mjs post-migration
       - name: Write sanitized migration evidence
         if: needs.request.outputs.action == 'migrate'
         run: |
@@ -221,7 +276,10 @@ jobs:
           const fs=require('fs'),crypto=require('crypto');
           const p=JSON.parse(fs.readFileSync('private-migration/d1-import-plan.json'));
           const s=JSON.parse(fs.readFileSync('private-migration/storage-migration.json'));
-          const evidence={sourceSha:process.env.SOURCE_SHA,migrationDigest:p.digest,sourceSha256:p.sourceSha256,counts:p.counts,storageObjects:s.objects.length,storageBytes:s.bytes,completedAt:new Date().toISOString()};
+          const pre=JSON.parse(fs.readFileSync('.cloudflare/d1-pre-migration-bookmark.json'));
+          const post=JSON.parse(fs.readFileSync('.cloudflare/d1-post-migration-bookmark.json'));
+          const backup=JSON.parse(fs.readFileSync('.cloudflare/gcp-backup-evidence.json'));
+          const evidence={sourceSha:process.env.SOURCE_SHA,migrationDigest:p.digest,sourceSha256:p.sourceSha256,counts:p.counts,storageObjects:s.objects.length,storageBytes:s.bytes,gcpBackupReconciled:backup.reconciled===true,d1PreMigrationBookmarkCaptured:Boolean(pre.bookmark),d1PostMigrationBookmarkCaptured:Boolean(post.bookmark),completedAt:new Date().toISOString()};
           fs.writeFileSync('.cloudflare/migration-evidence.json',JSON.stringify(evidence,null,2)+'\n');
           console.log(JSON.stringify(evidence,null,2));
           NODE
@@ -232,6 +290,10 @@ jobs:
           path: |
             .cloudflare/production-resources.json
             .cloudflare/migration-evidence.json
+            .cloudflare/gcp-backup-evidence.json
+            .cloudflare/storage-backup-evidence.json
+            .cloudflare/d1-pre-migration-bookmark.json
+            .cloudflare/d1-post-migration-bookmark.json
           if-no-files-found: ignore
           include-hidden-files: true
           retention-days: 30
