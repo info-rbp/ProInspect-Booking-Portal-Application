@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "build",
+  "action": "maintenance",
   "releaseId": "production-unification",
   "sourceSha": "69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
-  "approve": "",
-  "note": "Retry immutable production image build after source-staging bucket metadata permission correction. No maintenance, Terraform apply, migration, Cloud Run traffic change or main merge."
+  "approve": "FREEZE:69f6d920349bd582d2bf69da8fcbbaf2d01aa94e",
+  "note": "Enter the verified Stage 4 production maintenance window using the immutable image already built for the frozen source."
 }
