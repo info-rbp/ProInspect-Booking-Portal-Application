@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "maintenance",
+  "action": "plan",
   "releaseId": "production-unification",
-  "sourceSha": "7111ce548fa7d16bda9804ef89f4b1678098c7a9",
-  "approve": "FREEZE:7111ce548fa7d16bda9804ef89f4b1678098c7a9",
-  "note": "Enter the verified Stage 4 production maintenance window using the immutable image built for the fully verified source. Deploy maintenance with the explicit GA HTTP startup probe on /healthz, verify the tagged revision, IAM and booking mutation blocking, then move production traffic to maintenance. No Terraform apply, migration, candidate deployment or main merge."
+  "sourceSha": "5c3cdd8ba76b88a79ca1699f10565020f0e72b5d",
+  "approve": "",
+  "note": "Regenerate the reviewed Stage 4 production plan after removing cutover probe mutations and adding sanitized Cloud Run deploy diagnostics. No Terraform apply, migration, maintenance traffic change, candidate deployment or main merge."
 }
