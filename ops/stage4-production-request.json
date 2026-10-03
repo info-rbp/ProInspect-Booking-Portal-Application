@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "readiness",
+  "action": "plan",
   "releaseId": "production-unification",
   "sourceSha": "69022929685d70009b4faadb118ecfda4a0dbb91",
   "approve": "",
-  "note": "Freeze exact verified release candidate and run Stage 4 readiness only. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
+  "note": "Generate and retain the reviewed Stage 4 production infrastructure plan for the frozen release candidate. No Terraform apply, migration, Cloud Run deployment, traffic change or main merge."
 }
