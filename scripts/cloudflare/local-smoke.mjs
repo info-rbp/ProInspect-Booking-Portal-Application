@@ -3,13 +3,13 @@ import {readFileSync,writeFileSync,openSync,closeSync} from 'node:fs';
 import assert from 'node:assert/strict';
 const env={...process.env,WRANGLER_SEND_METRICS:'false'};
 delete env.CLOUDFLARE_API_TOKEN;delete env.CLOUDFLARE_ACCOUNT_ID;
-execFileSync('npx',['--yes','wrangler@4.147.0','d1','migrations','apply','DB','--local'],{stdio:'inherit',env});
+execFileSync('npx',['--yes','wrangler@4.147.0','d1','migrations','apply','DB','--local'],{stdio:'inherit',env,timeout:120000});
 const log='.cloudflare/local-worker.log',fd=openSync(log,'w');
 const child=spawn('npx',['--yes','wrangler@4.147.0','dev','--local','--ip','127.0.0.1','--port','8787'],{env,stdio:['ignore',fd,fd],detached:true});
 const base='http://localhost:8787';let checks=0;
-async function check(path,status,options){const r=await fetch(base+path,{redirect:'manual',...options});assert.equal(r.status,status,path+': '+await r.clone().text());checks++;return r;}
+async function check(path,status,options){console.log('WORKER_CHECK',path);const r=await fetch(base+path,{redirect:'manual',signal:AbortSignal.timeout(15000),...options});assert.equal(r.status,status,path+': '+await r.clone().text());checks++;return r;}
 try{
- let ready=false;for(let i=0;i<60;i++){try{const r=await fetch(base+'/healthz');if(r.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}
+ let ready=false;for(let i=0;i<60;i++){try{const r=await fetch(base+'/healthz',{signal:AbortSignal.timeout(1000)});if(r.ok){ready=true;break;}}catch{}if(child.exitCode!==null)break;await new Promise(r=>setTimeout(r,500));}
  assert.ok(ready,'Local Worker did not start');
  const health=await (await check('/healthz',200)).json();assert.equal(health.platform,'cloudflare');
  const catalogue=await (await check('/api/services',200)).json();assert.ok(catalogue.services.length>0,'Real catalogue must be served from D1');
