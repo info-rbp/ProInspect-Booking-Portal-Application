@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "action": "disabled",
+  "action": "federation",
   "releaseId": "production-unification",
   "sourceSha": "9c7e7297bfe3ce09338ee06a868b0244940c65e6",
-  "approve": "",
-  "note": "Cloudflare is the active production completion target. Legacy GCP Stage 4 is frozen as rollback/reference machinery only; no Google Cloud production operation may run from this request."
+  "approve": "CLOUDFLARE-WIF:9c7e7297bfe3ce09338ee06a868b0244940c65e6",
+  "note": "One-purpose keyless IAM bridge: extend the existing reviewed GitHub Workload Identity provider condition to the Cloudflare staging and production workflows. No Cloud Run deployment, data migration, storage mutation, DNS change or customer traffic change."
 }
