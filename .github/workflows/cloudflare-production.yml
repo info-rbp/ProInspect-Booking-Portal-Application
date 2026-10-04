@@ -361,6 +361,7 @@ jobs:
           CLOUDFLARE_EXPECT_MODE: live
         run: node scripts/cloudflare/remote-smoke.mjs
       - name: Verify production booking and email through deployed Worker
+        if: needs.request.outputs.action == 'promote'
         env:
           CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
           CLOUDFLARE_SMOKE_EMAIL: info@proinspect.systems
