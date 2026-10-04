@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "action": "rehearse",
+  "sourceSha": "bf200b353ceceff661f03f91d540ff05ff3ce239",
+  "note": "Provision isolated Cloudflare staging resources and rehearse the exact verified release source against the current legacy production snapshot. No production Cloudflare resources, DNS, or legacy writer state may be mutated."
+}
