@@ -1,6 +1,6 @@
 /** One-time, read-only migration tool. Never imported into the Worker bundle. */
-import {applicationDefault,initializeApp,deleteApp} from 'firebase-admin/app';
-import {getFirestore} from 'firebase-admin/firestore';
+import {Firestore} from 'firebase-admin/firestore';
+import {OAuth2Client} from 'google-auth-library';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {snapshot,validateSources,planningDatabase,validateIntegrity,digestOf} from '../stage3/migration-engine.js';
 import {transform} from '../migrate-unified-portal.js';
@@ -9,10 +9,14 @@ const args=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=
 const project=args['--project'],database=args['--database'],out=args['--out'];
 if(project!=='business-plan-applicatio-17047'||database!=='ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a'||!out)throw new Error('Reviewed ProInspect source project/database and a private output directory are required.');
 const migrationToken=(process.env.GOOGLE_OAUTH_ACCESS_TOKEN||'').trim();
-const credential:any=migrationToken?{getAccessToken:async()=>({access_token:migrationToken,expires_in:3300})}:applicationDefault();
-const app=initializeApp({projectId:project,credential},'cloudflare-readonly-export');
+if(!migrationToken)throw new Error('An impersonated migration access token is required; refusing an implicit identity fallback.');
+// Firebase Admin rejects ad-hoc Credential objects for Firestore. Supply the
+// supported OAuth client directly to the underlying Firestore server SDK.
+const authClient=new OAuth2Client();
+authClient.setCredentials({access_token:migrationToken});
+const db=new Firestore({projectId:project,databaseId:database,authClient});
 try{
- const db=getFirestore(app,database),before=await snapshot(db);validateSources(before);
+ const before=await snapshot(db);validateSources(before);
  const capturedAt=new Date().toISOString();const shadow=planningDatabase(before);await transform(shadow.db);validateIntegrity(shadow.data);
  const after=await snapshot(db);if(digestOf(before)!==digestOf(after))throw new Error('Source changed during export. Freeze writers before a final migration; this snapshot is rejected.');
  const normalize=(v:any):any=>{
@@ -38,4 +42,4 @@ try{
  writeFileSync(out+'/d1-import-plan.json',JSON.stringify(plan)+'\n',{mode:0o600});
  console.log(JSON.stringify({digest:plan.digest,counts:plan.counts,externalCalendarBusyImportRequired:true,objectCopyRequired:true}));
  // This does not attest writer freeze, migrate files, or approve production.
-}finally{await deleteApp(app);}
+}finally{await db.terminate();}
