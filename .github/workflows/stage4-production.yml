@@ -1,0 +1,64 @@
+name: Stage 4 production cutover
+
+on:
+  push:
+    branches: [main]
+    paths: [ops/cloudflare-wif-bridge-request.json]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: proinspect-cloudflare-wif-bridge
+  cancel-in-progress: false
+
+jobs:
+  bridge:
+    name: Extend Cloudflare workload federation
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate one-purpose bridge request
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open('ops/cloudflare-wif-bridge-request.json'))
+          if r != {
+            'schemaVersion': 1,
+            'action': 'cloudflare-wif',
+            'approve': 'CLOUDFLARE-WIF-BRIDGE-V1'
+          }:
+            raise SystemExit('Unexpected WIF bridge request.')
+          PY
+      - name: Authenticate using the existing reviewed production federation
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Extend provider condition to reviewed Cloudflare workflows
+        run: |
+          set -euo pipefail
+          POOL="proinspect-property-services"
+          PROVIDER="github"
+          PROJECT="business-plan-applicatio-17047"
+          LEGACY="google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production' && attribute.repository_id == '1390107826' && attribute.repository_owner_id == '235419395' && attribute.repository == 'info-rbp/ProInspect-Platform' && ((attribute.ref == 'refs/heads/release/platform-unification' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/release/platform-unification') || (attribute.ref == 'refs/heads/main' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/main'))"
+          UPDATED="attribute.repository_id == '1390107826' && attribute.repository_owner_id == '235419395' && attribute.repository == 'info-rbp/ProInspect-Platform' && ((google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production' && ((attribute.ref == 'refs/heads/release/platform-unification' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/release/platform-unification') || (attribute.ref == 'refs/heads/main' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/main') || (attribute.ref == 'refs/heads/release/cloudflare-platform' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/cloudflare-production.yml@refs/heads/release/cloudflare-platform'))) || (google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:staging' && attribute.ref == 'refs/heads/release/cloudflare-platform' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/cloudflare-staging.yml@refs/heads/release/cloudflare-platform'))"
+          CURRENT="$(gcloud iam workload-identity-pools providers describe "$PROVIDER" --project="$PROJECT" --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)')"
+          if [ "$CURRENT" != "$LEGACY" ] && [ "$CURRENT" != "$UPDATED" ]; then
+            echo "Existing provider condition is outside the reviewed states; refusing overwrite." >&2
+            exit 1
+          fi
+          if [ "$CURRENT" != "$UPDATED" ]; then
+            gcloud iam workload-identity-pools providers update-oidc "$PROVIDER" --project="$PROJECT" --location=global --workload-identity-pool="$POOL" --attribute-condition="$UPDATED" --quiet
+          fi
+          VERIFIED="$(gcloud iam workload-identity-pools providers describe "$PROVIDER" --project="$PROJECT" --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)')"
+          test "$VERIFIED" = "$UPDATED"
+          echo "Cloudflare workload federation bridge completed."
