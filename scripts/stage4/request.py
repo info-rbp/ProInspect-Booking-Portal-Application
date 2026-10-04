@@ -8,7 +8,7 @@ import subprocess
 import sys
 from common import REPOSITORY, require, github, validate_environment
 
-ACTIONS={"disabled","readiness","plan","build","maintenance","backup","infrastructure-apply",
+ACTIONS={"disabled","readiness","federation","plan","build","maintenance","backup","infrastructure-apply",
          "migration-apply","candidate","probe","accept","promote","rollback","post-release","close","contain"}
 
 def validate_request(request):
