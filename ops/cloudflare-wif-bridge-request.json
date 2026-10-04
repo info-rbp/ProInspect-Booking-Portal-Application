@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "action": "cloudflare-wif",
+  "approve": "CLOUDFLARE-WIF-BRIDGE-V1"
+}
