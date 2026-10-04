@@ -31,6 +31,13 @@ async function ensureD1(account,name){
   if(!database.uuid)throw new Error('Stale staging D1 database is missing its identifier');
   await api('/accounts/'+account+'/d1/database/'+database.uuid,{method:'DELETE'});
  }
+ if((list||[]).length>=10&&!stale.length)throw new Error('D1 staging capacity is exhausted by non-staging databases; refusing to delete unrelated data');
+ for(let attempt=0;attempt<20;attempt++){
+  const refreshed=await api('/accounts/'+account+'/d1/database?per_page=100');
+  if((refreshed||[]).length<10)break;
+  if(attempt===19)throw new Error('Timed out waiting for stale staging D1 quota to be released');
+  await new Promise(resolve=>setTimeout(resolve,3000));
+ }
  return api('/accounts/'+account+'/d1/database',{method:'POST',body:{name,primary_location_hint:'oc'}});
 }
 async function ensureBucket(account,name){
