@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "cdde54ab235fbebb29e72e24c2e4bb2dfc0b5ba5",
-  "note": "Rehearse the exact verified Cloudflare release in isolated staging. Recycle only stale staging D1 databases, wait for quota release, provision Turnstile with the current API contract, then prove migration, Worker deployment, queue processing and transactional email. Production resources, DNS and legacy writer state remain untouched."
+  "sourceSha": "cea02dd3a70eb149c943447cad896482458dd6c1",
+  "note": "Rehearse the exact verified Cloudflare release in isolated staging with corrected generated Wrangler paths, controlled staging D1 recycling, current Turnstile rotation semantics, deterministic D1/R2 migration and Worker-bound transactional email. Production resources, DNS and legacy writer state remain untouched."
 }
