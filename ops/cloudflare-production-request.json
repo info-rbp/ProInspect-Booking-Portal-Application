@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "action": "readiness",
-  "sourceSha": "3fba12126e87bd6a05bda96113887958d4b8582d",
+  "sourceSha": "c1448fd74f2a8f813dd2889ff76f8b6c7a791f62",
   "approve": "",
-  "note": "Read-only Cloudflare production capability matrix for the verified full Worker source. Reports all missing token capabilities in one run. No production resources, data, secrets, DNS or traffic are modified."
+  "note": "Read-only verification of current Cloudflare resource, route, and WAF API access. This request does not provision production, modify data, change DNS, or attest email delivery or acceptance."
 }
