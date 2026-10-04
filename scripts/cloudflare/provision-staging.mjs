@@ -54,12 +54,6 @@ async function ensureTurnstile(account,host){
  if(!widget?.sitekey||!secret)throw new Error('Staging Turnstile widget/secret could not be established');
  return {sitekey:widget.sitekey,secret};
 }
-async function emailStatus(account){
- const zones=await api('/zones?name=proinspect.systems&account.id='+account+'&per_page=50');
- if(!Array.isArray(zones)||zones.length!==1)return {enabled:false,reason:'proinspect.systems is not uniquely readable'};
- const rows=await api('/zones/'+zones[0].id+'/email/sending/subdomains');
- return {enabled:(rows||[]).some(x=>x.name==='proinspect.systems'&&x.enabled===true),zoneId:zones[0].id};
-}
 const account=await accountId();
 const subdomain=await api('/accounts/'+account+'/workers/subdomain');
 if(!subdomain?.subdomain)throw new Error('Workers account subdomain is not configured');
@@ -67,10 +61,9 @@ const names={worker:'proinspect-platform-staging',database:'proinspect-platform-
 const appUrl='https://'+names.worker+'.'+subdomain.subdomain+'.workers.dev';
 const database=await ensureD1(account,names.database);
 await ensureBucket(account,names.documents);await ensureBucket(account,names.sensitive);await ensureQueue(account,names.queue);await ensureQueue(account,names.dead);
-const turnstile=await ensureTurnstile(account,new URL(appUrl).hostname),email=await emailStatus(account);
+const turnstile=await ensureTurnstile(account,new URL(appUrl).hostname);
 mkdirSync('.cloudflare',{recursive:true});
-const state={schemaVersion:1,environment:'staging',sourceSha:releaseSha,accountId:account,appUrl,workerName:names.worker,database:{name:names.database,id:database.uuid},documentsBucket:names.documents,sensitiveBucket:names.sensitive,queue:names.queue,deadLetterQueue:names.dead,turnstileSiteKey:turnstile.sitekey,email,provisionedAt:new Date().toISOString()};
+const state={schemaVersion:1,environment:'staging',sourceSha:releaseSha,accountId:account,appUrl,workerName:names.worker,database:{name:names.database,id:database.uuid},documentsBucket:names.documents,sensitiveBucket:names.sensitive,queue:names.queue,deadLetterQueue:names.dead,turnstileSiteKey:turnstile.sitekey,email:{verification:'worker-binding'},provisionedAt:new Date().toISOString()};
 writeFileSync('.cloudflare/staging-resources.json',JSON.stringify(state,null,2)+'\n',{mode:0o600});
 writeFileSync('.cloudflare/staging-private.json',JSON.stringify({turnstileSecret:turnstile.secret})+'\n',{mode:0o600});
-console.log(JSON.stringify({...state,email:{enabled:email.enabled}},null,2));
-if(!email.enabled)throw new Error('Cloudflare Email Sending is not enabled for proinspect.systems');
+console.log(JSON.stringify(state,null,2));
