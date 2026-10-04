@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "cea02dd3a70eb149c943447cad896482458dd6c1",
-  "note": "Rehearse the exact verified Cloudflare release in isolated staging with corrected generated Wrangler paths, controlled staging D1 recycling, current Turnstile rotation semantics, deterministic D1/R2 migration and Worker-bound transactional email. Production resources, DNS and legacy writer state remain untouched."
+  "sourceSha": "bf23c9ae6e1e8979e9286486c519346df553bb20",
+  "note": "Run the isolated staging rehearsal for the verified release candidate, including GCP source authentication, D1 replay, R2 reconciliation, calendar import, staging smoke checks and transactional email verification."
 }
