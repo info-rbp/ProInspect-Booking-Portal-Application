@@ -1,20 +1,21 @@
 /** One-time, read-only migration tool. Never imported into the Worker bundle. */
 import {Firestore} from 'firebase-admin/firestore';
-import {OAuth2Client} from 'google-auth-library';
+import {GoogleAuth,OAuth2Client} from 'google-auth-library';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {snapshot,validateSources,planningDatabase,validateIntegrity,digestOf} from '../stage3/migration-engine.js';
 import {transform} from '../migrate-unified-portal.js';
 import {createImportPlan} from './migration.mjs';
+import {checkSourceAccess} from './source-preflight.mjs';
 const args=Object.fromEntries(process.argv.slice(2).map(a=>{const i=a.indexOf('=');return [a.slice(0,i),a.slice(i+1)];}));
 const project=args['--project'],database=args['--database'],out=args['--out'];
 if(project!=='business-plan-applicatio-17047'||database!=='ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a'||!out)throw new Error('Reviewed ProInspect source project/database and a private output directory are required.');
 const migrationToken=(process.env.GOOGLE_OAUTH_ACCESS_TOKEN||'').trim();
 if(!migrationToken)throw new Error('An impersonated migration access token is required; refusing an implicit identity fallback.');
-// Firebase Admin rejects ad-hoc Credential objects for Firestore. Supply the
-// supported OAuth client directly to the underlying Firestore server SDK.
+await checkSourceAccess(project,database,migrationToken);
 const authClient=new OAuth2Client();
 authClient.setCredentials({access_token:migrationToken});
-const db=new Firestore({projectId:project,databaseId:database,authClient});
+const auth=new GoogleAuth({authClient,projectId:project});
+const db=new Firestore({projectId:project,databaseId:database,auth,preferRest:true});
 try{
  const before=await snapshot(db);validateSources(before);
  const capturedAt=new Date().toISOString();const shadow=planningDatabase(before);await transform(shadow.db);validateIntegrity(shadow.data);
@@ -41,5 +42,4 @@ try{
  writeFileSync(out+'/canonical-export.json',JSON.stringify(exported)+'\n',{mode:0o600});
  writeFileSync(out+'/d1-import-plan.json',JSON.stringify(plan)+'\n',{mode:0o600});
  console.log(JSON.stringify({digest:plan.digest,counts:plan.counts,externalCalendarBusyImportRequired:true,objectCopyRequired:true}));
- // This does not attest writer freeze, migrate files, or approve production.
 }finally{await db.terminate();}
