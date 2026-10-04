@@ -67,16 +67,6 @@ async function ensureTurnstile(account){
  if(process.env.CLOUDFLARE_NEED_TURNSTILE_SECRET==='1'&&!secret)throw new Error('Turnstile secret could not be established for bootstrap');
  return {sitekey:widget.sitekey,secret:secret||null};
 }
-async function ensureEmail(account){
- const zones=await api('/zones?name=proinspect.systems&account.id='+account+'&per_page=50');
- if(!Array.isArray(zones)||zones.length!==1)return {zoneId:null,enabled:false,reason:'proinspect.systems is not an active zone in this Cloudflare account'};
- const zone=zones[0];
- let configured=await api('/zones/'+zone.id+'/email/sending/subdomains');
- let row=(configured||[]).find(x=>x.name==='proinspect.systems');
- if(!row)row=await api('/zones/'+zone.id+'/email/sending/subdomains',{method:'POST',body:{name:'proinspect.systems'}});
- return {zoneId:zone.id,enabled:row?.enabled===true,tag:row?.tag||null};
-}
-
 const account=await accountId();
 const names={
  database:'proinspect-platform-production',
@@ -91,7 +81,7 @@ await ensureBucket(account,names.sensitive);
 await ensureQueue(account,names.queue);
 await ensureQueue(account,names.dead);
 const turnstile=await ensureTurnstile(account);
-const email=await ensureEmail(account);
+const email={verification:'worker-binding'};
 
 mkdirSync('.cloudflare',{recursive:true});
 const publicState={
@@ -110,6 +100,5 @@ const publicState={
 };
 writeFileSync('.cloudflare/production-resources.json',JSON.stringify(publicState,null,2)+'\n',{mode:0o600});
 writeFileSync('.cloudflare/production-private.json',JSON.stringify({turnstileSecret:turnstile.secret})+'\n',{mode:0o600});
-console.log(JSON.stringify({...publicState,email:{...email}},null,2));
-if(!email.enabled)console.log('CLOUDFLARE_EMAIL_GATE=not-enabled');
-else console.log('CLOUDFLARE_EMAIL_GATE=enabled');
+console.log(JSON.stringify(publicState,null,2));
+console.log('CLOUDFLARE_EMAIL_GATE=worker-binding-runtime');
