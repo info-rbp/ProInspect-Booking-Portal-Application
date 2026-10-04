@@ -29,18 +29,18 @@ This is the finite backlog against the approved 50-point completion plan. “Imp
 | 23 | Report Tool | Implemented; authenticated idempotent PDF/R2/audience coverage added; live round-trip outstanding. |
 | 24 | Queues | Implemented for transactional email/retries. |
 | 25 | Workflows | Deferred by V1 contract — no launch-critical process currently requires a new orchestration subsystem. |
-| 26 | Email architecture | Code complete; Cloudflare Email Sending permission/onboarding is an external blocker. |
+| 26 | Email architecture | Code complete; transactional delivery is launch-gated through the native Worker `send_email` binding in staging and pre-traffic production acceptance. |
 | 27 | Payment boundaries | Implemented/provider-neutral; authenticated status webhook plus Client/Staff visibility covered in CI. |
 | 28 | Cloudflare security | Worker headers/CSP/origin limits/body limits/rate limits/CSRF/Turnstile/secrets/audit implemented. Zone WAF activation remains account/custom-domain work. |
-| 29 | Staging/production isolation | Repository support complete; actual staging resources/deployment remain token-blocked. |
+| 29 | Staging/production isolation | Repository support complete; isolated staging acceptance remains required before production mutation. |
 | 30 | Replace GCP CI/CD | Cloudflare verify/production workflows implemented; legacy GCP controls retained only for rollback evidence until acceptance. |
 | 31 | Expanded automated testing | Unit/API/Worker coverage strong; browser-level staging flows remain outstanding. |
-| 32 | Full staging acceptance | Outstanding — requires isolated Cloudflare staging resources and valid D1/R2/Email token permissions. |
+| 32 | Full staging acceptance | Outstanding — requires isolated staging migration plus successful Worker-bound transactional email and business-flow acceptance. |
 | 33 | Firestore -> D1 engine | Implemented with deterministic digest/reconciliation. |
 | 34 | Storage -> R2 engine | Implemented with MIME preservation and SHA-256 round-trip verification. |
 | 35 | Rehearsal migrations | Outstanding — staging-resource blocked. |
 | 36 | Backup/rollback | Repository controls implemented/hardened; execution awaits production resources and cutover. |
-| 37 | Prepare production resources | Outstanding execution — current token lacks D1, R2 and Email permissions. |
+| 37 | Prepare production resources | Outstanding execution — production provisioning follows successful exact-source staging acceptance. |
 | 38 | Freeze legacy writes | Not executed by design; first final-migration action after Cloudflare acceptance. |
 | 39 | Final GCP backup | Not executed; belongs immediately after freeze. |
 | 40 | Final migration | Not executed; workflow implementation exists. |
@@ -57,10 +57,9 @@ This is the finite backlog against the approved 50-point completion plan. “Imp
 
 ## Active blockers
 
-1. GitHub `CLOUDFLARE_API_TOKEN` currently cannot access D1, R2 or Email Sending.
-2. Isolated staging has not yet been provisioned or accepted.
-3. Production data has not been frozen/backed up/migrated.
-4. No pre-traffic production user acceptance or controlled live transaction has occurred.
-5. `main` still represents the legacy production architecture.
+1. Isolated staging has not yet passed the full exact-source rehearsal and acceptance gate.
+2. Production data has not been frozen/backed up/migrated.
+3. No pre-traffic production user acceptance or controlled live transaction has occurred.
+4. `main` still represents the legacy production architecture.
 
 Everything after #37 is intentionally blocked from execution until the earlier gates pass.
