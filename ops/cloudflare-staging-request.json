@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "f3b9bbdd577998efb98f47a2c5b11341c5ca055f",
-  "note": "Run the isolated staging rehearsal for the verified release candidate using the reviewed Google Workload Identity provider fallback, bounded D1 quota retry, deterministic D1 replay, R2 reconciliation, calendar import, live staging checks and Worker-bound transactional email verification."
+  "sourceSha": "33ca6d7576f547b506322dfd4f9f6c76cd496ce8",
+  "note": "Rehearse the verified source with the corrected Firestore OAuth client. Preserve legacy source data and require D1 replay, R2 reconciliation and deployed-runtime checks before production cutover."
 }
