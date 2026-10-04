@@ -164,18 +164,12 @@ jobs:
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
         run: npx --yes wrangler@4.147.0 d1 migrations apply DB --remote --config .cloudflare/wrangler.production.json
       - name: Authenticate one-time legacy Google source with Workload Identity
-        if: (needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close') && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close'
         uses: google-github-actions/auth@v3
         with:
-          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
-          create_credentials_file: true
-      - name: Authenticate one-time legacy Google source with bootstrap credentials
-        if: (needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close') && vars.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
-        uses: google-github-actions/auth@v3
-        with:
-          credentials_json: ${{ secrets.GCP_BOOTSTRAP_CREDENTIALS_JSON }}
+          project_id: ${{ vars.GCP_PRODUCTION_PROJECT_ID || 'business-plan-applicatio-17047' }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/696236368989/locations/global/workloadIdentityPools/proinspect-property-services/providers/github' }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT || 'proinspect-prod-terraform@business-plan-applicatio-17047.iam.gserviceaccount.com' }}
           create_credentials_file: true
       - uses: google-github-actions/setup-gcloud@v3
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close'
