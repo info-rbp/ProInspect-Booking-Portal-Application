@@ -14,9 +14,9 @@ if(new URL(appUrl).origin!==appUrl||new URL(appUrl).protocol!=='https:')throw ne
 if(enableCustomDomain&&!/^[a-z0-9.-]+$/i.test(customDomain))throw new Error('A valid custom domain is required for promotion');
 
 const config={
- $schema:'node_modules/wrangler/config-schema.json',
+ $schema:'../node_modules/wrangler/config-schema.json',
  name:resources.workerName,
- main:'.cloudflare/worker.mjs',
+ main:'./worker.mjs',
  account_id:resources.accountId,
  compatibility_date:'2026-10-03',
  compatibility_flags:['nodejs_compat'],
@@ -24,8 +24,8 @@ const config={
  workers_dev:true,
  preview_urls:false,
  ...(enableCustomDomain?{routes:[{pattern:customDomain,custom_domain:true}]}:{}),
- assets:{directory:'./dist',binding:'ASSETS',not_found_handling:'single-page-application',run_worker_first:true},
- d1_databases:[{binding:'DB',database_name:resources.database.name,database_id:resources.database.id,migrations_dir:'migrations/cloudflare'}],
+ assets:{directory:'../dist',binding:'ASSETS',not_found_handling:'single-page-application',run_worker_first:true},
+ d1_databases:[{binding:'DB',database_name:resources.database.name,database_id:resources.database.id,migrations_dir:'../migrations/cloudflare'}],
  r2_buckets:[{binding:'DOCUMENTS',bucket_name:resources.documentsBucket},{binding:'SENSITIVE',bucket_name:resources.sensitiveBucket}],
  durable_objects:{bindings:[{name:'BOOKING_COORDINATOR',class_name:'BookingCoordinator'}]},
  migrations:[{tag:'cf-v1',new_sqlite_classes:['BookingCoordinator']}],
