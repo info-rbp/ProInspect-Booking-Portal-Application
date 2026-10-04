@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "action": "readiness",
-  "sourceSha": "c1448fd74f2a8f813dd2889ff76f8b6c7a791f62",
+  "sourceSha": "0631d743e44ec38ac989724cf81344f5cf8271fe",
   "approve": "",
-  "note": "Read-only verification of current Cloudflare resource, route, and WAF API access. This request does not provision production, modify data, change DNS, or attest email delivery or acceptance."
+  "note": "Read-only Cloudflare readiness for the frozen candidate under staging rehearsal. Production bootstrap, legacy freeze, data migration and custom-domain cutover are not executed by readiness."
 }
