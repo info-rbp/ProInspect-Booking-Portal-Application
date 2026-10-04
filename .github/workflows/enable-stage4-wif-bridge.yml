@@ -1,0 +1,36 @@
+name: Enable Stage 4 WIF bridge
+
+on:
+  push:
+    branches: [main]
+    paths: [ops/enable-stage4-wif-bridge.json]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate enable request
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open('ops/enable-stage4-wif-bridge.json'))
+          if r != {'schemaVersion':1,'action':'enable-and-dispatch','approve':'ENABLE-STAGE4-WIF-BRIDGE-V1'}:
+              raise SystemExit('Unexpected enable request.')
+          PY
+      - name: Enable and dispatch reviewed Stage 4 bridge workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X PUT             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/369277746/enable"
+          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/369277746/dispatches"             --data '{"ref":"main"}'
+          echo "Stage 4 bridge workflow enabled and dispatched."
