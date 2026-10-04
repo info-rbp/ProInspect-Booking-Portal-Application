@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "a3220e5ade96495d637852a686e32183a39962df",
-  "note": "Rehearse the exact merged and verified main source using the bounded Firestore REST snapshot transport. Require source integrity, D1 zero-write replay, R2 reconciliation and staging runtime checks; no production cutover is authorized by this request."
+  "sourceSha": "f81721cfc3b8245e32e222007ff59502e5dcf2c1",
+  "note": "Rehearse the verified source using a read-only Calendar-scoped token and environment-matched R2 configuration. Require stable export, zero-write D1 replay, storage reconciliation, and deployed staging checks. Production data and traffic are unchanged."
 }
