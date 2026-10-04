@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "54aad8f3e139fd0ee6c3d6f84cd897d09bf003f1",
-  "note": "Rehearse the verified source with explicit OAuth transport, read-only source diagnostics, deterministic migration, and an isolated unprivileged staging session fixture. Production Turnstile, permissions, migration reconciliation, and acceptance gates remain unchanged."
+  "sourceSha": "a3220e5ade96495d637852a686e32183a39962df",
+  "note": "Rehearse the exact merged and verified main source using the bounded Firestore REST snapshot transport. Require source integrity, D1 zero-write replay, R2 reconciliation and staging runtime checks; no production cutover is authorized by this request."
 }
