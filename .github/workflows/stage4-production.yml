@@ -76,7 +76,7 @@ jobs:
               raise SystemExit('GCP_WORKLOAD_IDENTITY_PROVIDER is not a full provider resource in the production project.')
           PY
       - name: Validate private descriptor before any Google authentication
-        if: needs.request.outputs.action != 'readiness'
+        if: needs.request.outputs.action != 'readiness' && needs.request.outputs.action != 'federation'
         env:
           CONFIG_B64: ${{ secrets.STAGE4_PRODUCTION_CONFIG_B64 }}
           PROJECT_ID: ${{ vars.GCP_PRODUCTION_PROJECT_ID }}
@@ -145,6 +145,31 @@ jobs:
           service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
           create_credentials_file: true
       - uses: google-github-actions/setup-gcloud@v3
+      - name: Extend reviewed GitHub federation to Cloudflare release workflows
+        if: needs.request.outputs.action == 'federation'
+        env:
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        run: |
+          set -euo pipefail
+          EXPECTED_APPROVAL="CLOUDFLARE-WIF:$SOURCE_SHA"
+          test "$APPROVAL" = "$EXPECTED_APPROVAL" || { echo "Exact Cloudflare federation approval token required." >&2; exit 1; }
+          POOL="proinspect-property-services"
+          PROVIDER="github"
+          PROJECT="business-plan-applicatio-17047"
+          LEGACY="google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production' && attribute.repository_id == '1390107826' && attribute.repository_owner_id == '235419395' && attribute.repository == 'info-rbp/ProInspect-Platform' && ((attribute.ref == 'refs/heads/release/platform-unification' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/release/platform-unification') || (attribute.ref == 'refs/heads/main' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/main'))"
+          UPDATED="attribute.repository_id == '1390107826' && attribute.repository_owner_id == '235419395' && attribute.repository == 'info-rbp/ProInspect-Platform' && ((google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:production' && ((attribute.ref == 'refs/heads/release/platform-unification' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/release/platform-unification') || (attribute.ref == 'refs/heads/main' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/stage4-production.yml@refs/heads/main') || (attribute.ref == 'refs/heads/release/cloudflare-platform' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/cloudflare-production.yml@refs/heads/release/cloudflare-platform'))) || (google.subject == 'repo:info-rbp@235419395/ProInspect-Platform@1390107826:environment:staging' && attribute.ref == 'refs/heads/release/cloudflare-platform' && attribute.workflow_ref == 'info-rbp/ProInspect-Platform/.github/workflows/cloudflare-staging.yml@refs/heads/release/cloudflare-platform'))"
+          CURRENT="$(gcloud iam workload-identity-pools providers describe "$PROVIDER" --project="$PROJECT" --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)')"
+          if [ "$CURRENT" != "$LEGACY" ] && [ "$CURRENT" != "$UPDATED" ]; then
+            echo "Existing provider condition differs from both reviewed states; refusing overwrite." >&2
+            exit 1
+          fi
+          if [ "$CURRENT" != "$UPDATED" ]; then
+            gcloud iam workload-identity-pools providers update-oidc "$PROVIDER"               --project="$PROJECT"               --location=global               --workload-identity-pool="$POOL"               --attribute-condition="$UPDATED"               --quiet
+          fi
+          VERIFIED="$(gcloud iam workload-identity-pools providers describe "$PROVIDER" --project="$PROJECT" --location=global --workload-identity-pool="$POOL" --format='value(attributeCondition)')"
+          test "$VERIFIED" = "$UPDATED"
+          echo "Cloudflare staging and production workflows are now explicitly admitted by the reviewed provider condition."
       - name: Read-only production discovery
         if: needs.request.outputs.action == 'readiness'
         env:
@@ -168,17 +193,17 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - uses: actions/setup-node@v4
-        if: needs.request.outputs.action != 'readiness'
+        if: needs.request.outputs.action != 'readiness' && needs.request.outputs.action != 'federation'
         with:
           node-version: '22.16.0'
           cache: npm
       - uses: hashicorp/setup-terraform@v3
-        if: needs.request.outputs.action != 'readiness'
+        if: needs.request.outputs.action != 'readiness' && needs.request.outputs.action != 'federation'
         with:
           terraform_version: 1.10.5
           terraform_wrapper: false
       - name: Install the locked application dependencies
-        if: needs.request.outputs.action != 'readiness'
+        if: needs.request.outputs.action != 'readiness' && needs.request.outputs.action != 'federation'
         run: npm ci
       - name: Verify immutable build bootstrap prerequisites
         if: needs.request.outputs.action == 'build'
@@ -386,6 +411,7 @@ jobs:
           echo "CONTROLLER_DIAGNOSTIC: all controller-internal checks passed."
 
       - name: Execute the explicitly requested production phase
+        if: needs.request.outputs.action != 'federation'
         env:
           TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
         run: |
