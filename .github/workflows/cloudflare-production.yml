@@ -152,15 +152,18 @@ jobs:
       - run: npm ci
       - name: Re-run complete Cloudflare source verification before mutation
         run: npm run cloudflare:check
-      - name: Require real authenticated operator input before promotion
-        if: needs.request.outputs.action == 'promote'
+      # The candidate must exist before an operator can sign in. Authentication
+      # and real booking/email checks gate acceptance and domain cutover, not
+      # the earlier maintenance or workers.dev candidate deployment.
+      - name: Require real authenticated operator input for production acceptance
+        if: needs.request.outputs.action == 'accept'
         env:
           SMOKE_COOKIE: ${{ secrets.CLOUDFLARE_SMOKE_SESSION_COOKIE }}
           SMOKE_CSRF: ${{ secrets.CLOUDFLARE_SMOKE_CSRF }}
           SMOKE_TURNSTILE: ${{ secrets.CLOUDFLARE_SMOKE_TURNSTILE_TOKEN }}
         run: |
           node - <<'NODE'
-          if(!(process.env.SMOKE_COOKIE&&process.env.SMOKE_CSRF)&&!process.env.SMOKE_TURNSTILE)throw new Error('Production acceptance needs a real operator session or Turnstile proof before enabling the live candidate.');
+          if(!(process.env.SMOKE_COOKIE&&process.env.SMOKE_CSRF)&&!process.env.SMOKE_TURNSTILE)throw new Error('Production acceptance needs a real operator session or Turnstile proof; no production test identity is manufactured.');
           NODE
       - name: Provision or discover production Cloudflare resources
         env:
@@ -344,7 +347,7 @@ jobs:
           CLOUDFLARE_EXPECT_MODE: live
         run: node scripts/cloudflare/remote-smoke.mjs
       - name: Verify production booking and email through deployed Worker
-        if: needs.request.outputs.action == 'promote'
+        if: needs.request.outputs.action == 'accept'
         env:
           CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
           CLOUDFLARE_SMOKE_EMAIL: info@proinspect.systems
