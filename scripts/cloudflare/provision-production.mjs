@@ -59,7 +59,7 @@ async function ensureTurnstile(account){
   const required=[...domains].sort().join(',');
   if(current!==required)widget=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey,{method:'PUT',body:{name,domains,mode:'managed'}});
   if(!secret&&process.env.CLOUDFLARE_NEED_TURNSTILE_SECRET==='1'){
-   const rotated=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey+'/rotate_secret',{method:'POST'});
+   const rotated=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey+'/rotate_secret',{method:'POST',body:{invalidate_immediately:true}});
    secret=rotated.secret||'';
   }
  }
