@@ -2,16 +2,14 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {createImportPlan} from './migration.mjs';
+import {calendarInterval} from './calendar-interval.mjs';
 
 const directory=process.argv[2]||'private-migration';
 const defaultCalendar=(process.env.GOOGLE_CALENDAR_ID||'').trim();
 if(!defaultCalendar)throw new Error('The reviewed legacy calendar ID is required');
-const exportPath=directory+'/canonical-export.json';
-const planPath=directory+'/d1-import-plan.json';
+const exportPath=directory+'/canonical-export.json',planPath=directory+'/d1-import-plan.json';
 const data=JSON.parse(readFileSync(exportPath,'utf8'));
 if(data.source?.projectId!=='business-plan-applicatio-17047')throw new Error('Reviewed source project required for Calendar import');
-// A cloud-platform token does not authorize Google Calendar. Mint a narrow,
-// short-lived Calendar token through the already-authorized Terraform identity.
 const principal='proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com';
 let token=(process.env.GOOGLE_CALENDAR_ACCESS_TOKEN||'').trim();
 if(!token){
@@ -44,21 +42,20 @@ async function events(calendarId,pageToken){
  }
  return payload;
 }
-let imported=0,skippedKnown=0,skippedInvalid=0;
+let imported=0,allDayImported=0,skippedKnown=0,skippedFree=0;
 for(const [resourceId,calendarId] of resources){
  let pageToken;
  do{
   const page=await events(calendarId,pageToken);
   for(const event of page.items||[]){
    if(known.has(String(event.id||''))){skippedKnown++;continue;}
-   if(event.status==='cancelled')continue;
-   const eventStart=event.start?.dateTime,eventEnd=event.end?.dateTime;
-   if(!eventStart||!eventEnd){skippedInvalid++;continue;}
-   const s=new Date(eventStart).toISOString(),e=new Date(eventEnd).toISOString();
-   if(!(s<e)){skippedInvalid++;continue;}
+   const interval=calendarInterval(event,page.timeZone);
+   if(!interval){skippedFree++;continue;}
+   const {start:s,end:e,allDay}=interval;
    const hash=createHash('sha256').update(resourceId+'\0'+String(event.id||'')+'\0'+s+'\0'+e).digest('hex').slice(0,32);
    const id='legacy_busy_'+hash;
-   collections.nativeCalendarEvents[id]={id,resourceId,start:s,end:e,source:'legacy-google-busy',legacyEventId:String(event.id||''),createdAt:data.capturedAt};imported++;
+   collections.nativeCalendarEvents[id]={id,resourceId,start:s,end:e,source:'legacy-google-busy',legacyEventId:String(event.id||''),createdAt:data.capturedAt};
+   imported++;if(allDay)allDayImported++;
   }
   pageToken=page.nextPageToken;
  }while(pageToken);
@@ -66,4 +63,4 @@ for(const [resourceId,calendarId] of resources){
 const plan=createImportPlan(data);
 writeFileSync(exportPath,JSON.stringify(data)+'\n',{mode:0o600});
 writeFileSync(planPath,JSON.stringify(plan)+'\n',{mode:0o600});
-console.log(JSON.stringify({calendarResources:resources.size,externalBusyImported:imported,knownBookingEventsSkipped:skippedKnown,nonTimedEventsSkipped:skippedInvalid,digest:plan.digest,counts:plan.counts},null,2));
+console.log(JSON.stringify({calendarResources:resources.size,externalBusyImported:imported,allDayImported,knownBookingEventsSkipped:skippedKnown,cancelledOrTransparentSkipped:skippedFree,digest:plan.digest,counts:plan.counts},null,2));
