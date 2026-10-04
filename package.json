@@ -5,13 +5,31 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "preview": "vite preview",
+    "build": "npm run build:web && node scripts/cloudflare/build.mjs",
+    "preview": "npm run build && wrangler dev",
     "start": "tsx server.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "container:build": "docker build -t proinspect-booking-portal .",
-    "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs"
+    "test:e2e:booking": "node scripts/e2e-booking-smoke.mjs",
+    "migrate:portal:dry": "tsx scripts/migrate-unified-portal.ts",
+    "migrate:portal": "tsx scripts/migrate-unified-portal.ts --apply",
+    "test:e2e:portal-security": "node scripts/e2e-portal-security.mjs",
+    "freeze:check": "node scripts/premerge-freeze-check.mjs",
+    "test:migration-preflight": "tsx scripts/verify-tenant-migration-preflight.ts",
+    "stage2:check": "node scripts/stage2-integration-check.mjs",
+    "stage3:test": "node --import tsx --test scripts/stage3/tests/*.test.ts",
+    "stage3:check": "python3 scripts/stage3/control.py check-repository",
+    "stage3:test:controls": "python3 -m unittest discover -s scripts/stage3/tests -p 'test_*.py' -v",
+    "stage4:check": "python3 scripts/stage4/check.py",
+    "stage4:test:controls": "python3 -m unittest discover -s scripts/stage4/tests -p 'test_*.py' -v",
+    "stage4:test": "node --import tsx --test scripts/stage4/tests/*.test.ts",
+    "cloudflare:schema": "node scripts/cloudflare/schema.mjs --check",
+    "cloudflare:test": "node --experimental-strip-types --test tests/cloudflare/*.test.mjs",
+    "cloudflare:build": "npm run build",
+    "cloudflare:check": "npm run cloudflare:schema && npm run cloudflare:test && npm run lint && npm run cloudflare:build",
+    "build:web": "vite build",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -41,5 +59,8 @@
   "packageManager": "npm@10.9.2",
   "engines": {
     "node": ">=22 <23"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.13.6"
   }
 }

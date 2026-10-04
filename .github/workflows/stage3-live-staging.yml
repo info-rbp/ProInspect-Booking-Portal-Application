@@ -1,0 +1,307 @@
+name: Stage 3 live staging
+
+on:
+  push:
+    branches:
+      - release/platform-unification
+    paths:
+      - ops/stage3-live-request.json
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: stage3-live-staging
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: Validate staging request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      action: ${{ steps.request.outputs.action }}
+      source_sha: ${{ steps.request.outputs.source_sha }}
+      approve: ${{ steps.request.outputs.approve }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: request
+        name: Validate non-secret request
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          path='ops/stage3-live-request.json'
+          request=json.load(open(path,encoding='utf-8'))
+          allowed={'disabled','status','bootstrap-plan','apply','auth','migration-plan','migration-apply','deploy','record-companion','close','promote','rollback'}
+          action=request.get('action')
+          source=request.get('sourceSha','')
+          approve=request.get('approve','')
+          if request.get('schemaVersion') != 1 or action not in allowed:
+              raise SystemExit('Invalid Stage 3 live request schema/action.')
+          if not re.fullmatch(r'[0-9a-f]{40}',source):
+              raise SystemExit('sourceSha must be one exact 40-character commit SHA.')
+          if len(approve) > 200 or ('\n' in approve) or ('\r' in approve):
+              raise SystemExit('approve value is invalid.')
+          subprocess.run(['git','cat-file','-e',source+'^{commit}'],check=True)
+          subprocess.run(['git','merge-base','--is-ancestor',source,'HEAD'],check=True)
+          out=os.environ['GITHUB_OUTPUT']
+          with open(out,'a',encoding='utf-8') as fh:
+              fh.write(f'action={action}\nsource_sha={source}\napprove={approve}\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write(f'### Stage 3 request\n- Action: `{action}`\n- Source: `{source}`\n')
+          PY
+
+  staging:
+    name: Execute protected staging action
+    needs: request
+    if: needs.request.outputs.action != 'disabled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ACTION: ${{ needs.request.outputs.action }}
+      SOURCE_SHA: ${{ needs.request.outputs.source_sha }}
+      APPROVAL: ${{ needs.request.outputs.approve }}
+      CONFIG: source/infrastructure/environments/staging.local.json
+    steps:
+      - name: Enforce protected environment configuration
+        shell: bash
+        env:
+          ENVIRONMENT_GUARD: ${{ vars.STAGE3_ENVIRONMENT_GUARD }}
+          PROJECT_ID: ${{ vars.GCP_STAGING_PROJECT_ID }}
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          BOOTSTRAP_JSON: ${{ secrets.GCP_BOOTSTRAP_CREDENTIALS_JSON }}
+          CONFIG_B64: ${{ secrets.STAGE3_STAGING_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test "$ENVIRONMENT_GUARD" = "PROTECTED_STAGING" || { echo 'Configure the protected GitHub staging environment before running live actions.' >&2; exit 1; }
+          test -n "$PROJECT_ID" || { echo 'GCP_STAGING_PROJECT_ID is required.' >&2; exit 1; }
+          test -n "$TERRAFORM_SA" || { echo 'GCP_TERRAFORM_SERVICE_ACCOUNT is required.' >&2; exit 1; }
+          test -n "$CONFIG_B64" || { echo 'STAGE3_STAGING_CONFIG_B64 is required.' >&2; exit 1; }
+          if [ -z "$WIF_PROVIDER" ]; then
+            case "$ACTION" in
+              bootstrap-plan|apply) ;;
+              *) echo 'Keyless Workload Identity Federation must be configured after the first infrastructure apply.' >&2; exit 1 ;;
+            esac
+            test -n "$BOOTSTRAP_JSON" || { echo 'Temporary GCP_BOOTSTRAP_CREDENTIALS_JSON is required until Workload Identity Federation exists.' >&2; exit 1; }
+          fi
+
+      - name: Checkout exact accepted source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Authenticate with Workload Identity Federation
+        if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_STAGING_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+
+      - name: Temporary bootstrap authentication
+        if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER == ''
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_STAGING_PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_BOOTSTRAP_CREDENTIALS_JSON }}
+          create_credentials_file: true
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+
+      - name: Materialize and validate staging descriptor
+        working-directory: source
+        shell: bash
+        env:
+          CONFIG_B64: ${{ secrets.STAGE3_STAGING_CONFIG_B64 }}
+          PROJECT_ID: ${{ vars.GCP_STAGING_PROJECT_ID }}
+          TERRAFORM_SA: ${{ vars.GCP_TERRAFORM_SERVICE_ACCOUNT }}
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          BOOTSTRAP_JSON: ${{ secrets.GCP_BOOTSTRAP_CREDENTIALS_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$CONFIG_B64" | base64 --decode > infrastructure/environments/staging.local.json
+          python3 - <<'PY'
+          import json, os
+          cfg=json.load(open('infrastructure/environments/staging.local.json',encoding='utf-8'))
+          if cfg.get('environment') != 'staging': raise SystemExit('Only staging configuration is permitted.')
+          if cfg.get('projectId') != os.environ['PROJECT_ID']: raise SystemExit('GitHub project variable does not match descriptor.')
+          if cfg.get('terraform',{}).get('terraform_service_account_email') != os.environ['TERRAFORM_SA']: raise SystemExit('Terraform service account variable does not match descriptor.')
+          if not os.environ.get('WIF_PROVIDER'):
+              key=json.loads(os.environ['BOOTSTRAP_JSON'])
+              expected='serviceAccount:'+key.get('client_email','')
+              if cfg.get('operatorPrincipal') != expected:
+                  raise SystemExit('During bootstrap, operatorPrincipal must be the temporary bootstrap service account so it can impersonate Terraform.')
+          PY
+          python3 scripts/stage3/control.py validate-config --config infrastructure/environments/staging.local.json
+
+      - name: Require successful exact-source repository verification
+        working-directory: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          sha=os.environ['SOURCE_SHA']
+          url=f"https://api.github.com/repos/{os.environ['REPOSITORY']}/actions/runs?head_sha={sha}&per_page=100"
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'ProInspect-Stage3-Live'})
+          with urllib.request.urlopen(req,timeout=30) as response: runs=json.load(response)['workflow_runs']
+          ok=[r for r in runs if r.get('head_sha')==sha and r.get('name')=='Verify booking portal' and r.get('status')=='completed' and r.get('conclusion')=='success']
+          if not ok: raise SystemExit('Exact source SHA does not have a successful permanent Verify booking portal run.')
+          PY
+
+      - name: Install locked application dependencies
+        working-directory: source
+        run: npm ci
+
+      - name: Restore private Stage 3 evidence
+        if: needs.request.outputs.action != 'bootstrap-plan'
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATE_BUCKET=$(python3 -c "import json; print(json.load(open('infrastructure/environments/staging.local.json'))['state']['bucket'])")
+          REMOTE="gs://${STATE_BUCKET}/stage3-live-private/${SOURCE_SHA}"
+          mkdir -p private-evidence
+          if gcloud storage ls "${REMOTE}/" >/dev/null 2>&1; then
+            gcloud storage rsync "${REMOTE}" private-evidence --recursive
+          fi
+
+      - name: Execute requested Stage 3 operation
+        working-directory: source
+        shell: bash
+        env:
+          COMPANION_RECEIPT_B64: ${{ secrets.STAGE3_REPORT_COMPANION_RECEIPT_B64 }}
+        run: |
+          set -euo pipefail
+          PROJECT_ID=$(python3 -c "import json; print(json.load(open('infrastructure/environments/staging.local.json'))['projectId'])")
+          case "$ACTION" in
+            status)
+              python3 scripts/stage3/control.py validate-config --config infrastructure/environments/staging.local.json
+              ;;
+            bootstrap-plan)
+              test "$APPROVAL" = "$PROJECT_ID" || { echo 'bootstrap-plan approval must equal the staging project ID.' >&2; exit 1; }
+              python3 scripts/stage3/control.py bootstrap --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              python3 scripts/stage3/control.py inventory --config infrastructure/environments/staging.local.json
+              python3 scripts/stage3/control.py plan --config infrastructure/environments/staging.local.json
+              ;;
+            apply)
+              test -n "$APPROVAL" || { echo 'apply requires the exact infrastructure plan digest.' >&2; exit 1; }
+              python3 scripts/stage3/control.py apply --config infrastructure/environments/staging.local.json --approve "$APPROVAL"
+              ;;
+            auth)
+              test "$APPROVAL" = "$PROJECT_ID" || { echo 'auth approval must equal the staging project ID.' >&2; exit 1; }
+              python3 scripts/stage3/control.py resolve-secrets --config infrastructure/environments/staging.local.json
+              python3 scripts/stage3/auth.py --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              ;;
+            migration-plan)
+              test "$APPROVAL" = "$PROJECT_ID" || { echo 'migration-plan approval must equal the staging project ID.' >&2; exit 1; }
+              python3 scripts/stage3/rehearse.py dry-run --config infrastructure/environments/staging.local.json
+              python3 scripts/stage3/rehearse.py backup --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              python3 scripts/stage3/rehearse.py restore-check --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              ;;
+            migration-apply)
+              test -n "$APPROVAL" || { echo 'migration-apply requires the exact migration plan digest.' >&2; exit 1; }
+              python3 scripts/stage3/rehearse.py apply --config infrastructure/environments/staging.local.json --approve "$APPROVAL"
+              python3 scripts/stage3/rehearse.py repeat --config infrastructure/environments/staging.local.json
+              ;;
+            deploy)
+              test "$APPROVAL" = "$PROJECT_ID" || { echo 'deploy approval must equal the staging project ID.' >&2; exit 1; }
+              python3 scripts/stage3/deploy.py build --config infrastructure/environments/staging.local.json
+              python3 scripts/stage3/deploy.py candidate --config infrastructure/environments/staging.local.json
+              python3 scripts/stage3/deploy.py gateway --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              node --import tsx scripts/stage3/integrations.ts --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              python3 scripts/stage3/deploy.py booking-test --config infrastructure/environments/staging.local.json --approve "$PROJECT_ID"
+              ;;
+            record-companion)
+              test "$APPROVAL" = "$PROJECT_ID" || { echo 'record-companion approval must equal the staging project ID.' >&2; exit 1; }
+              test -n "$COMPANION_RECEIPT_B64" || { echo 'STAGE3_REPORT_COMPANION_RECEIPT_B64 is required.' >&2; exit 1; }
+              umask 077
+              printf '%s' "$COMPANION_RECEIPT_B64" | base64 --decode > private-evidence/companion-receipt.json
+              node --import tsx scripts/stage3/record-companion.ts --config infrastructure/environments/staging.local.json --receipt private-evidence/companion-receipt.json --approve "$PROJECT_ID"
+              rm -f private-evidence/companion-receipt.json
+              ;;
+            close)
+              test "$APPROVAL" = "CLOSE-STAGING" || { echo 'close requires approve=CLOSE-STAGING.' >&2; exit 1; }
+              python3 scripts/stage3/control.py close --config infrastructure/environments/staging.local.json
+              ;;
+            promote)
+              test -n "$APPROVAL" || { echo 'promote requires the exact staging revision.' >&2; exit 1; }
+              python3 scripts/stage3/deploy.py promote --config infrastructure/environments/staging.local.json --approve "$APPROVAL"
+              ;;
+            rollback)
+              test -n "$APPROVAL" || { echo 'rollback requires the exact staging revision.' >&2; exit 1; }
+              python3 scripts/stage3/deploy.py rollback --config infrastructure/environments/staging.local.json --approve "$APPROVAL"
+              ;;
+            *) echo 'Unsupported Stage 3 live action.' >&2; exit 1 ;;
+          esac
+
+      - name: Persist private evidence to staging state bucket
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          set +e
+          if [ ! -f infrastructure/environments/staging.local.json ]; then exit 0; fi
+          STATE_BUCKET=$(python3 -c "import json; print(json.load(open('infrastructure/environments/staging.local.json'))['state']['bucket'])")
+          REMOTE="gs://${STATE_BUCKET}/stage3-live-private/${SOURCE_SHA}"
+          if [ -d private-evidence ] && gcloud storage buckets describe "gs://${STATE_BUCKET}" >/dev/null 2>&1; then
+            gcloud storage rsync private-evidence "${REMOTE}" --recursive
+          fi
+
+      - name: Record safe operator summary
+        if: always()
+        working-directory: source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          cfg=pathlib.Path('infrastructure/environments/staging.local.json')
+          if not cfg.exists(): raise SystemExit(0)
+          c=json.load(open(cfg,encoding='utf-8'))
+          base=pathlib.Path('private-evidence/stage3')/c['environment']/c['projectId']/c['databaseId']
+          lines=['### Stage 3 live staging result',f"- Action: `{os.environ['ACTION']}`",f"- Source: `{os.environ['SOURCE_SHA']}`",f"- Project: `{c['projectId']}`",f"- Database: `{c['databaseId']}`"]
+          for name,key in [('infrastructure-review.json','planDigest'),('migration-dry.json','planDigest'),('deployment.json','revision'),('stage3-acceptance.json','status')]:
+              p=base/name
+              if p.exists():
+                  try:
+                      value=json.load(open(p,encoding='utf-8')).get(key)
+                      if value: lines.append(f'- {name}: `{value}`')
+                  except Exception: pass
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh: fh.write('\n'.join(lines)+'\n')
+          PY

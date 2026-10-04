@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "environment": "staging",
+  "projectId": "proinspect-staging-required",
+  "databaseId": "platform-staging",
+  "operatorPrincipal": "user:REQUIRED_OPERATOR_EMAIL",
+  "stateOwnershipReviewed": false,
+  "state": {
+    "bucket": "proinspect-staging-required-proinspect-terraform-state",
+    "prefix": "platform/staging"
+  },
+  "existingFirebaseWebAppId": null,
+  "imports": {},
+  "approvedEphemeralReplacements": [],
+  "secretVersions": {
+    "ACCESS_DATA_ENCRYPTION_KEY": "REQUIRED_ENABLED_VERSION",
+    "RESEND_API_KEY": "REQUIRED_ENABLED_VERSION",
+    "REPORT_HANDOFF_SIGNING_KEY": "REQUIRED_ENABLED_VERSION",
+    "REPORT_INGEST_TOKEN": "REQUIRED_ENABLED_VERSION"
+  },
+  "terraform": {
+    "project_id": "proinspect-staging-required",
+    "environment": "staging",
+    "region": "australia-southeast1",
+    "storage_location": "australia-southeast1",
+    "firestore_location": "australia-southeast1",
+    "runtime_service_account_email": "proinspect-staging-runtime@proinspect-staging-required.iam.gserviceaccount.com",
+    "terraform_service_account_email": "proinspect-staging-terraform@proinspect-staging-required.iam.gserviceaccount.com",
+    "cloud_run_service_name": "proinspect-platform-staging",
+    "firestore_database_id": "platform-staging",
+    "client_documents_bucket_name": "proinspect-staging-required-private-documents",
+    "additional_runtime_buckets": [],
+    "admin_emails": "REQUIRED_STAGING_ADMIN_EMAIL",
+    "google_calendar_id": "REQUIRED_DEDICATED_STAGING_CALENDAR",
+    "app_url": "https://REQUIRED_STAGING_HOST",
+    "report_tool_url": "https://REQUIRED_ISOLATED_REPORT_TOOL_HOST",
+    "auth_support_email": "REQUIRED_AUTH_SUPPORT_EMAIL",
+    "auth_authorized_domains": [
+      "REQUIRED_STAGING_HOST"
+    ],
+    "address_validation_mode": "optional",
+    "access_data_encryption_key_id": "staging-v1",
+    "booking_email_from": "REQUIRED_VERIFIED_STAGING_SENDER",
+    "booking_email_reply_to": "REQUIRED_TEST_MAILBOX",
+    "document_request_notify_to": "REQUIRED_TEST_MAILBOX",
+    "payment_checkout_url_template": "",
+    "enable_github_federation": true,
+    "operator_principal": "user:REQUIRED_OPERATOR_EMAIL",
+    "staging_email_recipient": "REQUIRED_TEST_MAILBOX"
+  },
+  "testEmail": "REQUIRED_TEST_MAILBOX",
+  "googleSignInClientId": "REQUIRED_GOOGLE_OAUTH_CLIENT_ID",
+  "googleSignInSecret": {
+    "secretId": "proinspect-staging-google-signin-client-secret",
+    "version": "REQUIRED_ENABLED_VERSION"
+  },
+  "bookingTest": {
+    "streetAddress": "REQUIRED_TEST_STREET",
+    "suburb": "REQUIRED_TEST_SUBURB",
+    "postcode": "REQUIRED_TEST_POSTCODE",
+    "phone": "REQUIRED_TEST_PHONE",
+    "serviceId": "routine-inspection"
+  }
+}

@@ -1,0 +1,28 @@
+name: Cloudflare source review
+on:
+  push:
+    branches: [release/cloudflare-platform]
+    paths: [.github/workflows/cloudflare-source-review.yml]
+permissions:
+  contents: read
+jobs:
+  source-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: |
+          git archive --format=tar.gz -o /tmp/proinspect-source.tar.gz HEAD
+          git rev-parse HEAD > /tmp/source-sha.txt
+          sha256sum /tmp/proinspect-source.tar.gz > /tmp/source-checksum.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-source-review
+          path: |
+            /tmp/proinspect-source.tar.gz
+            /tmp/source-sha.txt
+            /tmp/source-checksum.txt
+          retention-days: 7

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "",
+  "operatorEmail": "info@proinspect.systems",
+  "acceptedAt": "",
+  "pretraffic": {
+    "public": false,
+    "client": false,
+    "tenant": false,
+    "staff": false,
+    "d1R2": false,
+    "emailQueue": false,
+    "reportTool": false,
+    "sensitiveForm2": false,
+    "noGoogleRuntime": false
+  },
+  "live": {
+    "bookingCreate": false,
+    "bookingEmailIcs": false,
+    "bookingManageCancel": false,
+    "documentRequest": false,
+    "client": false,
+    "tenant": false,
+    "staff": false,
+    "reportTool": false,
+    "sensitiveForm2": false,
+    "observationClear": false
+  },
+  "note": "Set only the relevant phase checks to true after the controlled acceptance evidence has actually been observed. Do not pre-approve this receipt."
+}

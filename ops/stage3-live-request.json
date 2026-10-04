@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "action": "disabled",
+  "sourceSha": "878ef3f99fc7ecf0b8524461be79a55d8e975b4b",
+  "approve": "",
+  "note": "Edit only action/sourceSha/approve to request a protected Stage 3 staging operation. Never place credentials or secret payloads in this file."
+}

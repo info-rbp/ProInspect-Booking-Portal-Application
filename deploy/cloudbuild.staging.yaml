@@ -1,0 +1,18 @@
+# Invoked only by scripts/stage3/deploy.py with an explicit staging project,
+# isolated source bucket, dedicated build identity and all substitutions.
+# This build never applies Terraform, writes secret values or deploys Cloud Run.
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --label=org.opencontainers.image.revision=${_SOURCE_SHA}
+      - --label=systems.proinspect.firebase-config=${_CONFIG_SHA}
+      - --tag=${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+timeout: 1200s

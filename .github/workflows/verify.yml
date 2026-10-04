@@ -1,33 +1,10 @@
-name: Verify booking portal
-
+name: Legacy GCP verification reference
 on:
-  push:
-    branches:
-      - main
-      - cloud-run-migration
-  pull_request:
-    branches:
-      - main
-
+  workflow_dispatch:
 permissions:
   contents: read
-
 jobs:
-  verify:
+  reference:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Type check
-        run: npm run lint
-      - name: Build
-        run: npm run build
-      - name: Build production container image
-        run: docker build -t proinspect-booking-portal:verify .
+      - run: echo 'Cloudflare verification is authoritative. The archived GCP workflow is retained in .github/legacy/verify-gcp.yml; this reference does not deploy or certify a release.'

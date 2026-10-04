@@ -1,119 +1,119 @@
-# ProInspect Booking Portal
+# ProInspect Platform
 
-This repository contains the ProInspect customer booking portal and internal operations view.
+ProInspect is a four-surface property-services platform for Public, Client, Tenant and Staff users.
 
-## Runtime architecture
+The active completion branch is `release/cloudflare-platform`. The target production runtime is Cloudflare Workers. The former Google Cloud/Firebase deployment is retained only as a migration and rollback source until the Cloudflare release has passed production acceptance.
 
-- React + Vite customer/admin interface
-- Express server
-- Firebase Authentication for administrator sign-in
-- Firebase Admin SDK for trusted server-side Firestore access
-- Firestore collections:
-  - `services`
-  - `bookings`
-  - `settings`
-  - `adminUsers`
-- Google Calendar API for FreeBusy queries and event creation
-- Australia/Perth timezone
+## V1 runtime architecture
 
-The browser does not write booking records directly to Firestore. Public booking creation and all administrator operations go through the Express API.
+The production build deploys the React/Vite application and API Worker as one unit.
 
-## Google Cloud Run configuration
+- **Cloudflare Workers** — application and API runtime.
+- **D1** — canonical application data, authentication/session state, email outbox and migration records.
+- **R2** — ordinary documents and a separate restricted/sensitive evidence bucket.
+- **Durable Objects** — serialization of concurrency-sensitive booking writes.
+- **Queues** — transactional email delivery, retries and dead-letter handling.
+- **Cloudflare Email Service** — outbound transactional delivery.
+- **Turnstile** — abuse protection for public sign-in and submission flows.
+- **Cloudflare Access (optional)** — Staff SSO front door. ProInspect RBAC remains authoritative for application authorization.
+- **Workers secrets** — encryption keys, Report Tool credentials and signing material.
 
-Keep application code in GitHub and deploy the production Docker image to Google Cloud Run. Production authentication to Google services uses the assigned Cloud Run service account through Application Default Credentials rather than committed private keys.
+The accepted Worker bundle must contain no Firebase Admin, Google Calendar, Google Maps or Google Cloud runtime dependency. Google/Firebase are used only by one-time migration tooling and retained rollback evidence until the rollback period closes.
 
-Required server configuration is documented in `.env.example`; the production deployment runbook is in `CLOUD_RUN_DEPLOYMENT.md`.
+## V1 product scope
 
-For production scheduling:
+The frozen V1 scope includes:
 
-1. Enable the Google Calendar API in the Google Cloud project.
-2. Create or select a dedicated ProInspect Google Calendar.
-3. Set `GOOGLE_CALENDAR_ID` to that calendar ID.
-4. Ensure the runtime service account has write access to the calendar. A common approach is to share the dedicated calendar with the service-account email.
-5. Ensure the Cloud Run runtime identity can access the configured Firestore database.
-6. Leave `FIREBASE_SERVICE_ACCOUNT_JSON` and `GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON` unset in production so the server uses Application Default Credentials.
-7. Enable Google as a Firebase Authentication sign-in provider for the client app.
+- public service gateway;
+- booking, management and cancellation;
+- public document requests;
+- Client Portal;
+- Tenant Portal;
+- Staff/Admin Portal;
+- clients, memberships, properties, tenancies and tenant users;
+- WA statutory tenant workflows;
+- tenant/client maintenance and general requests;
+- contractors and work orders;
+- approvals;
+- documents and restricted evidence;
+- notifications;
+- provider-neutral payment/status handling;
+- immutable audit records;
+- Report Tool ingestion and audience delivery.
 
-## Administrator access
+No new major product module is added before launch.
 
-Administrator API routes require a Firebase ID token.
+## Completion documentation
 
-An authenticated account is authorised when either:
+- `docs/CLOUDFLARE_V1_CONTRACT.md` — frozen product and runtime contract.
+- `docs/CLOUDFLARE_COMPLETION_AUDIT.md` — status against the approved 50-point completion plan.
+- `docs/CLOUDFLARE_PRODUCTION_RUNBOOK.md` — deployment, migration, backup and rollback procedure.
+- `docs/CLOUDFLARE_ACCEPTANCE_CHECKLIST.md` — staging, pre-traffic, live and closure gates.
 
-- its email appears in `ADMIN_EMAILS`, or
-- an `adminUsers/{firebaseUid}` Firestore document exists with `active` not set to `false`.
+Legacy GCP runbooks remain in the repository only for rollback/reference until Cloudflare production acceptance has passed.
 
-Direct browser access to Firestore is denied by `firestore.rules`; the Admin SDK accesses Firestore from the trusted server runtime.
+## Development and permanent verification
 
-## Firestore seed data
-
-On server startup, the application creates missing default documents for:
-
-- the initial service catalogue in `services`
-- business scheduling configuration at `settings/business`
-
-These defaults are seed values only. Once Firestore documents exist, Firestore is the runtime source of truth.
-
-## Booking privacy
-
-Public booking lookup uses the random management token generated at confirmation. Predictable booking references are not accepted by the public lookup endpoint.
-
-Sensitive access information such as lockbox codes, alarm details, key references and tenant data is kept in the internal booking record. Google Calendar events contain a reduced operational summary and deliberately exclude those sensitive access details.
-
-## Development
+Use Node 22.
 
 ```bash
 npm ci
-npm run lint
-npm run build
-npm run dev
+npm run cloudflare:check
 ```
 
-The GitHub Actions workflow in `.github/workflows/verify.yml` performs deterministic dependency installation, type-checking, production build verification and a production Docker image build.
+The Cloudflare verification workflow additionally:
 
-## Production deployment workflow
+1. verifies that browser compatibility changes are already committed;
+2. checks the reviewed D1 schema checksum;
+3. runs database, migration, authentication, encryption and authorization tests;
+4. type-checks the application;
+5. builds the actual Worker;
+6. exercises the preserved business APIs against isolated SQLite;
+7. performs a Wrangler upload dry-run;
+8. starts a local Worker and verifies public/API security behavior.
 
-Use GitHub as the source of truth for reviewed code changes:
+The Worker build fails if Firebase or Google runtime libraries enter the production bundle.
 
-1. Make and review changes in GitHub.
-2. Merge the approved pull request into `main` only after verification passes.
-3. Google Cloud Build detects the `main` update, builds the Dockerfile and deploys a new Cloud Run revision.
-4. Keep runtime configuration in Cloud Run and Google IAM rather than in GitHub.
+## Environment separation
 
+Local, staging and production resources are intentionally separate. Staging and production must not share:
 
-## Service management
+- D1 databases;
+- R2 document buckets;
+- R2 sensitive buckets;
+- Queues or dead-letter Queues;
+- Worker names;
+- sessions/auth state;
+- encryption/file-signing secrets.
 
-Authorised staff can manage the live booking catalogue from **Staff Portal > Booking Services**.
+Staging email is redirected to a controlled sink and must never deliver to real customers.
 
-Supported operations:
-- add a service
-- edit its customer-facing name and description
-- set duration, buffers, notice period and booking horizon
-- activate or deactivate a service
-- make a service public or internal
-- reorder services
-- optionally assign a service-specific Google Calendar ID
+## Production deployment
 
-Service IDs are permanent after creation. Services are never deleted through the V1 interface; deactivation preserves historical bookings and prevents new bookings.
+Production is controlled by:
 
-Firestore remains the runtime source of truth. Changes made in the Staff Portal are written to `/services/{serviceId}` and active public services update the public booking flow immediately.
+- `ops/cloudflare-production-request.json`
+- `.github/workflows/cloudflare-production.yml`
 
+The controlled phases are:
 
-## Booking reliability and security
+```text
+readiness -> bootstrap -> migrate -> promote -> close
+```
 
-Production booking creation is validated and committed server-side. The booking flow now includes:
+Every mutating phase uses the protected GitHub `production` environment and an exact verified source SHA.
 
-- server-side Australian property, contact and access validation
-- Google Maps Platform address autocomplete and address validation
-- tenant-access readiness states for issued, pending and missing entry notice
-- Google Calendar availability recheck and transactional Firestore schedule locks
-- field-level AES-256-GCM encryption for lockbox codes and security-alarm details
-- a branded customer confirmation email with a secure booking-management link
-- customer self-service booking lookup and cancellation using an unguessable management token
-- a controlled live end-to-end smoke test for Calendar write/delete and Firestore persistence
+A `workers.dev` page loading successfully is not production acceptance. The backend Worker, D1/R2/Queues/Email bindings, migrated data and real Public/Client/Tenant/Staff workflows must pass the acceptance checklist.
 
-Sensitive lockbox/alarm values are not stored in the normal `bookings` document and are not copied to Google Calendar. New sensitive values are written to the separate `bookingAccessSecrets` collection only after encryption and are restored only for authenticated staff API responses.
+## Legacy GCP status
 
-The application fails closed for new lockbox/alarm bookings when `ACCESS_DATA_ENCRYPTION_KEY` is not configured.
+The Cloudflare release is the active deployment target.
 
-See `CLOUD_RUN_DEPLOYMENT.md` for the required Google APIs, email configuration, encryption secret and production verification procedure.
+Do not approve or restart the old Stage 3/Stage 4 GCP production cutover while this migration is in progress. Cloud Run, Firestore, Firebase Storage and Google Calendar remain available only as migration/rollback sources until Cloudflare is accepted.
+
+After live acceptance:
+
+1. keep GCP read-only for the agreed rollback period;
+2. merge the accepted Cloudflare release to `main`;
+3. remove obsolete GCP runtime/deployment code;
+4. retire GCP application infrastructure deliberately after backups and rollback evidence have been verified.

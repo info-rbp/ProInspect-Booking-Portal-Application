@@ -289,12 +289,12 @@ export const AdminWorkOrderDetail: React.FC<AdminWorkOrderDetailProps> = ({
           </div>
         )}
 
-        {/* Google Calendar Link & Event Reference */}
+        {/* ProInspect calendar Link & Event Reference */}
         <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#006D70]" />
             <span className="text-slate-600">
-              Google Calendar Event ID: <code className="font-mono text-slate-800">{booking.calendarEventId || 'Not available'}</code>
+              ProInspect calendar Event ID: <code className="font-mono text-slate-800">{booking.calendarEventId || 'Not available'}</code>
             </span>
           </div>
 

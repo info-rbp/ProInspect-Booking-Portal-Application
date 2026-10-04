@@ -1,0 +1,9 @@
+import React, {useState} from 'react';
+import {ArrowLeft, Loader2, Mail} from 'lucide-react';
+import {completeSignIn,requestSignIn,tenantEmailLinkIsActive,type User} from '../../services/session';
+export const ClientSignIn:React.FC<{onSignedIn:(user:User)=>void;onBack:()=>void}>=({onSignedIn,onBack})=>{
+ const [email,setEmail]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[sent,setSent]=useState(false);
+ const completing=tenantEmailLinkIsActive();
+ async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{if(completing)onSignedIn((await completeSignIn(email,'client')).user);else{await requestSignIn(email,'client');setSent(true);}}catch(e){setError(e instanceof Error?e.message:'Unable to sign in.');}finally{setBusy(false);}}
+ return <div className="max-w-lg mx-auto py-10"><button onClick={onBack} className="flex items-center gap-2 mb-5"><ArrowLeft size={18}/>Back</button><div className="rounded-2xl border bg-white p-8"><h1 className="text-2xl font-bold">ProInspect Client Portal</h1><p className="my-4 text-slate-600">{completing?'Enter the email that received this link, then confirm sign-in.':'Receive a secure one-time sign-in link. No password is required.'}</p><form onSubmit={submit} className="space-y-4"><label className="block">Email address<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} className="block border rounded-lg p-3 w-full mt-2"/></label>{error&&<p role="alert" className="text-red-700">{error}</p>}{sent&&<p role="status">Check your inbox for the sign-in link. It expires in 15 minutes.</p>}<button disabled={busy} className="bg-teal-800 text-white rounded-lg p-3 w-full flex gap-2 items-center justify-center">{busy?<Loader2 className="animate-spin" size={18}/>:<Mail size={18}/>} {completing?'Confirm sign-in':'Email sign-in link'}</button></form></div></div>;
+};

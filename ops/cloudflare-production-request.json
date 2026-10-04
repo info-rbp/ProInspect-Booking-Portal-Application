@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "action": "readiness",
+  "sourceSha": "c1448fd74f2a8f813dd2889ff76f8b6c7a791f62",
+  "approve": "",
+  "note": "Read-only verification of current Cloudflare resource, route, and WAF API access. This request does not provision production, modify data, change DNS, or attest email delivery or acceptance."
+}

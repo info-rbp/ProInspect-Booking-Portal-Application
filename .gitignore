@@ -6,3 +6,21 @@ coverage/
 *.log
 .env*
 !.env.example
+private-evidence/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars*
+**/imports.generated.tf
+infrastructure/environments/*.local.json
+gha-creds-*.json
+**/__pycache__/
+*.pyc
+.cloudflare/
+.wrangler/
+.dev.vars
+cloudflare/environments/*.local.json
+cloudflare-private/
+# Generated deterministically and checked against the committed SHA-256 manifest.
+migrations/cloudflare/0001_platform.sql

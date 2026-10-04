@@ -415,7 +415,7 @@ export const Step5Review: React.FC<Step5ReviewProps> = ({
           {isSubmitting ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Confirming with Google Calendar...</span>
+              <span>Confirming with ProInspect calendar...</span>
             </>
           ) : (
             <>

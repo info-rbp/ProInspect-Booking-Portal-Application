@@ -59,7 +59,7 @@ export const PublicBookingManageModal: React.FC<PublicBookingManageModalProps> =
     if (!token || !booking || booking.status !== 'confirmed') return;
 
     const confirmed = window.confirm(
-      'Cancel this ProInspect booking? The reserved Google Calendar appointment will be released.'
+      'Cancel this ProInspect booking? The reserved ProInspect calendar appointment will be released.'
     );
     if (!confirmed) return;
 

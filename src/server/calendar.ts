@@ -7,7 +7,7 @@ export interface BusyInterval {
 }
 
 type FreeBusyResponse = {
-  calendars?: Record<string, { busy?: BusyInterval[] }>;
+  calendars?: Record<string, { busy?: BusyInterval[]; errors?: Array<{ reason?: string }> }>;
 };
 
 type CalendarEventResponse = {
@@ -91,7 +91,11 @@ export async function freeBusy(params: {
   }
 
   const data = (await response.json()) as FreeBusyResponse;
-  return data.calendars?.[calendarId]?.busy || [];
+  const calendar = data.calendars?.[calendarId];
+  if (!calendar || calendar.errors?.length || !Array.isArray(calendar.busy)) {
+    throw new Error('Google Calendar did not confirm availability; check calendar sharing and runtime permissions.');
+  }
+  return calendar.busy;
 }
 
 function calendarDescription(booking: BookingRecord): string {

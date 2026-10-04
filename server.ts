@@ -1,8 +1,9 @@
 import 'dotenv/config';
+import { productionReleaseGate } from './src/server/productionReleaseGate.js';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { randomBytes } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import {
   formatAustralianDate,
   formatAustralianTime,
@@ -25,7 +26,58 @@ import type {
   DocumentWorkflowField,
   PublicDocumentRequestSummary,
 } from './src/types/documentRequest.js';
+import type {
+  ClientPropertyRole,
+  ClientType,
+  ClientUserRecord,
+  PortalAudience,
+  TenantDocumentCategory,
+  TenantInspection,
+  TenantRequestCreateInput,
+  TenantRequestPriority,
+  TenantRequestStatus,
+  TenantRequestType,
+  TenantUserRecord,
+} from './src/types/tenant.js';
+import type {
+  ClientRequestStatus,
+  DocumentRequestStatus,
+  PaymentRecord,
+  PaymentStatus,
+  WorkOrderStatus,
+} from './src/types/platform.js';
+import type {
+  SensitiveTenantFormStatus,
+  TenantFormCreateInput,
+  TenantFormStatus,
+} from './src/types/tenantForms.js';
 import { adminAuth, adminDb } from './src/server/firebaseAdmin.js';
+import type {
+  AdminPermission,
+  AdminResourceName,
+  AdminRole,
+  AdminSession,
+} from './src/types/admin.js';
+import {
+  ADMIN_RESOURCE_CONFIG,
+  archiveAdminResource,
+  canUpdateBookingForSession,
+  createAdminResource,
+  createAdminStaff,
+  filterBookingsForSession,
+  getAdminDashboard,
+  getAdminIntegrationStatuses,
+  getAdminReportSummary,
+  hasAdminPermission,
+  listAdminResource,
+  listAdminStaff,
+  listAuditEvents as listCanonicalAdminAuditEvents,
+  recordAuditEvent,
+  resolveAdminSession,
+  updateAdminResource,
+  updateAdminStaff,
+} from './src/server/adminStore.js';
+import { PlatformValidationError } from './src/server/canonicalPlatformStore.js';
 import {
   acquireScheduleLocks,
   activeBookingsForDate,
@@ -36,18 +88,13 @@ import {
   getBooking,
   getService,
   getSettings,
+  listBookings,
   listBookingsWithAccessSecrets,
-  listDocumentProducts,
-  listDocumentRequestsWithSecrets,
-  getDocumentProduct,
   listServices,
   newBookingId,
-  newDocumentRequestId,
-  documentRequestReferenceExists,
   releaseScheduleLocks,
   reorderServices,
   saveBooking,
-  saveDocumentRequest,
   ScheduleLockConflictError,
   updateBooking,
   updateService,
@@ -92,12 +139,100 @@ import {
   documentRequestEncryptionIsConfigured,
   encryptDocumentRequestSecrets,
 } from './src/server/documentRequestSecrets.js';
-
+import {
+  addTenantRequestAttachment,
+  createClient,
+  createClientPropertyLink,
+  createClientUser,
+  createTenancy,
+  createTenantDocumentRecord,
+  createTenantInspection,
+  createTenantProperty,
+  createTenantRequest,
+  createTenantUser,
+  findAndLinkClientUser,
+  findAndLinkTenantUser,
+  getClientDocumentForUser,
+  getClientPortalDashboard,
+  getTenantDocumentForUser,
+  getTenantPortalDashboard,
+  getTenantRequestAttachmentForUser,
+  getTenantUserById,
+  getTenantRequestForUser,
+  getTenancyById,
+  listAdminTenantPortal,
+  updateClientUserMembership,
+  updateTenantRequestAdmin,
+  updateTenantUserAdmin,
+  updateTenancyAdmin,
+  tenantPropertyAddressKey,
+} from './src/server/tenantStore.js';
+import {
+  hydrateClientUserFromCanonicalMemberships,
+  onboardCanonicalClient,
+} from './src/server/clientMembershipStore.js';
+import {
+  deleteTenantFile,
+  saveSensitiveTenantEvidence,
+  saveTenantDocumentFile,
+  saveTenantFormAttachment,
+  saveTenantRequestAttachment,
+  signedTenantFileUrl,
+  tenantStorageIsConfigured,
+} from './src/server/tenantFiles.js';
+import {
+  sendTenantFormReceiptEmail,
+  sendTenantFormStatusEmail,
+  sendTenantRequestReceiptEmail,
+  sendTenantRequestStatusEmail,
+  tenantPortalEmailIsConfigured,
+} from './src/server/tenantEmail.js';
+import {
+  buildUnifiedClientDashboard,
+  createApproval,
+  createClientRequestRecord,
+  createNotification,
+  createContractor,
+  createPaymentRecord,
+  createWorkOrder,
+  listAdminOperations,
+  listAuditEvents,
+  markNotificationRead,
+  respondApproval,
+  updateClientRequestRecord,
+  updatePaymentStatus,
+  updateWorkOrder,
+  writeAuditEvent,
+} from './src/server/platformStore.js';
+import {
+  createDocumentRequest,
+  getDocumentProduct,
+  listDocumentProducts,
+  listDocumentRequestsForClient,
+  updateDocumentRequest,
+} from './src/server/documentStore.js';
+import {
+  addSensitiveTenantEvidence,
+  addTenantFormAttachment,
+  createSensitiveTenantFormDraft,
+  createTenantFormRequest,
+  getSensitiveEvidenceForAdmin,
+  getSensitiveEvidenceForTenant,
+  getTenantFormAttachment,
+  getTenantFormAttachmentForAdmin,
+  getTenantFormsDashboard,
+  listAdminTenantForms,
+  listSensitiveTenantFormsForAdmin,
+  submitSensitiveTenantForm,
+  updateAdminTenantForm,
+  updateSensitiveTenantFormAdmin,
+} from './src/server/tenantFormStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
 const PORT = Number(process.env.PORT || 3000);
 const TIMEZONE = 'Australia/Perth';
 const PERTH_OFFSET = '+08:00';
@@ -105,6 +240,9 @@ const SLOT_INTERVAL_MINUTES = 15;
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(productionReleaseGate(async () =>
+  (await adminDb.collection('_releaseControl').doc('active').get()).data() || {}
+));
 app.use(express.json({ limit: '256kb' }));
 
 type RateBucket = { count: number; resetAt: number };
@@ -175,6 +313,34 @@ const documentRequestRateLimit = rateLimit({
   prefix: 'document-request',
 });
 
+const tenantRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  prefix: 'tenant',
+});
+
+const tenantWriteRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  prefix: 'tenant-write',
+});
+
+const clientRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  prefix: 'client',
+});
+
+const tenantFileBody = express.raw({
+  type: () => true,
+  limit: '20mb',
+});
+
+const reportFileBody = express.raw({
+  type: () => true,
+  limit: '30mb',
+});
+
 function parseAdminEmails(): Set<string> {
   const configured = (process.env.ADMIN_EMAILS || '')
     .split(',')
@@ -186,6 +352,39 @@ function parseAdminEmails(): Set<string> {
     'info@proinspect.systems',
     ...configured,
   ]);
+}
+
+const ADMIN_READ_PERMISSION_ALIASES: Record<string, AdminPermission> = {
+  bookings: 'bookings.read',
+  services: 'services.read',
+  clients: 'clients.read',
+  tenants: 'tenants.read',
+  operations: 'maintenance.read',
+  documents: 'documents.read',
+  payments: 'billing.read',
+  settings: 'settings.read',
+  audit: 'audit.read',
+  tenant_forms: 'tenants.read',
+  sensitive_tenancy: 'security.manage',
+};
+
+const ADMIN_WRITE_PERMISSION_ALIASES: Record<string, AdminPermission> = {
+  bookings: 'bookings.update',
+  services: 'services.manage',
+  clients: 'clients.manage',
+  tenants: 'tenants.manage',
+  operations: 'maintenance.manage',
+  documents: 'documents.manage',
+  payments: 'billing.manage',
+  settings: 'settings.update',
+  audit: 'security.manage',
+  tenant_forms: 'tenants.manage',
+  sensitive_tenancy: 'security.manage',
+};
+
+function canonicalAdminPermission(permission: string, write = false): AdminPermission | null {
+  if (permission.includes('.')) return permission as AdminPermission;
+  return (write ? ADMIN_WRITE_PERMISSION_ALIASES : ADMIN_READ_PERMISSION_ALIASES)[permission] || null;
 }
 
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -203,27 +402,154 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: 'A verified administrator account is required.' });
     }
 
-    const configuredAdmins = parseAdminEmails();
-    let authorised = configuredAdmins.has(email);
+    const session = await resolveAdminSession({
+      uid: decoded.uid,
+      email,
+      implicitAdministrator: parseAdminEmails().has(email),
+    });
 
-    if (!authorised) {
-      const adminUser = await adminDb.collection('adminUsers').doc(decoded.uid).get();
-      const data = adminUser.exists ? adminUser.data() : null;
-      authorised =
-        Boolean(data) &&
-        data?.active !== false &&
-        (!data?.email || String(data.email).trim().toLowerCase() === email);
+    if (!session) {
+      return res.status(403).json({
+        error: 'This account is not authorised for ProInspect administration.',
+      });
     }
 
-    if (!authorised) {
-      return res.status(403).json({ error: 'This account is not authorised for ProInspect administration.' });
-    }
-
-    res.locals.admin = { uid: decoded.uid, email };
+    res.locals.admin = session;
     return next();
   } catch (error) {
     console.error('Admin authentication failed:', error);
     return res.status(401).json({ error: 'Administrator session is invalid or has expired.' });
+  }
+}
+
+function requireAdminPermission(permission: string) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const canonical = canonicalAdminPermission(permission, false);
+    const session = res.locals.admin as AdminSession | undefined;
+    if (canonical && hasAdminPermission(session, canonical)) return next();
+    return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
+  };
+}
+
+function requireAdminWritePermission(permission: string) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    const canonical = canonicalAdminPermission(permission, true);
+    const session = res.locals.admin as AdminSession | undefined;
+    if (canonical && hasAdminPermission(session, canonical)) return next();
+    return res.status(403).json({ error: 'Your staff role does not have permission for this operation.' });
+  };
+}
+
+function adminSession(res: Response): AdminSession {
+  return res.locals.admin as AdminSession;
+}
+
+function isAdminResourceName(value: string): value is AdminResourceName {
+  return Object.prototype.hasOwnProperty.call(ADMIN_RESOURCE_CONFIG, value);
+}
+
+function adminResourceFailure(res: Response, error: unknown, fallback: string) {
+  if (error instanceof PlatformValidationError) {
+    return res.status(error.status).json({ error: error.message, code: error.code });
+  }
+  if (error instanceof Error && error.message === 'RESOURCE_SCOPE_FORBIDDEN') {
+    return res.status(403).json({ error: 'This record is outside your assigned resource scope.' });
+  }
+  console.error(fallback, error);
+  return res.status(500).json({ error: fallback });
+}
+
+async function requireTenant(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Tenant authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified tenant email address is required.' });
+    }
+
+    const tenant = await findAndLinkTenantUser({
+      uid: decoded.uid,
+      email,
+    });
+
+    if (!tenant) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect tenancy.',
+      });
+    }
+
+    res.locals.tenant = tenant;
+    return next();
+  } catch (error) {
+    console.error('Tenant authentication failed:', error);
+    return res.status(401).json({ error: 'Tenant session is invalid or has expired.' });
+  }
+}
+
+async function requireClient(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Client authentication is required.' });
+    }
+
+    const idToken = authHeader.slice(7).trim();
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const email = (decoded.email || '').trim().toLowerCase();
+
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified client email address is required.' });
+    }
+
+    const linkedClientUser = await findAndLinkClientUser({
+      uid: decoded.uid,
+      email,
+    });
+    const clientUser = linkedClientUser
+      ? await hydrateClientUserFromCanonicalMemberships(linkedClientUser)
+      : null;
+
+    if (!clientUser) {
+      return res.status(403).json({
+        error: 'This email address is not linked to an active ProInspect client account.',
+      });
+    }
+
+    res.locals.clientUser = clientUser;
+    return next();
+  } catch (error) {
+    console.error('Client authentication failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
+  }
+}
+
+async function requireVerifiedClientIdentity(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Client authentication is required.' });
+    }
+    const decoded = await adminAuth.verifyIdToken(authHeader.slice(7).trim(), true);
+    const email = (decoded.email || '').trim().toLowerCase();
+    if (!email || decoded.email_verified !== true) {
+      return res.status(403).json({ error: 'A verified client email address is required.' });
+    }
+    res.locals.clientIdentity = {
+      uid: decoded.uid,
+      email,
+      displayName: typeof decoded.name === 'string' ? decoded.name : undefined,
+    };
+    return next();
+  } catch (error) {
+    console.error('Client identity verification failed:', error);
+    return res.status(401).json({ error: 'Client session is invalid or has expired.' });
   }
 }
 
@@ -265,6 +591,52 @@ function normalizeText(value: unknown, maxLength = 1000): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+function safeSecretEquals(expected: string | undefined, supplied: unknown): boolean {
+  const expectedValue = expected?.trim() || '';
+  const suppliedValue = normalizeText(supplied, 1000);
+  if (!expectedValue || !suppliedValue) return false;
+
+  const expectedBuffer = Buffer.from(expectedValue);
+  const suppliedBuffer = Buffer.from(suppliedValue);
+  if (expectedBuffer.length !== suppliedBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, suppliedBuffer);
+}
+
+const REPORT_TOOL_TYPES = new Set([
+  'Entry',
+  'Routine',
+  'Exit',
+  'PropertyOnboarding',
+  'VacantProperty',
+  'MaintenanceAssessment',
+  'MaintenanceCompletion',
+  'CleaningRectification',
+  'CommercialIngoing',
+  'CommercialPeriodic',
+  'CommercialExit',
+  'CommonProperty',
+  'BuildingManagement',
+  'BuildingManagementDaily',
+  'BuildingManagementMonthly',
+  'Incident',
+  'ContractorWorks',
+  'PropertyHandover',
+  'PreventativeMaintenance',
+  'CleaningQuality',
+  'AnnualPropertySummary',
+  'KeySafeInstallation',
+  'KeyReceipt',
+  'Custom',
+]);
+
+function createReportHandoffToken(payload: Record<string, unknown>): string {
+  const key = process.env.REPORT_HANDOFF_SIGNING_KEY?.trim();
+  if (!key) throw new Error('REPORT_HANDOFF_NOT_CONFIGURED');
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const signature = createHmac('sha256', key).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
+
 const SERVICE_CATEGORIES = new Set<ServiceCategory>([
   'residential',
   'commercial',
@@ -276,6 +648,171 @@ function isServiceCategory(value: unknown): value is ServiceCategory {
     typeof value === 'string' &&
     SERVICE_CATEGORIES.has(value as ServiceCategory)
   );
+}
+
+const TENANT_REQUEST_TYPES = new Set<TenantRequestType>([
+  'maintenance',
+  'emergency_maintenance',
+  'pet',
+  'modification',
+  'occupant',
+  'inspection_access',
+  'lease',
+  'vacate',
+  'complaint',
+  'keys_access',
+  'other',
+]);
+
+const TENANT_REQUEST_PRIORITIES = new Set<TenantRequestPriority>([
+  'normal',
+  'urgent',
+  'emergency',
+]);
+
+const TENANT_REQUEST_STATUSES = new Set<TenantRequestStatus>([
+  'submitted',
+  'under_review',
+  'action_required',
+  'approved',
+  'declined',
+  'in_progress',
+  'completed',
+  'closed',
+]);
+
+const CLIENT_TYPES = new Set<ClientType>([
+  'landlord',
+  'agency',
+  'commercial_landlord',
+  'strata_company',
+  'asset_manager',
+  'other',
+]);
+
+const CLIENT_PROPERTY_ROLES = new Set<ClientPropertyRole>([
+  'owner',
+  'landlord',
+  'managing_agent',
+  'asset_manager',
+  'strata_manager',
+  'other',
+]);
+
+const PORTAL_AUDIENCES = new Set<PortalAudience>([
+  'tenant',
+  'client',
+  'staff',
+]);
+
+const TENANT_DOCUMENT_CATEGORIES = new Set<TenantDocumentCategory>([
+  'tenancy_agreement',
+  'property_condition_report',
+  'inspection_report',
+  'bond',
+  'inspection_notice',
+  'rent_notice',
+  'breach_notice',
+  'variation',
+  'pet_modification',
+  'termination',
+  'maintenance',
+  'quote',
+  'invoice',
+  'compliance',
+  'property_report',
+  'owner_statement',
+  'correspondence',
+  'other',
+]);
+
+const TENANT_INSPECTION_TYPES = new Set<TenantInspection['type']>([
+  'routine',
+  'entry',
+  'exit',
+  'maintenance',
+  'other',
+]);
+
+function sanitizeTenantRequestInput(input: unknown): {
+  request?: TenantRequestCreateInput;
+  error?: string;
+} {
+  if (!input || typeof input !== 'object') {
+    return { error: 'Request details are required.' };
+  }
+
+  const value = input as Record<string, unknown>;
+  const tenancyId = normalizeText(value.tenancyId, 128);
+  const requestType = normalizeText(value.requestType, 64) as TenantRequestType;
+  const title = normalizeText(value.title, 160);
+  const details = normalizeText(value.details, 5000);
+  const priority = (normalizeText(value.priority, 32) || 'normal') as TenantRequestPriority;
+  const preferredAccessNotes = normalizeText(value.preferredAccessNotes, 1000);
+
+  if (!tenancyId) return { error: 'Select a tenancy.' };
+  if (!TENANT_REQUEST_TYPES.has(requestType)) return { error: 'Select a valid request type.' };
+  if (requestType === 'pet' || requestType === 'modification') {
+    return {
+      error: 'Pet and modification requests must be submitted through Forms & Bond so the prescribed WA workflow is used.',
+    };
+  }
+  if (title.length < 3) return { error: 'Request title must contain at least 3 characters.' };
+  if (details.length < 5) return { error: 'Provide some details about the request.' };
+  if (!TENANT_REQUEST_PRIORITIES.has(priority)) return { error: 'Select a valid priority.' };
+
+  const payload: Record<string, string | number | boolean | null> = {};
+  if (value.payload && typeof value.payload === 'object' && !Array.isArray(value.payload)) {
+    for (const [key, raw] of Object.entries(value.payload as Record<string, unknown>)) {
+      const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      if (!safeKey) continue;
+      if (typeof raw === 'string') payload[safeKey] = raw.trim().slice(0, 1000);
+      else if (typeof raw === 'number' && Number.isFinite(raw)) payload[safeKey] = raw;
+      else if (typeof raw === 'boolean' || raw === null) payload[safeKey] = raw;
+    }
+  }
+
+  return {
+    request: {
+      tenancyId,
+      requestType,
+      title,
+      details,
+      priority,
+      accessPermission: typeof value.accessPermission === 'boolean' ? value.accessPermission : undefined,
+      preferredAccessNotes: preferredAccessNotes || undefined,
+      payload,
+    },
+  };
+}
+
+function sanitizeTenantFormPayload(input: unknown): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+
+  const clean = (value: unknown, depth: number): unknown => {
+    if (depth > 4) return null;
+    if (typeof value === 'string') return value.trim().slice(0, 5000);
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'boolean' || value === null) return value;
+    if (Array.isArray(value)) {
+      return value.slice(0, 100).map((item) => clean(item, depth + 1));
+    }
+    if (value && typeof value === 'object') {
+      const result: Record<string, unknown> = {};
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, 100)
+        .forEach(([key, raw]) => {
+          const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+          if (!safeKey) return;
+          const next = clean(raw, depth + 1);
+          if (next !== undefined) result[safeKey] = next;
+        });
+      return result;
+    }
+    return null;
+  };
+
+  return clean(input, 0) as Record<string, unknown>;
 }
 
 const SERVICE_ICON_NAMES = new Set([
@@ -433,18 +970,6 @@ async function generateBookingReference(start: Date): Promise<string> {
   return `PI-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
 }
 
-async function generateDocumentRequestReference(): Promise<string> {
-  const datePart = getPerthDateKey(new Date()).replace(/-/g, '');
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const suffix = String(Math.floor(1000 + Math.random() * 9000));
-    const reference = `DR-${datePart}-${suffix}`;
-    if (!(await documentRequestReferenceExists(reference))) return reference;
-  }
-
-  return `DR-${datePart}-${randomBytes(3).toString('hex').toUpperCase()}`;
-}
-
 function sanitizeDocumentRequestDetails(
   input: unknown
 ): { details?: DocumentRequestDetails; error?: string } {
@@ -472,7 +997,7 @@ function sanitizeDocumentRequestDetails(
   if (state !== 'WA') {
     return {
       error:
-        'The current Residential document workflows are for Western Australian properties.',
+        'The current document workflows are for Western Australian properties.',
     };
   }
 
@@ -885,6 +1410,7 @@ function publicDocumentRequestView(
   };
 }
 
+
 function serviceCalendarId(service: InspectionService): string {
   return getCalendarId(service.calendarId);
 }
@@ -984,6 +1510,45 @@ async function localConflictForSlot(
   });
 }
 
+async function resolveCanonicalBookingLinks(property: {
+  streetAddress: string;
+  unit?: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}): Promise<{ propertyId?: string; clientId?: string }> {
+  const addressKey = tenantPropertyAddressKey(property);
+  const propertySnapshot = await adminDb
+    .collection('properties')
+    .where('addressKey', '==', addressKey)
+    .limit(1)
+    .get();
+
+  if (propertySnapshot.empty) return {};
+
+  const propertyDoc = propertySnapshot.docs[0];
+  const propertyData = propertyDoc.data() as { primaryClientId?: string };
+  let clientId = propertyData.primaryClientId;
+
+  if (!clientId) {
+    const links = await adminDb
+      .collection('clientPropertyLinks')
+      .where('propertyId', '==', propertyDoc.id)
+      .get();
+    const activeLinks = links.docs
+      .map((doc) => doc.data() as { clientId?: string; active?: boolean; primary?: boolean })
+      .filter((link) => link.active !== false && link.clientId);
+    clientId =
+      activeLinks.find((link) => link.primary)?.clientId ||
+      activeLinks[0]?.clientId;
+  }
+
+  return {
+    propertyId: propertyDoc.id,
+    ...(clientId ? { clientId } : {}),
+  };
+}
+
 function publicBaseUrl(req: Request): string {
   const configured = process.env.APP_URL?.trim().replace(/\/$/, '');
   if (configured) return configured;
@@ -1029,15 +1594,167 @@ function publicBookingView(
   };
 }
 
+app.post('/api/integrations/payments/:id/status', async (req, res) => {
+  try {
+    if (!safeSecretEquals(process.env.PAYMENT_WEBHOOK_TOKEN, req.headers['x-payment-webhook-token'])) {
+      return res.status(401).json({ error: 'Payment integration authentication failed.' });
+    }
+    const status = normalizeText(req.body?.status, 32) as PaymentStatus;
+    if (!['pending','payment_required','paid','failed','refunded','waived'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid payment status.' });
+    }
+    const payment = await updatePaymentStatus(req.params.id, status, {
+      type: 'integration',
+      id: 'payment-provider',
+    });
+    if (!payment) return res.status(404).json({ error: 'Payment not found.' });
+    return res.json({ success: true, payment });
+  } catch (error) {
+    console.error('Payment webhook failed:', error);
+    return res.status(500).json({ error: 'Unable to update payment.' });
+  }
+});
+
+app.post('/api/integrations/reports', reportFileBody, async (req, res) => {
+  let savedPath: string | null = null;
+  try {
+    if (!safeSecretEquals(process.env.REPORT_INGEST_TOKEN, req.headers['x-report-ingest-token'])) {
+      return res.status(401).json({ error:'Report integration authentication failed.' });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error:'Report file is required.' });
+    }
+    const reportContentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (reportContentType !== 'application/pdf' || req.body.length < 5 || req.body.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      return res.status(400).json({ error:'Only a structurally valid PDF report can be ingested.' });
+    }
+
+    const propertyId = normalizeText(req.headers['x-property-id'],128);
+    const title = normalizeText(req.headers['x-document-title'],180);
+    const fileName = normalizeText(req.headers['x-file-name'],180);
+    const category = normalizeText(req.headers['x-document-category'],80) as TenantDocumentCategory;
+    const tenancyId = normalizeText(req.headers['x-tenancy-id'],128) || undefined;
+    const bookingId = normalizeText(req.headers['x-booking-id'],128) || undefined;
+    const workOrderId = normalizeText(req.headers['x-work-order-id'],128) || undefined;
+    const requestId = normalizeText(req.headers['x-request-id'],128) || undefined;
+    const reportSourceId = normalizeText(req.headers['x-report-source-id'],128) || undefined;
+    const documentId = reportSourceId
+      ? `report_${reportSourceId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+      : undefined;
+    const audiences = normalizeText(req.headers['x-document-audiences'],100)
+      .split(',').map((v)=>v.trim()).filter((v):v is PortalAudience => ['client','tenant','staff'].includes(v));
+
+    if (!propertyId || !title || !fileName || !['property_condition_report','inspection_report','property_report'].includes(category)) {
+      return res.status(400).json({ error:'Property, title, file name and supported report category are required.' });
+    }
+    if (audiences.includes('tenant') && !tenancyId) {
+      return res.status(400).json({
+        error:'Tenant-visible reports must include X-Tenancy-Id so former or future tenants cannot receive the wrong report.',
+      });
+    }
+
+    if (documentId) {
+      const existingDocument = await adminDb.collection('propertyDocuments').doc(documentId).get();
+      if (existingDocument.exists) {
+        const existing = existingDocument.data() as {
+          id?: string;
+          propertyId?: string;
+          tenancyId?: string;
+          bookingId?: string;
+          workOrderId?: string;
+          requestId?: string;
+          storagePath?: string;
+          [key: string]: unknown;
+        };
+        const sameContext =
+          existing.propertyId === propertyId &&
+          (existing.tenancyId || undefined) === tenancyId &&
+          (existing.bookingId || undefined) === bookingId &&
+          (existing.workOrderId || undefined) === workOrderId &&
+          (existing.requestId || undefined) === requestId;
+        if (!sameContext) {
+          return res.status(409).json({
+            error:
+              'This Report Tool source ID is already linked to different canonical context.',
+          });
+        }
+        const { storagePath: _storagePath, ...publicExisting } = existing;
+        return res.status(200).json({
+          success: true,
+          idempotent: true,
+          document: { ...publicExisting, id: existingDocument.id },
+        });
+      }
+    }
+
+    const stored = await saveTenantDocumentFile({
+      propertyId,
+      tenancyId,
+      fileName,
+      contentType: req.headers['content-type'] || 'application/pdf',
+      bytes: req.body,
+    });
+    savedPath = stored.storagePath;
+
+    const document = await createTenantDocumentRecord({
+      documentId,
+      propertyId,
+      tenancyId,
+      bookingId,
+      workOrderId,
+      requestId,
+      audiences: audiences.length ? audiences : ['client'],
+      title,
+      category,
+      fileName: stored.fileName,
+      contentType: stored.contentType,
+      size: stored.size,
+      storagePath: stored.storagePath,
+      uploadedBy:'report-generator',
+    });
+
+    await writeAuditEvent({
+      entityType:'document',
+      entityId:document.id,
+      action:'report_ingested',
+      summary:`Report ${document.title} received from Report Generator.`,
+      actor:{ type:'integration', id:'report-generator' },
+      propertyId,
+      tenancyId,
+      metadata: {
+        ...(bookingId ? { bookingId } : {}),
+        ...(workOrderId ? { workOrderId } : {}),
+        ...(requestId ? { requestId } : {}),
+        ...(reportSourceId ? { reportSourceId } : {}),
+      },
+    });
+
+    return res.status(201).json({ success:true, document });
+  } catch (error) {
+    if (savedPath) await deleteTenantFile(savedPath).catch(()=>undefined);
+    if (error instanceof Error && ['PROPERTY_NOT_FOUND','TENANCY_PROPERTY_MISMATCH','CLIENT_PROPERTY_MISMATCH','BOOKING_PROPERTY_MISMATCH','WORK_ORDER_PROPERTY_MISMATCH','DOCUMENT_IDEMPOTENCY_CONFLICT'].includes(error.message)) {
+      return res.status(400).json({ error:'The report property, tenancy or client relationship is invalid.' });
+    }
+    if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+      return res.status(503).json({ error:'Report storage is not configured.' });
+    }
+    console.error('Report ingest failed:', error);
+    return res.status(500).json({ error:'Unable to ingest report.' });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     calendarConfigured: calendarIsConfigured(),
     bookingEmailConfigured: bookingEmailIsConfigured(),
     sensitiveAccessEncryptionConfigured: accessEncryptionIsConfigured(),
-    documentRequestEncryptionConfigured:
-      documentRequestEncryptionIsConfigured(),
     addressValidationMode: addressValidationMode(),
+    tenantStorageConfigured: tenantStorageIsConfigured(),
+    tenantPortalEmailConfigured: tenantPortalEmailIsConfigured(),
+    reportIngestConfigured: Boolean(process.env.REPORT_INGEST_TOKEN?.trim()),
+    paymentCheckoutConfigured: Boolean(process.env.PAYMENT_CHECKOUT_URL_TEMPLATE?.trim()),
+    paymentWebhookConfigured: Boolean(process.env.PAYMENT_WEBHOOK_TOKEN?.trim()),
     timezone: TIMEZONE,
   });
 });
@@ -1075,7 +1792,7 @@ app.get('/api/settings', async (_req, res) => {
 app.get('/api/calendar/status', (_req, res) => {
   res.json({
     connected: calendarIsConfigured(),
-    provider: 'Google Calendar API',
+    provider: 'ProInspect Scheduling',
     timezone: TIMEZONE,
   });
 });
@@ -1248,7 +1965,7 @@ app.get('/api/calendar/availability', availabilityRateLimit, async (req, res) =>
   } catch (error) {
     console.error('Availability error:', error);
     return res.status(503).json({
-      error: 'Unable to confirm Google Calendar availability right now. Please try again shortly.',
+      error: 'Unable to confirm appointment availability right now. Please try again shortly.',
     });
   }
 });
@@ -1269,8 +1986,7 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     if (!documentId || !documentCategory || !details || !workflow) {
       return res.status(400).json({
-        error:
-          'Select a document and complete the required document workflow.',
+        error: 'Select a document and complete the required document workflow.',
       });
     }
 
@@ -1287,16 +2003,14 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
 
     if (!product.categories.includes(documentCategory)) {
       return res.status(400).json({
-        error:
-          'The selected document is not available for that property category.',
+        error: 'The selected document is not available for that property category.',
       });
     }
 
     const definition = getDocumentWorkflowDefinition(product.id);
     if (!definition) {
       return res.status(503).json({
-        error:
-          'The guided workflow for this document is not available. Please contact ProInspect.',
+        error: 'The guided workflow for this document is not available. Please contact ProInspect.',
       });
     }
 
@@ -1309,10 +2023,7 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
       });
     }
 
-    const workflowValidation = sanitizeDocumentWorkflow(
-      workflow,
-      definition
-    );
+    const workflowValidation = sanitizeDocumentWorkflow(workflow, definition);
     if (!workflowValidation.workflow) {
       return res.status(400).json({
         error:
@@ -1321,7 +2032,7 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
       });
     }
 
-    const requestId = newDocumentRequestId();
+    const requestId = adminDb.collection('documentRequests').doc().id;
     let encryptedSecrets;
 
     if (
@@ -1341,42 +2052,68 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
       );
     }
 
-    const now = new Date().toISOString();
-    const request: DocumentRequestRecord = {
+    const canonical = await createDocumentRequest({
       id: requestId,
-      requestReference: await generateDocumentRequestReference(),
-      documentId: product.id,
+      product,
       documentName: product.formCode
         ? `${product.name} (${product.formCode})`
         : product.name,
-      documentCategory,
-      priceExGst: product.priceExGst,
+      category: documentCategory,
+      propertyId: normalizeText(details.propertyId, 128) || undefined,
+      clientId: normalizeText(details.clientId, 128) || undefined,
+      clientUserId: normalizeText(details.clientUserId, 128) || undefined,
+      requesterName: detailValidation.details.customerName,
+      requesterEmail: detailValidation.details.customerEmail,
+      requesterPhone: detailValidation.details.customerPhone,
+      address: {
+        streetAddress: detailValidation.details.streetAddress,
+        unit: detailValidation.details.unit,
+        suburb: detailValidation.details.suburb,
+        state: detailValidation.details.state,
+        postcode: detailValidation.details.postcode,
+      },
+      notes: detailValidation.details.notes,
+      workflow: workflowValidation.workflow,
+    });
+
+    if (encryptedSecrets) {
+      await adminDb
+        .collection('documentRequestSecrets')
+        .doc(canonical.id)
+        .set(encryptedSecrets);
+    }
+
+    const emailRequest: DocumentRequestRecord = {
+      id: canonical.id,
+      requestReference: canonical.reference,
+      documentId: canonical.documentProductId,
+      documentName: canonical.documentName,
+      documentCategory: canonical.documentCategory,
+      priceExGst: canonical.priceExGst || 0,
       details: detailValidation.details,
       workflow: workflowValidation.workflow,
       status: 'submitted',
-      createdAt: now,
-      updatedAt: now,
+      createdAt: canonical.createdAt,
+      updatedAt: canonical.updatedAt,
     };
 
-    await saveDocumentRequest(request, encryptedSecrets);
-
-    const emailResult = await sendDocumentRequestEmails(request);
+    const emailResult = await sendDocumentRequestEmails(emailRequest);
     if (emailResult.customer.status === 'failed') {
       console.error(
-        `Document request ${request.requestReference} customer confirmation email failed:`,
+        `Document request ${canonical.reference} customer confirmation email failed:`,
         emailResult.customer.error
       );
     }
     if (emailResult.internal.status === 'failed') {
       console.error(
-        `Document request ${request.requestReference} internal notification email failed:`,
+        `Document request ${canonical.reference} internal notification email failed:`,
         emailResult.internal.error
       );
     }
 
     return res.status(201).json({
       success: true,
-      request: publicDocumentRequestView(request),
+      request: publicDocumentRequestView(emailRequest),
       message:
         emailResult.customer.status === 'sent'
           ? 'Document request submitted successfully. A confirmation email has been sent.'
@@ -1385,8 +2122,7 @@ app.post('/api/document-requests', documentRequestRateLimit, async (req, res) =>
   } catch (error) {
     console.error('Document request creation failed:', error);
     return res.status(500).json({
-      error:
-        'The document request could not be submitted. Please try again.',
+      error: 'The document request could not be submitted. Please try again.',
     });
   }
 });
@@ -1626,6 +2362,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     const bookingReference = await generateBookingReference(requestedStart);
     const now = new Date().toISOString();
+    const canonicalLinks = await resolveCanonicalBookingLinks(validatedProperty);
 
     const resolvedCalendarId = serviceCalendarId(service);
     const booking: BookingRecord = {
@@ -1635,6 +2372,7 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
       serviceId: service.id,
       serviceName: service.name,
       serviceCategory,
+      ...canonicalLinks,
       calendarId: resolvedCalendarId,
       property: validatedProperty,
       access: accessValidation.access,
@@ -1679,6 +2417,18 @@ app.post('/api/bookings/create', bookingRateLimit, async (req, res) => {
 
     try {
       await saveBooking(booking, encryptedAccessSecrets);
+      await writeAuditEvent({
+        entityType: 'booking',
+        entityId: booking.id,
+        action: 'created',
+        summary: `Booking ${booking.bookingReference} confirmed for ${booking.serviceName}.`,
+        actor: {
+          type: 'system',
+          email: booking.property.customerEmail,
+          displayName: booking.property.customerName,
+        },
+        metadata: { status: booking.status },
+      });
     } catch (firestoreError) {
       await deleteEvent(calendarEventId, resolvedCalendarId).catch((rollbackError) => {
         console.error('Failed to roll back calendar event after Firestore failure:', rollbackError);
@@ -1810,6 +2560,14 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
     if (!updated) {
       throw new Error('Booking disappeared while cancellation was being processed.');
     }
+    await writeAuditEvent({
+      entityType: 'booking',
+      entityId: booking.id,
+      action: 'cancelled',
+      summary: `Booking ${booking.bookingReference} cancelled through the secure management link.`,
+      actor: { type: 'system', email: booking.property.customerEmail },
+      metadata: { previousStatus: booking.status, status: 'cancelled' },
+    });
 
     const managementUrl = `${publicBaseUrl(req)}/manage/${encodeURIComponent(token)}`;
     return res.json({
@@ -1824,13 +2582,1267 @@ app.post('/api/bookings/manage/:token/cancel', manageRateLimit, async (req, res)
   }
 });
 
-app.get('/api/admin/session', requireAdmin, (_req, res) => {
-  return res.json({ authorised: true });
+app.get('/api/tenant/session', tenantRateLimit, requireTenant, (_req, res) => {
+  const tenant = res.locals.tenant as TenantUserRecord;
+  return res.json({
+    authorised: true,
+    tenant: {
+      id: tenant.id,
+      email: tenant.email,
+      displayName: tenant.displayName,
+      phone: tenant.phone,
+    },
+  });
 });
 
-app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
+app.get('/api/tenant/dashboard', tenantRateLimit, requireTenant, async (_req, res) => {
   try {
-    const bookings = await listBookingsWithAccessSecrets();
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const dashboard = await getTenantPortalDashboard(tenant);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Tenant dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the tenant portal.' });
+  }
+});
+
+app.get('/api/tenant/forms', tenantRateLimit, requireTenant, async (_req, res) => {
+  try {
+    const dashboard = await getTenantFormsDashboard(res.locals.tenant as TenantUserRecord);
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Tenant forms dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenancy forms.' });
+  }
+});
+
+app.post('/api/tenant/forms', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const formDefinitionId = normalizeText(req.body?.formDefinitionId, 128);
+    if (!tenancyId || !formDefinitionId) {
+      return res.status(400).json({ error: 'Tenancy and form are required.' });
+    }
+
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const request = await createTenantFormRequest(
+      tenant,
+      {
+        tenancyId,
+        formDefinitionId,
+        payload: sanitizeTenantFormPayload(req.body?.payload),
+      }
+    );
+
+    sendTenantFormReceiptEmail({
+      tenant,
+      request,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    }).catch((emailError) => {
+      console.error('Tenant statutory form receipt email failed:', emailError);
+    });
+
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('FORM_FIELD_REQUIRED:')) {
+      return res.status(400).json({ error: `${error.message.split(':')[1]} is required.` });
+    }
+    if (error instanceof Error && error.message === 'FORM_NOT_AVAILABLE') {
+      return res.status(400).json({ error: 'That tenancy form is not available.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_ENDED') {
+      return res.status(409).json({ error: 'This workflow cannot be submitted against an ended tenancy.' });
+    }
+    if (error instanceof Error && ['PCR_DOCUMENT_NOT_FOUND','PCR_DOCUMENT_NOT_AUTHORISED'].includes(error.message)) {
+      return res.status(400).json({ error: 'Select a valid tenant-visible Property Condition Report.' });
+    }
+    if (error instanceof Error && error.message === 'BOND_DISTRIBUTION_MISMATCH') {
+      return res.status(400).json({ error: 'The proposed bond payments must equal the total bond amount.' });
+    }
+    if (error instanceof Error && error.message === 'PCR_DISAGREEMENT_COMMENT_REQUIRED') {
+      return res.status(400).json({ error: 'Add a comment for each Property Condition Report item you disagree with.' });
+    }
+    console.error('Tenant form creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the tenancy form.' });
+  }
+});
+
+app.post(
+  '/api/tenant/forms/:id/attachments',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) return res.status(400).json({ error: 'File name is required.' });
+
+      const stored = await saveTenantFormAttachment({
+        requestId: req.params.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const request = await addTenantFormAttachment(
+        res.locals.tenant as TenantUserRecord,
+        req.params.id,
+        {
+          id: randomBytes(12).toString('hex'),
+          fileName: stored.fileName,
+          contentType: stored.contentType,
+          size: stored.size,
+          uploadedAt: new Date().toISOString(),
+          storagePath: stored.storagePath,
+        }
+      );
+      if (!request) {
+        await deleteTenantFile(stored.storagePath).catch(() => undefined);
+        return res.status(404).json({ error: 'Tenant form request not found.' });
+      }
+      return res.status(201).json({ success: true, request });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Tenant form attachment upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the attachment.' });
+    }
+  }
+);
+
+app.get(
+  '/api/tenant/forms/:requestId/attachments/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const attachment = await getTenantFormAttachment(
+        res.locals.tenant as TenantUserRecord,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment?.storagePath) return res.status(404).json({ error: 'Attachment not found.' });
+      return res.json({ url: await signedTenantFileUrl(attachment.storagePath) });
+    } catch (error) {
+      console.error('Tenant form attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
+
+app.post('/api/tenant/forms-sensitive', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const formDefinitionId = normalizeText(req.body?.formDefinitionId, 128);
+    if (!tenancyId || !formDefinitionId) {
+      return res.status(400).json({ error: 'Tenancy and sensitive workflow are required.' });
+    }
+    const request = await createSensitiveTenantFormDraft(
+      res.locals.tenant as TenantUserRecord,
+      {
+        tenancyId,
+        formDefinitionId,
+        payload: sanitizeTenantFormPayload(req.body?.payload),
+      }
+    );
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('FORM_FIELD_REQUIRED:')) {
+      return res.status(400).json({ error: `${error.message.split(':')[1]} is required.` });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'FAMILY_VIOLENCE_NOTICE_TOO_SHORT') {
+      return res.status(400).json({ error: 'The proposed termination date must allow at least 7 days from submission. Restricted staff will verify service timing.' });
+    }
+    console.error('Sensitive tenant form draft failed:', error);
+    return res.status(500).json({ error: 'Unable to start the private tenancy workflow.' });
+  }
+});
+
+app.post(
+  '/api/tenant/forms-sensitive/:id/evidence',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose an evidence file to upload.' });
+      }
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) return res.status(400).json({ error: 'File name is required.' });
+
+      const stored = await saveSensitiveTenantEvidence({
+        requestId: req.params.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+      const request = await addSensitiveTenantEvidence(
+        res.locals.tenant as TenantUserRecord,
+        req.params.id,
+        {
+          id: randomBytes(12).toString('hex'),
+          fileName: stored.fileName,
+          contentType: stored.contentType,
+          size: stored.size,
+          uploadedAt: new Date().toISOString(),
+          storagePath: stored.storagePath,
+        }
+      );
+      if (!request) {
+        await deleteTenantFile(stored.storagePath).catch(() => undefined);
+        return res.status(404).json({ error: 'Private tenancy workflow not found.' });
+      }
+      return res.status(201).json({ success: true });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Secure evidence storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That evidence file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Evidence files must be no larger than 20 MB.' });
+      }
+      console.error('Sensitive tenant evidence upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the evidence.' });
+    }
+  }
+);
+
+app.post('/api/tenant/forms-sensitive/:id/submit', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const request = await submitSensitiveTenantForm(
+      res.locals.tenant as TenantUserRecord,
+      req.params.id
+    );
+    if (!request) return res.status(404).json({ error: 'Private tenancy workflow not found.' });
+    return res.json({ success: true, request: {
+      id: request.id,
+      reference: request.reference,
+      formName: request.formName,
+      status: request.status,
+      submittedAt: request.submittedAt,
+    }});
+  } catch (error) {
+    if (error instanceof Error && error.message === 'SENSITIVE_EVIDENCE_REQUIRED') {
+      return res.status(400).json({ error: 'At least one qualifying evidence document is required before submission.' });
+    }
+    console.error('Sensitive tenant form submission failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the private tenancy workflow.' });
+  }
+});
+
+app.get(
+  '/api/tenant/forms-sensitive/:requestId/evidence/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const evidence = await getSensitiveEvidenceForTenant(
+        res.locals.tenant as TenantUserRecord,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!evidence?.storagePath) return res.status(404).json({ error: 'Evidence not found.' });
+      return res.json({ url: await signedTenantFileUrl(evidence.storagePath) });
+    } catch (error) {
+      console.error('Sensitive tenant evidence download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the evidence.' });
+    }
+  }
+);
+
+app.post('/api/tenant/requests', tenantWriteRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const parsed = sanitizeTenantRequestInput(req.body);
+
+    if (!parsed.request) {
+      return res.status(400).json({ error: parsed.error || 'Invalid tenant request.' });
+    }
+
+    const request = await createTenantRequest(tenant, parsed.request);
+    await writeAuditEvent({
+      entityType: 'tenant_request',
+      entityId: request.id,
+      action: 'submitted',
+      summary: `${request.reference} submitted by tenant.`,
+      actor: { type: 'tenant', id: tenant.id, email: tenant.email, displayName: tenant.displayName },
+      propertyId: request.propertyId,
+      tenancyId: request.tenancyId,
+    });
+
+    sendTenantRequestReceiptEmail({
+      tenant,
+      request,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    }).catch((emailError) => {
+      console.error('Tenant request receipt email failed:', emailError);
+    });
+
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_NOT_AUTHORISED') {
+      return res.status(403).json({ error: 'You do not have access to that tenancy.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_ENDED') {
+      return res.status(409).json({ error: 'Requests cannot be submitted against an ended tenancy.' });
+    }
+    console.error('Tenant request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the request.' });
+  }
+});
+
+app.post(
+  '/api/tenant/requests/:id/attachments',
+  tenantWriteRateLimit,
+  requireTenant,
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const tenant = res.locals.tenant as TenantUserRecord;
+      const request = await getTenantRequestForUser(tenant, req.params.id);
+      if (!request) {
+        return res.status(404).json({ error: 'Tenant request not found.' });
+      }
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      if (!fileName) {
+        return res.status(400).json({ error: 'File name is required.' });
+      }
+
+      const stored = await saveTenantRequestAttachment({
+        requestId: request.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const attachmentId = randomBytes(12).toString('hex');
+      const updated = await addTenantRequestAttachment(request.id, {
+        id: attachmentId,
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        uploadedAt: new Date().toISOString(),
+        storagePath: stored.storagePath,
+      });
+      await writeAuditEvent({
+        entityType: 'tenant_request',
+        entityId: request.id,
+        action: 'attachment_added',
+        summary: `Attachment ${stored.fileName} added to ${request.reference}.`,
+        actor: { type: 'tenant', id: tenant.id, email: tenant.email },
+        propertyId: request.propertyId,
+        tenancyId: request.tenancyId,
+        metadata: { attachmentId },
+      });
+
+      return res.status(201).json({ success: true, request: updated });
+    } catch (error) {
+      if (savedPath) {
+        await deleteTenantFile(savedPath).catch(() => undefined);
+      }
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Tenant attachment upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the attachment.' });
+    }
+  }
+);
+
+app.get(
+  '/api/tenant/requests/:requestId/attachments/:attachmentId/download',
+  tenantRateLimit,
+  requireTenant,
+  async (req, res) => {
+    try {
+      const tenant = res.locals.tenant as TenantUserRecord;
+      const attachment = await getTenantRequestAttachmentForUser(
+        tenant,
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment) {
+        return res.status(404).json({ error: 'Attachment not found.' });
+      }
+      const url = await signedTenantFileUrl(attachment.storagePath);
+      return res.json({ url });
+    } catch (error) {
+      console.error('Tenant attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
+
+app.get('/api/tenant/documents/:id/download', tenantRateLimit, requireTenant, async (req, res) => {
+  try {
+    const tenant = res.locals.tenant as TenantUserRecord;
+    const document = await getTenantDocumentForUser(tenant, req.params.id);
+    if (!document?.storagePath) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    const url = await signedTenantFileUrl(document.storagePath);
+    return res.json({ url });
+  } catch (error) {
+    console.error('Tenant document download failed:', error);
+    return res.status(500).json({ error: 'Unable to open the document.' });
+  }
+});
+
+app.post('/api/tenant/notifications/:id/read', tenantRateLimit, requireTenant, async (req, res) => {
+  const tenant = res.locals.tenant as TenantUserRecord;
+  const notification = await markNotificationRead(req.params.id, tenant.id);
+  if (!notification) return res.status(404).json({ error: 'Notification not found.' });
+  return res.json({ success: true, notification });
+});
+
+app.post('/api/client/onboarding', clientRateLimit, requireVerifiedClientIdentity, async (req, res) => {
+  try {
+    const identity = res.locals.clientIdentity as { uid: string; email: string; displayName?: string };
+    const displayName = normalizeText(req.body?.displayName, 160) || identity.displayName || identity.email;
+    const clientName = normalizeText(req.body?.clientName, 180);
+    const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
+    const phone = normalizeText(req.body?.phone, 40);
+    const billingEmail = normalizeText(req.body?.billingEmail, 254).toLowerCase();
+    const abn = normalizeText(req.body?.abn, 32);
+    const acn = normalizeText(req.body?.acn, 32);
+    const externalReference = normalizeText(req.body?.externalReference, 100);
+
+    if (displayName.length < 2 || clientName.length < 2 || !CLIENT_TYPES.has(clientType)) {
+      return res.status(400).json({
+        error: 'Your name, client/organisation name and client type are required.',
+      });
+    }
+
+    const result = await onboardCanonicalClient({
+      uid: identity.uid,
+      email: identity.email,
+      displayName,
+      phone: phone || undefined,
+      billingEmail: billingEmail || identity.email,
+      abn: abn || undefined,
+      acn: acn || undefined,
+      clientName,
+      clientType,
+      externalReference: externalReference || undefined,
+    });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: result.client.id,
+      action: 'self_onboarded',
+      summary: `${result.client.name} completed Client Portal onboarding.`,
+      actor: {
+        type: 'client',
+        id: result.clientUser.id,
+        email: result.clientUser.email,
+        displayName: result.clientUser.displayName,
+      },
+      clientId: result.client.id,
+    });
+
+    return res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_IDENTITY_ALREADY_BOUND') {
+      return res.status(409).json({ error: 'This client identity is already bound to another account.' });
+    }
+    console.error('Client onboarding failed:', error);
+    return res.status(500).json({ error: 'Unable to complete Client Portal onboarding.' });
+  }
+});
+
+app.get('/api/client/session', clientRateLimit, requireClient, (_req, res) => {
+  const clientUser = res.locals.clientUser as ClientUserRecord;
+  return res.json({
+    authorised: true,
+    clientUser: {
+      id: clientUser.id,
+      email: clientUser.email,
+      displayName: clientUser.displayName,
+      phone: clientUser.phone,
+    },
+  });
+});
+
+app.get('/api/client/dashboard', clientRateLimit, requireClient, async (_req, res) => {
+  try {
+    const clientUser = res.locals.clientUser as ClientUserRecord;
+    const [base, documentRequests] = await Promise.all([
+      getClientPortalDashboard(clientUser),
+      listDocumentRequestsForClient(clientUser.clientIds),
+    ]);
+    const dashboard = await buildUnifiedClientDashboard({
+      user: clientUser,
+      clients: base.clients,
+      properties: base.properties,
+      propertyLinks: base.propertyLinks,
+      documents: base.documents,
+      documentRequests,
+    });
+    return res.json({ dashboard });
+  } catch (error) {
+    console.error('Client dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the client portal.' });
+  }
+});
+
+app.get('/api/client/documents/:id/download', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const clientUser = res.locals.clientUser as ClientUserRecord;
+    const document = await getClientDocumentForUser(clientUser, req.params.id);
+    if (!document?.storagePath) {
+      return res.status(404).json({ error: 'Document not found.' });
+    }
+
+    const url = await signedTenantFileUrl(document.storagePath);
+    return res.json({ url });
+  } catch (error) {
+    console.error('Client document download failed:', error);
+    return res.status(500).json({ error: 'Unable to open the document.' });
+  }
+});
+
+app.post('/api/client/properties', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const user = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const role = user.clientRoles?.[clientId] || (user.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !role || !['owner', 'admin'].includes(role)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can add properties.' });
+    }
+
+    const streetAddress = normalizeText(req.body?.streetAddress, 180);
+    const suburb = normalizeText(req.body?.suburb, 100);
+    const state = normalizeText(req.body?.state, 10).toUpperCase() || 'WA';
+    const postcode = normalizeText(req.body?.postcode, 10);
+    if (!streetAddress || !suburb || !postcode) {
+      return res.status(400).json({ error: 'Street address, suburb and postcode are required.' });
+    }
+
+    const property = await createTenantProperty({
+      streetAddress,
+      unit: normalizeText(req.body?.unit, 80) || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType: normalizeText(req.body?.propertyType, 80) || undefined,
+      primaryClientId: clientId,
+      clientReference: normalizeText(req.body?.clientReference, 100) || undefined,
+    });
+
+    await writeAuditEvent({
+      entityType: 'property',
+      entityId: property.id,
+      action: 'created',
+      summary: `Property ${property.streetAddress}, ${property.suburb} added through Client Portal.`,
+      actor: { type: 'client', id: user.id, email: user.email, displayName: user.displayName },
+      propertyId: property.id,
+      clientId,
+    });
+
+    return res.status(201).json({ success: true, property });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client account not found.' });
+    }
+    if (error instanceof Error && error.message === 'PROPERTY_ADDRESS_EXISTS') {
+      return res.status(409).json({ error: 'That property already exists in ProInspect. Use the existing property record instead.' });
+    }
+    console.error('Client property creation failed:', error);
+    return res.status(500).json({ error: 'Unable to add the property.' });
+  }
+});
+
+app.post('/api/client/team-users', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const requester = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !requesterRole || !['owner', 'admin'].includes(requesterRole)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can add portal users.' });
+    }
+
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const role = normalizeText(req.body?.role, 20) as 'admin' | 'member' | 'viewer';
+    if (!isValidEmail(email) || displayName.length < 2 || !['admin', 'member', 'viewer'].includes(role)) {
+      return res.status(400).json({ error: 'Name, valid email and client role are required.' });
+    }
+
+    const clientUser = await createClientUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      clientIds: [clientId],
+      clientRoles: { [clientId]: role },
+    });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: clientId,
+      action: 'portal_user_added',
+      summary: `${displayName} added to the Client Portal as ${role}.`,
+      actor: { type: 'client', id: requester.id, email: requester.email },
+      clientId,
+      metadata: { clientUserId: clientUser.id, role },
+    });
+
+    return res.status(201).json({
+      success: true,
+      clientUser,
+      portalUrl: `${publicBaseUrl(req)}/client`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_USER_ALREADY_LINKED') {
+      return res.status(409).json({ error: 'That person already has access to this client account.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client account not found.' });
+    }
+    console.error('Client team user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to add the Client Portal user.' });
+  }
+});
+
+app.patch('/api/client/team-users/:id/membership', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const requester = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const requesterRole = requester.clientRoles?.[clientId] || (requester.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !requesterRole || !['owner', 'admin'].includes(requesterRole)) {
+      return res.status(403).json({ error: 'Only client owners and administrators can manage portal access.' });
+    }
+
+    const targetDoc = await adminDb.collection('clientUsers').doc(req.params.id).get();
+    if (!targetDoc.exists) return res.status(404).json({ error: 'Client portal user not found.' });
+    const target = { ...(targetDoc.data() as ClientUserRecord), id: targetDoc.id };
+    if (!target.clientIds.includes(clientId)) {
+      return res.status(404).json({ error: 'That user is not linked to this client account.' });
+    }
+
+    const currentTargetRole = target.clientRoles?.[clientId] || 'member';
+    if (requesterRole !== 'owner' && currentTargetRole === 'owner') {
+      return res.status(403).json({ error: 'Only a client owner can change another owner’s access.' });
+    }
+
+    const revoke = req.body?.revoke === true;
+    const rawRole = normalizeText(req.body?.role, 20);
+    const role = rawRole ? rawRole as 'owner' | 'admin' | 'member' | 'viewer' : undefined;
+    if (!revoke && (!role || !['owner', 'admin', 'member', 'viewer'].includes(role))) {
+      return res.status(400).json({ error: 'Select a valid client portal role.' });
+    }
+    if (role === 'owner' && requesterRole !== 'owner') {
+      return res.status(403).json({ error: 'Only a client owner can grant owner access.' });
+    }
+
+    const updated = await updateClientUserMembership({
+      clientUserId: req.params.id,
+      clientId,
+      role,
+      revoke,
+    });
+    if (!updated) return res.status(404).json({ error: 'Client portal user not found.' });
+
+    await writeAuditEvent({
+      entityType: 'client',
+      entityId: clientId,
+      action: revoke ? 'portal_user_revoked' : 'portal_user_role_changed',
+      summary: revoke
+        ? `${target.displayName} was removed from the Client Portal account.`
+        : `${target.displayName} was changed from ${currentTargetRole} to ${role}.`,
+      actor: { type: 'client', id: requester.id, email: requester.email },
+      clientId,
+      metadata: {
+        clientUserId: target.id,
+        previousRole: currentTargetRole,
+        ...(role ? { role } : {}),
+      },
+    });
+
+    return res.json({ success: true, clientUser: updated });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'LAST_CLIENT_OWNER') {
+      return res.status(409).json({ error: 'This is the last active owner. Assign another owner before changing or removing this access.' });
+    }
+    if (error instanceof Error && ['CLIENT_NOT_FOUND', 'CLIENT_MEMBERSHIP_NOT_FOUND'].includes(error.message)) {
+      return res.status(404).json({ error: 'Client account membership not found.' });
+    }
+    console.error('Client membership update failed:', error);
+    return res.status(500).json({ error: 'Unable to update Client Portal access.' });
+  }
+});
+
+app.post('/api/client/requests', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const user = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const type = normalizeText(req.body?.type, 32) as 'maintenance' | 'document' | 'general';
+    const title = normalizeText(req.body?.title, 180);
+    const details = normalizeText(req.body?.details, 5000);
+    const propertyId = normalizeText(req.body?.propertyId, 128) || undefined;
+    const priority = normalizeText(req.body?.priority, 20) as 'routine' | 'priority' | 'urgent';
+
+    if (!clientId || !['maintenance','document','general'].includes(type) || title.length < 3 || details.length < 5) {
+      return res.status(400).json({ error: 'Client, request type, title and details are required.' });
+    }
+
+    const request = await createClientRequestRecord({
+      clientUser: user,
+      clientId,
+      propertyId,
+      type,
+      title,
+      details,
+      priority: ['routine','priority','urgent'].includes(priority) ? priority : 'routine',
+      payload: req.body?.payload && typeof req.body.payload === 'object' ? req.body.payload : {},
+    });
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    if (error instanceof Error && ['CLIENT_NOT_AUTHORISED','PROPERTY_NOT_AUTHORISED','CLIENT_ROLE_FORBIDDEN'].includes(error.message)) {
+      return res.status(403).json({ error: 'Your client role is not authorised to submit this request for the selected client or property.' });
+    }
+    console.error('Client request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the request.' });
+  }
+});
+
+
+app.post('/api/client/document-requests', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const user = res.locals.clientUser as ClientUserRecord;
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const documentProductId = normalizeText(req.body?.documentProductId, 160);
+    const instructions = normalizeText(req.body?.instructions, 5000);
+    const counterpartyName = normalizeText(req.body?.counterpartyName, 240);
+    const effectiveDate = normalizeText(req.body?.effectiveDate, 32);
+    const dueDate = normalizeText(req.body?.dueDate, 32);
+
+    const role =
+      user.clientRoles?.[clientId] ||
+      (user.clientIds.includes(clientId) ? 'member' : undefined);
+    if (!clientId || !role || role === 'viewer') {
+      return res.status(403).json({
+        error: 'Your client role is not authorised to request documents for this account.',
+      });
+    }
+    if (!propertyId || !documentProductId || instructions.length < 5) {
+      return res.status(400).json({
+        error: 'Property, document type and drafting instructions are required.',
+      });
+    }
+
+    const linkSnapshot = await adminDb
+      .collection('clientPropertyLinks')
+      .where('clientId', '==', clientId)
+      .get();
+    const authorisedProperty = linkSnapshot.docs.some((doc) => {
+      const link = doc.data() as { propertyId?: string; active?: boolean };
+      return link.propertyId === propertyId && link.active !== false;
+    });
+    if (!authorisedProperty) {
+      return res.status(403).json({
+        error: 'The selected property is not linked to this client account.',
+      });
+    }
+
+    const [propertyDoc, product] = await Promise.all([
+      adminDb.collection('properties').doc(propertyId).get(),
+      getDocumentProduct(documentProductId),
+    ]);
+    if (!propertyDoc.exists) {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    if (!product || !product.active || !product.publiclyRequestable) {
+      return res.status(400).json({ error: 'The selected document is not available.' });
+    }
+
+    const category = product.categories.find(
+      (value) => value === 'commercial' || value === 'strata-building'
+    );
+    if (!category) {
+      return res.status(400).json({
+        error:
+          'Residential prescribed forms must use the guided Residential document workflow.',
+      });
+    }
+
+    const definition = getDocumentWorkflowDefinition(product.id);
+    if (!definition) {
+      return res.status(503).json({
+        error: 'The guided workflow for this document is not configured.',
+      });
+    }
+
+    const workflowValidation = sanitizeDocumentWorkflow(
+      {
+        version: 1,
+        requesterRole: 'property-manager',
+        lessors: [],
+        tenants: [],
+        answers: {
+          counterpartyName,
+          effectiveDate,
+          dueDate,
+          instructions,
+        },
+      },
+      definition
+    );
+    if (!workflowValidation.workflow) {
+      return res.status(400).json({
+        error:
+          workflowValidation.error ||
+          'Complete the required document instructions.',
+      });
+    }
+
+    const property = propertyDoc.data() as {
+      streetAddress?: string;
+      unit?: string;
+      suburb?: string;
+      state?: string;
+      postcode?: string;
+    };
+    const request = await createDocumentRequest({
+      product,
+      category,
+      propertyId,
+      clientId,
+      clientUserId: user.id,
+      requesterName: user.displayName,
+      requesterEmail: user.email,
+      requesterPhone: user.phone || '',
+      address: {
+        streetAddress: String(property.streetAddress || ''),
+        unit: property.unit ? String(property.unit) : undefined,
+        suburb: String(property.suburb || ''),
+        state: String(property.state || 'WA'),
+        postcode: String(property.postcode || ''),
+      },
+      notes: instructions,
+      workflow: workflowValidation.workflow,
+    });
+
+    await createNotification({
+      audience: 'client',
+      clientUserId: user.id,
+      clientId,
+      propertyId,
+      title: 'Document request submitted',
+      message: `${request.reference} · ${request.documentName}`,
+      link: '/client',
+    });
+
+    return res.status(201).json({ success: true, request });
+  } catch (error) {
+    console.error('Client document request creation failed:', error);
+    return res.status(500).json({ error: 'Unable to submit the document request.' });
+  }
+});
+
+app.post('/api/client/approvals/:id/respond', clientRateLimit, requireClient, async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status, 32) as
+      | 'approved'
+      | 'approved_with_conditions'
+      | 'changes_requested'
+      | 'declined';
+    if (!['approved','approved_with_conditions','changes_requested','declined'].includes(status)) {
+      return res.status(400).json({ error: 'Select a valid approval response.' });
+    }
+    const comment = normalizeText(req.body?.comment, 3000) || undefined;
+    if (status === 'approved_with_conditions' && !comment) {
+      return res.status(400).json({ error: 'Describe the proposed conditions before submitting.' });
+    }
+    const approval = await respondApproval({
+      approvalId: req.params.id,
+      user: res.locals.clientUser as ClientUserRecord,
+      status,
+      comment,
+    });
+    if (!approval) return res.status(404).json({ error: 'Approval not found.' });
+    return res.json({ success: true, approval });
+  } catch (error) {
+    if (error instanceof Error && ['CLIENT_NOT_AUTHORISED','CLIENT_APPROVAL_FORBIDDEN'].includes(error.message)) {
+      return res.status(403).json({ error: 'Only authorised client owners or administrators can respond to this approval.' });
+    }
+    if (error instanceof Error && error.message === 'APPROVAL_CONDITIONS_REQUIRED') {
+      return res.status(400).json({ error: 'Describe the proposed conditions before submitting.' });
+    }
+    console.error('Client approval response failed:', error);
+    return res.status(500).json({ error: 'Unable to save the approval response.' });
+  }
+});
+
+app.post('/api/client/notifications/:id/read', clientRateLimit, requireClient, async (req, res) => {
+  const user = res.locals.clientUser as ClientUserRecord;
+  const notification = await markNotificationRead(req.params.id, user.id);
+  if (!notification) return res.status(404).json({ error: 'Notification not found.' });
+  return res.json({ success: true, notification });
+});
+
+app.get('/api/admin/session', requireAdmin, (_req, res) => {
+  const session = adminSession(res);
+  return res.json({
+    authorised: true,
+    session,
+    role: session.role,
+    permissions: session.permissions,
+  });
+});
+
+
+app.get('/api/admin/dashboard', requireAdmin, requireAdminPermission('dashboard.read'), async (_req, res) => {
+  try {
+    return res.json({ summary: await getAdminDashboard(adminSession(res)) });
+  } catch (error) {
+    console.error('Admin dashboard load failed:', error);
+    return res.status(500).json({ error: 'Unable to load the admin dashboard.' });
+  }
+});
+
+app.get('/api/admin/staff', requireAdmin, requireAdminPermission('users.read'), async (_req, res) => {
+  try {
+    return res.json({ staff: await listAdminStaff() });
+  } catch (error) {
+    console.error('Admin staff load failed:', error);
+    return res.status(500).json({ error: 'Unable to load staff.' });
+  }
+});
+
+app.post('/api/admin/staff', requireAdmin, requireAdminWritePermission('users.manage'), async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 120);
+    const role = req.body?.role as AdminRole;
+    if (!isValidEmail(email) || displayName.length < 2 ||
+        !['administrator','operations_manager','inspector','read_only'].includes(role)) {
+      return res.status(400).json({ error: 'Valid staff name, email and role are required.' });
+    }
+    const staff = await createAdminStaff({
+      email,
+      displayName,
+      role,
+      assignedServiceIds: Array.isArray(req.body?.assignedServiceIds) ? req.body.assignedServiceIds : [],
+      assignedPropertyIds: Array.isArray(req.body?.assignedPropertyIds) ? req.body.assignedPropertyIds : [],
+      assignedClientIds: Array.isArray(req.body?.assignedClientIds) ? req.body.assignedClientIds : [],
+    });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: 'staff.created',
+      resourceType: 'staff',
+      resourceId: staff.id,
+      summary: `Staff access created for ${staff.email}.`,
+    });
+    return res.status(201).json({ staff });
+  } catch (error) {
+    console.error('Admin staff creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create staff access.' });
+  }
+});
+
+app.patch('/api/admin/staff/:uid', requireAdmin, requireAdminWritePermission('users.manage'), async (req, res) => {
+  try {
+    const staff = await updateAdminStaff(req.params.uid, req.body || {});
+    if (!staff) return res.status(404).json({ error: 'Staff member not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: 'staff.updated',
+      resourceType: 'staff',
+      resourceId: staff.id,
+      summary: `Staff access updated for ${staff.email}.`,
+    });
+    return res.json({ staff });
+  } catch (error) {
+    console.error('Admin staff update failed:', error);
+    return res.status(500).json({ error: 'Unable to update staff access.' });
+  }
+});
+
+app.get('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!hasAdminPermission(adminSession(res), config.read)) {
+    return res.status(403).json({ error: 'You do not have permission to read this resource.' });
+  }
+  try {
+    return res.json({ records: await listAdminResource(resource, adminSession(res)) });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to load records.');
+  }
+});
+
+app.post('/api/admin/resources/:resource', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
+    return res.status(403).json({ error: 'You do not have permission to create this resource.' });
+  }
+  try {
+    const record = await createAdminResource(resource, req.body || {}, adminSession(res));
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.created`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record created.`,
+      propertyId: typeof record.propertyId === 'string' ? record.propertyId : undefined,
+      clientId: typeof record.clientId === 'string' ? record.clientId : undefined,
+    });
+    return res.status(201).json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to create record.');
+  }
+});
+
+app.patch('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
+    return res.status(403).json({ error: 'You do not have permission to update this resource.' });
+  }
+  try {
+    const record = await updateAdminResource(resource, req.params.id, req.body || {}, adminSession(res));
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.updated`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record updated.`,
+      propertyId: typeof record.propertyId === 'string' ? record.propertyId : undefined,
+      clientId: typeof record.clientId === 'string' ? record.clientId : undefined,
+    });
+    return res.json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to update record.');
+  }
+});
+
+app.delete('/api/admin/resources/:resource/:id', requireAdmin, async (req, res) => {
+  const resource = req.params.resource;
+  if (!isAdminResourceName(resource)) return res.status(404).json({ error: 'Unknown admin resource.' });
+  const config = ADMIN_RESOURCE_CONFIG[resource];
+  if (!config.manage || !hasAdminPermission(adminSession(res), config.manage)) {
+    return res.status(403).json({ error: 'You do not have permission to archive this resource.' });
+  }
+  try {
+    const record = await archiveAdminResource(resource, req.params.id, adminSession(res));
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    await recordAuditEvent({
+      session: adminSession(res),
+      action: `${resource}.archived`,
+      resourceType: resource,
+      resourceId: record.id,
+      summary: `${resource} record archived.`,
+    });
+    return res.json({ record });
+  } catch (error) {
+    return adminResourceFailure(res, error, 'Unable to archive record.');
+  }
+});
+
+app.get('/api/admin/reports/summary', requireAdmin, requireAdminPermission('reports.read'), async (_req, res) => {
+  try {
+    return res.json({ report: await getAdminReportSummary(adminSession(res)) });
+  } catch (error) {
+    console.error('Admin reporting failed:', error);
+    return res.status(500).json({ error: 'Unable to load report summary.' });
+  }
+});
+
+app.post(
+  '/api/admin/reports/handoff',
+  requireAdmin,
+  requireAdminWritePermission('reports.manage'),
+  async (req, res) => {
+    try {
+      const propertyId = normalizeText(req.body?.propertyId, 128);
+      const requestedClientId = normalizeText(req.body?.clientId, 128) || undefined;
+      const tenancyId = normalizeText(req.body?.tenancyId, 128) || undefined;
+      const bookingId = normalizeText(req.body?.bookingId, 128) || undefined;
+      const workOrderId = normalizeText(req.body?.workOrderId, 128) || undefined;
+      const reportType = normalizeText(req.body?.reportType, 80);
+
+      if (!propertyId || !REPORT_TOOL_TYPES.has(reportType)) {
+        return res.status(400).json({
+          error: 'Property and a supported report type are required.',
+        });
+      }
+
+      const reportToolUrl = process.env.REPORT_TOOL_URL?.trim();
+      if (!reportToolUrl || !process.env.REPORT_HANDOFF_SIGNING_KEY?.trim()) {
+        return res.status(503).json({
+          error: 'Property Report Tool handoff is not configured.',
+        });
+      }
+
+      const propertyDoc = await adminDb.collection('properties').doc(propertyId).get();
+      if (!propertyDoc.exists) {
+        return res.status(404).json({ error: 'Property not found.' });
+      }
+      const property = propertyDoc.data() as {
+        streetAddress?: string;
+        unit?: string;
+        suburb?: string;
+        state?: string;
+        postcode?: string;
+        primaryClientId?: string;
+        clientReference?: string;
+      };
+
+      const clientId = requestedClientId || property.primaryClientId || undefined;
+      if (clientId) {
+        const links = await adminDb
+          .collection('clientPropertyLinks')
+          .where('clientId', '==', clientId)
+          .get();
+        const valid = links.docs.some((doc) => {
+          const link = doc.data() as { propertyId?: string; active?: boolean };
+          return link.propertyId === propertyId && link.active !== false;
+        });
+        if (!valid) {
+          return res.status(400).json({
+            error: 'The selected client is not linked to this property.',
+          });
+        }
+      }
+
+      if (tenancyId) {
+        const tenancy = await adminDb.collection('tenancies').doc(tenancyId).get();
+        if (!tenancy.exists || tenancy.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected tenancy is not linked to this property.',
+          });
+        }
+      }
+
+      if (bookingId) {
+        const booking = await adminDb.collection('bookings').doc(bookingId).get();
+        if (!booking.exists || booking.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected booking is not linked to this property.',
+          });
+        }
+      }
+
+      if (workOrderId) {
+        const workOrder = await adminDb.collection('workOrders').doc(workOrderId).get();
+        if (!workOrder.exists || workOrder.data()?.propertyId !== propertyId) {
+          return res.status(400).json({
+            error: 'The selected work order is not linked to this property.',
+          });
+        }
+      }
+
+      const session = adminSession(res);
+      const address = [
+        property.unit,
+        property.streetAddress,
+        property.suburb,
+        property.state,
+        property.postcode,
+      ]
+        .filter(Boolean)
+        .join(', ');
+
+      const token = createReportHandoffToken({
+        v: 1,
+        iss: 'proinspect-platform',
+        exp: Math.floor(Date.now() / 1000) + 5 * 60,
+        propertyId,
+        propertyAddress: address,
+        propertyReference: property.clientReference || undefined,
+        clientId,
+        tenancyId,
+        bookingId,
+        workOrderId,
+        reportType,
+        audiences: tenancyId ? ['client', 'tenant', 'staff'] : ['client', 'staff'],
+        issuedByUid: session.uid,
+        issuedByEmail: session.email,
+      });
+
+      const url = new URL(reportToolUrl);
+      url.searchParams.set('proinspect_handoff', token);
+
+      await recordAuditEvent({
+        session,
+        action: 'report.handoff_created',
+        resourceType: 'propertyDocuments',
+        resourceId: propertyId,
+        summary: `Property Report Tool handoff created for ${address || propertyId}.`,
+        propertyId,
+        clientId,
+      });
+
+      return res.json({
+        url: url.toString(),
+        expiresInSeconds: 300,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'REPORT_HANDOFF_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Property Report Tool handoff is not configured.' });
+      }
+      console.error('Report Tool handoff creation failed:', error);
+      return res.status(500).json({ error: 'Unable to open the Property Report Tool.' });
+    }
+  }
+);
+
+app.get('/api/admin/integrations', requireAdmin, requireAdminPermission('integrations.read'), (_req, res) => {
+  return res.json({ integrations: getAdminIntegrationStatuses() });
+});
+
+app.get('/api/admin/bookings', requireAdmin, requireAdminPermission('bookings'), async (_req, res) => {
+  try {
+    const session = adminSession(res);
+    const allBookings = hasAdminPermission(session, 'bookings.sensitive_access')
+      ? await listBookingsWithAccessSecrets()
+      : await listBookings();
+    const bookings = filterBookingsForSession(allBookings, session);
     return res.json({ bookings });
   } catch (error) {
     console.error('Admin bookings load failed:', error);
@@ -1838,19 +3850,235 @@ app.get('/api/admin/bookings', requireAdmin, async (_req, res) => {
   }
 });
 
-app.get('/api/admin/document-requests', requireAdmin, async (_req, res) => {
+app.get('/api/admin/operations', requireAdmin, requireAdminPermission('operations'), async (_req, res) => {
   try {
-    const requests = await listDocumentRequestsWithSecrets();
-    return res.json({ requests });
+    const data = await listAdminOperations();
+    return res.json(data);
   } catch (error) {
-    console.error('Admin document requests load failed:', error);
-    return res.status(500).json({
-      error: 'Unable to load document requests.',
-    });
+    console.error('Operations queue load failed:', error);
+    return res.status(500).json({ error: 'Unable to load operations.' });
   }
 });
 
-app.get('/api/admin/services', requireAdmin, async (_req, res) => {
+app.post('/api/admin/contractors', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
+  try {
+    const name = normalizeText(req.body?.name, 180);
+    if (name.length < 2) return res.status(400).json({ error: 'Contractor name is required.' });
+    const contractor = await createContractor({
+      name,
+      trade: normalizeText(req.body?.trade, 100) || undefined,
+      email: normalizeText(req.body?.email, 254).toLowerCase() || undefined,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      notes: normalizeText(req.body?.notes, 2000) || undefined,
+    });
+    return res.status(201).json({ success:true, contractor });
+  } catch (error) {
+    console.error('Contractor creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create contractor.' });
+  }
+});
+
+app.post('/api/admin/work-orders', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
+  try {
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const title = normalizeText(req.body?.title, 180);
+    const description = normalizeText(req.body?.description, 5000);
+    if (!propertyId || title.length < 3 || description.length < 5) {
+      return res.status(400).json({ error: 'Property, title and description are required.' });
+    }
+    const workOrder = await createWorkOrder({
+      sourceType: ['tenant_request','client_request','booking','manual'].includes(req.body?.sourceType)
+        ? req.body.sourceType
+        : 'manual',
+      sourceId: normalizeText(req.body?.sourceId,128) || undefined,
+      propertyId,
+      clientId: normalizeText(req.body?.clientId,128) || undefined,
+      tenancyId: normalizeText(req.body?.tenancyId,128) || undefined,
+      title,
+      description,
+      priority: ['routine','priority','urgent','emergency'].includes(req.body?.priority)
+        ? req.body.priority
+        : 'routine',
+      accessNotes: normalizeText(req.body?.accessNotes,2000) || undefined,
+      createdBy: res.locals.admin.email,
+    });
+    return res.status(201).json({ success:true, workOrder });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error:'Property not found.' });
+    }
+    console.error('Work order creation failed:', error);
+    return res.status(500).json({ error:'Unable to create work order.' });
+  }
+});
+
+app.patch('/api/admin/work-orders/:id', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
+  try {
+    const status = normalizeText(req.body?.status,32) as WorkOrderStatus;
+    const workOrder = await updateWorkOrder(req.params.id, {
+      status: status && ['triage','quote_required','awaiting_approval','approved','assigned','scheduled','in_progress','completed','cancelled'].includes(status) ? status : undefined,
+      contractorId: normalizeText(req.body?.contractorId,128) || undefined,
+      quoteAmountExGst: Number.isFinite(Number(req.body?.quoteAmountExGst)) ? Number(req.body.quoteAmountExGst) : undefined,
+      quoteDocumentId: normalizeText(req.body?.quoteDocumentId,128) || undefined,
+      invoiceDocumentId: normalizeText(req.body?.invoiceDocumentId,128) || undefined,
+      scheduledStart: normalizeText(req.body?.scheduledStart,60) || undefined,
+      scheduledEnd: normalizeText(req.body?.scheduledEnd,60) || undefined,
+      accessNotes: req.body?.accessNotes === undefined ? undefined : normalizeText(req.body.accessNotes,2000),
+      completionNotes: req.body?.completionNotes === undefined ? undefined : normalizeText(req.body.completionNotes,3000),
+      completionDocumentIds: Array.isArray(req.body?.completionDocumentIds) ? req.body.completionDocumentIds.filter((x:unknown):x is string => typeof x === 'string') : undefined,
+    }, { type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email });
+    if (!workOrder) return res.status(404).json({ error:'Work order not found.' });
+    return res.json({ success:true, workOrder });
+  } catch (error) {
+    console.error('Work order update failed:', error);
+    return res.status(500).json({ error:'Unable to update work order.' });
+  }
+});
+
+app.post('/api/admin/approvals', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
+  try {
+    const clientId = normalizeText(req.body?.clientId,128);
+    const title = normalizeText(req.body?.title,180);
+    if (!clientId || title.length < 3) return res.status(400).json({ error:'Client and approval title are required.' });
+    const approval = await createApproval({
+      clientId,
+      propertyId: normalizeText(req.body?.propertyId,128) || undefined,
+      clientUserId: normalizeText(req.body?.clientUserId,128) || undefined,
+      workOrderId: normalizeText(req.body?.workOrderId,128) || undefined,
+      documentId: normalizeText(req.body?.documentId,128) || undefined,
+      requestId: normalizeText(req.body?.requestId,128) || undefined,
+      type: ['quote','document','instruction','other'].includes(req.body?.type) ? req.body.type : 'other',
+      title,
+      summary: normalizeText(req.body?.summary,3000) || undefined,
+      amountExGst: Number.isFinite(Number(req.body?.amountExGst)) ? Number(req.body.amountExGst) : undefined,
+      requestedBy: res.locals.admin.email,
+    });
+    if (approval.clientUserId) {
+      await createNotification({
+        audience:'client',
+        clientUserId:approval.clientUserId,
+        clientId:approval.clientId,
+        propertyId:approval.propertyId,
+        title:'Approval required',
+        message:approval.title,
+        link:'/client/approvals',
+      });
+    }
+    if (approval.workOrderId) {
+      await updateWorkOrder(approval.workOrderId, { status:'awaiting_approval', approvalId: approval.id } as any, { type:'staff', email:res.locals.admin.email });
+    }
+    return res.status(201).json({ success:true, approval });
+  } catch (error) {
+    console.error('Approval creation failed:', error);
+    return res.status(500).json({ error:'Unable to create approval.' });
+  }
+});
+
+app.patch('/api/admin/client-requests/:id', requireAdmin, requireAdminWritePermission('operations'), async (req, res) => {
+  const status = normalizeText(req.body?.status,32) as ClientRequestStatus;
+  const request = await updateClientRequestRecord(req.params.id, {
+    status: status && ['submitted','under_review','awaiting_client','approved','in_progress','completed','cancelled'].includes(status) ? status : undefined,
+    adminNotes: req.body?.adminNotes === undefined ? undefined : normalizeText(req.body.adminNotes,3000),
+  }, { type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email });
+  if (!request) return res.status(404).json({ error:'Client request not found.' });
+  return res.json({ success:true, request });
+});
+
+app.patch('/api/admin/document-requests/:id', requireAdmin, requireAdminWritePermission('documents'), async (req, res) => {
+  const status = normalizeText(req.body?.status,40) as DocumentRequestStatus;
+  const request = await updateDocumentRequest(req.params.id, {
+    status: status && ['submitted','under_review','awaiting_information','in_preparation','ready','completed','cancelled'].includes(status) ? status : undefined,
+    generatedDocumentId: normalizeText(req.body?.generatedDocumentId,128) || undefined,
+    propertyId: normalizeText(req.body?.propertyId,128) || undefined,
+    clientId: normalizeText(req.body?.clientId,128) || undefined,
+  }, { type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email });
+  if (!request) return res.status(404).json({ error:'Document request not found.' });
+  return res.json({ success:true, request });
+});
+
+app.post('/api/admin/payments', requireAdmin, requireAdminWritePermission('payments'), async (req, res) => {
+  try {
+    const sourceType = normalizeText(req.body?.sourceType, 40) as PaymentRecord['sourceType'];
+    const sourceId = normalizeText(req.body?.sourceId, 128);
+    const description = normalizeText(req.body?.description, 300);
+    const amountExGst = Number(req.body?.amountExGst);
+    const clientId = normalizeText(req.body?.clientId, 128) || undefined;
+    const propertyId = normalizeText(req.body?.propertyId, 128) || undefined;
+    const provider = normalizeText(req.body?.provider, 30) as PaymentRecord['provider'] | '';
+    const checkoutUrl = normalizeText(req.body?.checkoutUrl, 1000) || undefined;
+    const providerOrderId = normalizeText(req.body?.providerOrderId, 160) || undefined;
+
+    if (!['booking','document_request','work_order','subscription','other'].includes(sourceType) ||
+        !sourceId || description.length < 3 || !Number.isFinite(amountExGst) || amountExGst < 0) {
+      return res.status(400).json({ error:'Source, description and a valid amount are required.' });
+    }
+    if (provider && !['manual','external','xero'].includes(provider)) {
+      return res.status(400).json({ error:'Invalid payment provider.' });
+    }
+    if (checkoutUrl) {
+      try {
+        const parsed = new URL(checkoutUrl);
+        if (parsed.protocol !== 'https:') throw new Error('invalid');
+      } catch {
+        return res.status(400).json({ error:'Checkout URL must be a valid HTTPS URL.' });
+      }
+    }
+
+    const payment = await createPaymentRecord({
+      clientId,
+      propertyId,
+      sourceType,
+      sourceId,
+      description,
+      amountExGst,
+      provider: provider || undefined,
+      checkoutUrl,
+      providerOrderId,
+    });
+    await writeAuditEvent({
+      entityType:'payment',
+      entityId:payment.id,
+      action:'created',
+      summary:`${payment.reference} created for ${payment.description}.`,
+      actor:{ type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email },
+      clientId:payment.clientId,
+      propertyId:payment.propertyId,
+    });
+    return res.status(201).json({ success:true, payment });
+  } catch (error) {
+    console.error('Payment creation failed:', error);
+    return res.status(500).json({ error:'Unable to create payment.' });
+  }
+});
+
+app.patch('/api/admin/payments/:id', requireAdmin, requireAdminWritePermission('payments'), async (req, res) => {
+  const status = normalizeText(req.body?.status,32) as PaymentStatus;
+  if (!['pending','payment_required','paid','failed','refunded','waived'].includes(status)) {
+    return res.status(400).json({ error:'Invalid payment status.' });
+  }
+  const payment = await updatePaymentStatus(req.params.id, status, {
+    type:'staff', id:res.locals.admin.uid, email:res.locals.admin.email,
+  });
+  if (!payment) return res.status(404).json({ error:'Payment not found.' });
+  return res.json({ success:true, payment });
+});
+
+app.get('/api/admin/audit', requireAdmin, requireAdminPermission('audit'), async (req, res) => {
+  try {
+    const events = await listAuditEvents({
+      entityType: typeof req.query.entityType === 'string' ? req.query.entityType as any : undefined,
+      entityId: typeof req.query.entityId === 'string' ? req.query.entityId : undefined,
+      propertyId: typeof req.query.propertyId === 'string' ? req.query.propertyId : undefined,
+      limit: Math.min(200, Math.max(1, Number(req.query.limit || 100))),
+    });
+    return res.json({ events });
+  } catch (error) {
+    console.error('Audit load failed:', error);
+    return res.status(500).json({ error:'Unable to load audit history.' });
+  }
+});
+
+app.get('/api/admin/services', requireAdmin, requireAdminPermission('services'), async (_req, res) => {
   try {
     const services = await listServices(false);
     return res.json({ services });
@@ -1860,7 +4088,7 @@ app.get('/api/admin/services', requireAdmin, async (_req, res) => {
   }
 });
 
-app.post('/api/admin/services', requireAdmin, async (req, res) => {
+app.post('/api/admin/services', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const existingServices = await listServices(false);
     const nextOrder =
@@ -1893,7 +4121,7 @@ app.post('/api/admin/services', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/services/:id', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const serviceId = req.params.id;
     const existing = await getService(serviceId);
@@ -1927,7 +4155,7 @@ app.patch('/api/admin/services/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
+app.post('/api/admin/services/reorder', requireAdmin, requireAdminWritePermission('services'), async (req, res) => {
   try {
     const rawServiceIds: unknown = req.body?.serviceIds;
 
@@ -1963,7 +4191,7 @@ app.post('/api/admin/services/reorder', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
+app.get('/api/admin/settings', requireAdmin, requireAdminPermission('settings'), async (_req, res) => {
   try {
     const settings = await getSettings();
     return res.json({
@@ -1978,11 +4206,15 @@ app.get('/api/admin/settings', requireAdmin, async (_req, res) => {
   }
 });
 
-app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
+app.patch('/api/admin/bookings/:id', requireAdmin, requireAdminWritePermission('bookings'), async (req, res) => {
   try {
     const booking = await getBooking(req.params.id);
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
+    }
+
+    if (!canUpdateBookingForSession(booking, adminSession(res))) {
+      return res.status(403).json({ error: 'This booking is outside your assigned work scope.' });
     }
 
     const status = req.body?.status;
@@ -2021,8 +4253,693 @@ app.patch('/api/admin/bookings/:id', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/tenant-portal', requireAdmin, requireAdminPermission('tenants'), async (_req, res) => {
+  try {
+    const snapshot = await listAdminTenantPortal();
+    return res.json({ snapshot });
+  } catch (error) {
+    console.error('Admin tenant portal load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenant portal data.' });
+  }
+});
+
+app.post('/api/admin/clients', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
+  try {
+    const name = normalizeText(req.body?.name, 180);
+    const clientType = normalizeText(req.body?.clientType, 40) as ClientType;
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+
+    if (name.length < 2 || !CLIENT_TYPES.has(clientType) || (email && !isValidEmail(email))) {
+      return res.status(400).json({ error: 'Client name, valid client type and optional valid email are required.' });
+    }
+
+    const client = await createClient({
+      name,
+      clientType,
+      email: email || undefined,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      externalReference: normalizeText(req.body?.externalReference, 100) || undefined,
+    });
+    return res.status(201).json({ success: true, client });
+  } catch (error) {
+    console.error('Admin client creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the client.' });
+  }
+});
+
+app.post('/api/admin/client-users', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const clientIds = Array.isArray(req.body?.clientIds)
+      ? req.body.clientIds
+          .filter((id: unknown): id is string => typeof id === 'string')
+          .map((id: string) => id.trim())
+          .filter(Boolean)
+      : [];
+
+    const role = normalizeText(req.body?.role, 20) as 'owner' | 'admin' | 'member' | 'viewer';
+    if (
+      !isValidEmail(email) ||
+      displayName.length < 2 ||
+      clientIds.length === 0 ||
+      !['owner', 'admin', 'member', 'viewer'].includes(role)
+    ) {
+      return res.status(400).json({
+        error: 'Client user name, valid email, role and at least one client are required.',
+      });
+    }
+
+    const clientUser = await createClientUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      clientIds,
+      clientRoles: Object.fromEntries(clientIds.map((clientId: string) => [clientId, role])),
+    });
+
+    return res.status(201).json({
+      success: true,
+      clientUser,
+      portalUrl: `${publicBaseUrl(req)}/client`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_USER_ALREADY_LINKED') {
+      return res.status(409).json({ error: 'That client portal user is already linked to the selected client account.' });
+    }
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected clients no longer exist.' });
+    }
+    console.error('Admin client user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the client portal user.' });
+  }
+});
+
+app.post('/api/admin/client-property-links', requireAdmin, requireAdminWritePermission('clients'), async (req, res) => {
+  try {
+    const clientId = normalizeText(req.body?.clientId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const role = normalizeText(req.body?.role, 40) as ClientPropertyRole;
+
+    if (!clientId || !propertyId || !CLIENT_PROPERTY_ROLES.has(role)) {
+      return res.status(400).json({ error: 'Client, property and valid relationship role are required.' });
+    }
+
+    const link = await createClientPropertyLink({
+      clientId,
+      propertyId,
+      role,
+      primary: Boolean(req.body?.primary),
+    });
+    return res.status(201).json({ success: true, link });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+    if (error instanceof Error && error.message === 'PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    console.error('Admin client-property link creation failed:', error);
+    return res.status(500).json({ error: 'Unable to link the client to the property.' });
+  }
+});
+
+app.get('/api/admin/tenant-forms', requireAdmin, requireAdminPermission('tenant_forms'), async (_req, res) => {
+  try {
+    return res.json({ requests: await listAdminTenantForms() });
+  } catch (error) {
+    console.error('Admin tenant forms load failed:', error);
+    return res.status(500).json({ error: 'Unable to load tenant form requests.' });
+  }
+});
+
+app.get(
+  '/api/admin/tenant-forms/:requestId/attachments/:attachmentId/download',
+  requireAdmin,
+  requireAdminPermission('tenant_forms'),
+  async (req, res) => {
+    try {
+      const attachment = await getTenantFormAttachmentForAdmin(
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!attachment?.storagePath) return res.status(404).json({ error: 'Attachment not found.' });
+      return res.json({ url: await signedTenantFileUrl(attachment.storagePath) });
+    } catch (error) {
+      console.error('Admin tenant form attachment download failed:', error);
+      return res.status(500).json({ error: 'Unable to open the attachment.' });
+    }
+  }
+);
+
+app.patch('/api/admin/tenant-forms/:id', requireAdmin, requireAdminWritePermission('tenant_forms'), async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 64);
+    const allowedStatuses = new Set<TenantFormStatus>([
+      'draft','submitted','delivered','under_review','action_required',
+      'more_information_required','approved','approved_with_conditions','declined',
+      'commissioner_review_required','response_period_elapsed','ready_for_lodgement',
+      'lodged','awaiting_parties','agreed','disputed','processed','completed','closed',
+    ]);
+    const status = rawStatus ? rawStatus as TenantFormStatus : undefined;
+    if (status && !allowedStatuses.has(status)) {
+      return res.status(400).json({ error: 'Invalid tenant form status.' });
+    }
+
+    const serviceMethod = normalizeText(req.body?.serviceMethod, 32) as
+      | 'portal' | 'email' | 'hand' | 'post' | 'bondsonline' | 'bonds_upload' | '';
+    if (serviceMethod && !['portal','email','hand','post','bondsonline','bonds_upload'].includes(serviceMethod)) {
+      return res.status(400).json({ error: 'Invalid service method.' });
+    }
+
+    const request = await updateAdminTenantForm(
+      req.params.id,
+      {
+        status,
+        adminNotes: req.body?.adminNotes === undefined
+          ? undefined
+          : normalizeText(req.body.adminNotes, 3000),
+        serviceMethod: serviceMethod || undefined,
+        generatedDocumentId: normalizeText(req.body?.generatedDocumentId, 128) || undefined,
+        finalDocumentId: normalizeText(req.body?.finalDocumentId, 128) || undefined,
+      },
+      { id: res.locals.admin.uid, email: res.locals.admin.email }
+    );
+    if (!request) return res.status(404).json({ error: 'Tenant form request not found.' });
+
+    if (status) {
+      const tenant = await getTenantUserById(request.tenantUserId);
+      if (tenant?.active) {
+        sendTenantFormStatusEmail({
+          tenant,
+          request,
+          portalUrl: `${publicBaseUrl(req)}/tenant`,
+        }).catch((emailError) => {
+          console.error('Tenant statutory form status email failed:', emailError);
+        });
+      }
+    }
+
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin tenant form update failed:', error);
+    return res.status(500).json({ error: 'Unable to update tenant form request.' });
+  }
+});
+
+app.get(
+  '/api/admin/sensitive-tenant-forms',
+  requireAdmin,
+  requireAdminPermission('sensitive_tenancy'),
+  async (_req, res) => {
+    try {
+      return res.json({ requests: await listSensitiveTenantFormsForAdmin() });
+    } catch (error) {
+      console.error('Restricted tenant forms load failed:', error);
+      return res.status(500).json({ error: 'Unable to load restricted tenancy workflows.' });
+    }
+  }
+);
+
+app.patch(
+  '/api/admin/sensitive-tenant-forms/:id',
+  requireAdmin,
+  requireAdminWritePermission('sensitive_tenancy'),
+  async (req, res) => {
+    try {
+      const rawStatus = normalizeText(req.body?.status, 64);
+      const allowed = new Set<SensitiveTenantFormStatus>([
+        'draft','submitted','restricted_review','notice_prepared',
+        'notice_served','tenancy_record_updating','completed',
+      ]);
+      const status = rawStatus ? rawStatus as SensitiveTenantFormStatus : undefined;
+      if (status && !allowed.has(status)) {
+        return res.status(400).json({ error: 'Invalid restricted workflow status.' });
+      }
+      const request = await updateSensitiveTenantFormAdmin(
+        req.params.id,
+        {
+          status,
+          restrictedNotes: req.body?.restrictedNotes === undefined
+            ? undefined
+            : normalizeText(req.body.restrictedNotes, 3000),
+        },
+        res.locals.admin.uid
+      );
+      if (!request) return res.status(404).json({ error: 'Restricted tenancy workflow not found.' });
+      return res.json({ success: true, request });
+    } catch (error) {
+      console.error('Restricted tenant form update failed:', error);
+      return res.status(500).json({ error: 'Unable to update restricted tenancy workflow.' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/sensitive-tenant-forms/:requestId/evidence/:attachmentId/download',
+  requireAdmin,
+  requireAdminPermission('sensitive_tenancy'),
+  async (req, res) => {
+    try {
+      const evidence = await getSensitiveEvidenceForAdmin(
+        req.params.requestId,
+        req.params.attachmentId
+      );
+      if (!evidence?.storagePath) return res.status(404).json({ error: 'Evidence not found.' });
+      return res.json({ url: await signedTenantFileUrl(evidence.storagePath) });
+    } catch (error) {
+      console.error('Restricted evidence download failed:', error);
+      return res.status(500).json({ error: 'Unable to open restricted evidence.' });
+    }
+  }
+);
+
+app.post('/api/admin/tenant-properties', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const streetAddress = normalizeText(req.body?.streetAddress, 160);
+    const suburb = normalizeText(req.body?.suburb, 100);
+    const state = normalizeText(req.body?.state, 10).toUpperCase();
+    const postcode = normalizeText(req.body?.postcode, 10);
+
+    if (!streetAddress || !suburb || !/^[A-Z]{2,3}$/.test(state) || !/^\d{4}$/.test(postcode)) {
+      return res.status(400).json({ error: 'A valid Australian property address is required.' });
+    }
+
+    const property = await createTenantProperty({
+      streetAddress,
+      unit: normalizeText(req.body?.unit, 40) || undefined,
+      suburb,
+      state,
+      postcode,
+      propertyType: normalizeText(req.body?.propertyType, 80) || undefined,
+      primaryClientId: normalizeText(req.body?.primaryClientId, 128) || undefined,
+      clientName: normalizeText(req.body?.clientName, 160) || undefined,
+      clientReference: normalizeText(req.body?.clientReference, 100) || undefined,
+    });
+
+    return res.status(201).json({ success: true, property });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLIENT_NOT_FOUND') {
+      return res.status(404).json({ error: 'Client not found.' });
+    }
+    if (error instanceof Error && error.message === 'PROPERTY_ADDRESS_EXISTS') {
+      return res.status(409).json({ error: 'That property already exists. Link or use the existing property record instead.' });
+    }
+    console.error('Admin tenant property creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the property.' });
+  }
+});
+
+app.post('/api/admin/tenancies', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const startDate = normalizeText(req.body?.startDate, 20);
+    const endDate = normalizeText(req.body?.endDate, 20);
+    const rentAmount =
+      req.body?.rentAmount === undefined || req.body?.rentAmount === ''
+        ? undefined
+        : Number(req.body.rentAmount);
+
+    if (!propertyId || !isValidDateKey(startDate) || (endDate && !isValidDateKey(endDate))) {
+      return res.status(400).json({ error: 'Property and valid tenancy dates are required.' });
+    }
+
+    if (rentAmount !== undefined && (!Number.isFinite(rentAmount) || rentAmount < 0)) {
+      return res.status(400).json({ error: 'Rent amount must be a valid positive number.' });
+    }
+
+    const frequency = normalizeText(req.body?.rentFrequency, 20) as
+      | 'weekly'
+      | 'fortnightly'
+      | 'monthly'
+      | '';
+    if (frequency && !['weekly', 'fortnightly', 'monthly'].includes(frequency)) {
+      return res.status(400).json({ error: 'Invalid rent frequency.' });
+    }
+
+    const tenancy = await createTenancy({
+      propertyId,
+      startDate,
+      endDate: endDate || undefined,
+      rentAmount,
+      rentFrequency: frequency || undefined,
+      bondReference: normalizeText(req.body?.bondReference, 100) || undefined,
+      notes: normalizeText(req.body?.notes, 2000) || undefined,
+      status: ['pending', 'active', 'ended'].includes(req.body?.status)
+        ? req.body.status
+        : 'active',
+    });
+
+    return res.status(201).json({ success: true, tenancy });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PROPERTY_NOT_FOUND') {
+      return res.status(404).json({ error: 'Property not found.' });
+    }
+    console.error('Admin tenancy creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the tenancy.' });
+  }
+});
+
+app.post('/api/admin/tenant-users', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const email = normalizeText(req.body?.email, 254).toLowerCase();
+    const displayName = normalizeText(req.body?.displayName, 160);
+    const tenancyIds = Array.isArray(req.body?.tenancyIds)
+      ? req.body.tenancyIds
+          .filter((id: unknown): id is string => typeof id === 'string')
+          .map((id: string) => id.trim())
+          .filter(Boolean)
+      : [];
+
+    if (!isValidEmail(email) || displayName.length < 2 || tenancyIds.length === 0) {
+      return res.status(400).json({
+        error: 'Tenant name, valid email address and at least one tenancy are required.',
+      });
+    }
+
+    const tenant = await createTenantUser({
+      email,
+      displayName,
+      phone: normalizeText(req.body?.phone, 40) || undefined,
+      tenancyIds,
+    });
+
+    return res.status(201).json({
+      success: true,
+      tenant,
+      portalUrl: `${publicBaseUrl(req)}/tenant`,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANT_EMAIL_EXISTS') {
+      return res.status(409).json({ error: 'A tenant portal user already exists for that email address.' });
+    }
+    if (error instanceof Error && error.message === 'TENANCY_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected tenancies no longer exist.' });
+    }
+    console.error('Admin tenant user creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the tenant user.' });
+  }
+});
+
+app.patch('/api/admin/tenancies/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 20);
+    const status = rawStatus
+      ? (rawStatus as 'pending' | 'active' | 'ended')
+      : undefined;
+    if (status && !['pending', 'active', 'ended'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid tenancy status.' });
+    }
+
+    const rawEndDate = req.body?.endDate === undefined
+      ? undefined
+      : normalizeText(req.body.endDate, 20);
+
+    if (rawEndDate && !isValidDateKey(rawEndDate)) {
+      return res.status(400).json({ error: 'End date must be a valid date.' });
+    }
+
+    const tenancy = await updateTenancyAdmin(req.params.id, {
+      status,
+      endDate: rawEndDate || undefined,
+      notes:
+        req.body?.notes === undefined
+          ? undefined
+          : normalizeText(req.body.notes, 2000),
+    });
+
+    if (!tenancy) return res.status(404).json({ error: 'Tenancy not found.' });
+    return res.json({ success: true, tenancy });
+  } catch (error) {
+    console.error('Admin tenancy update failed:', error);
+    return res.status(500).json({ error: 'Unable to update the tenancy.' });
+  }
+});
+
+app.patch('/api/admin/tenant-users/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const tenancyIds = req.body?.tenancyIds === undefined
+      ? undefined
+      : Array.isArray(req.body.tenancyIds)
+        ? req.body.tenancyIds
+            .filter((id: unknown): id is string => typeof id === 'string')
+            .map((id: string) => id.trim())
+            .filter(Boolean)
+        : null;
+
+    if (tenancyIds === null || (tenancyIds && tenancyIds.length === 0)) {
+      return res.status(400).json({ error: 'Tenant access must retain at least one tenancy.' });
+    }
+
+    const tenant = await updateTenantUserAdmin(req.params.id, {
+      active: typeof req.body?.active === 'boolean' ? req.body.active : undefined,
+      displayName:
+        req.body?.displayName === undefined
+          ? undefined
+          : normalizeText(req.body.displayName, 160),
+      phone:
+        req.body?.phone === undefined
+          ? undefined
+          : normalizeText(req.body.phone, 40),
+      tenancyIds: tenancyIds || undefined,
+    });
+
+    if (!tenant) return res.status(404).json({ error: 'Tenant user not found.' });
+    return res.json({ success: true, tenant });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_NOT_FOUND') {
+      return res.status(404).json({ error: 'One or more selected tenancies no longer exist.' });
+    }
+    console.error('Admin tenant user update failed:', error);
+    return res.status(500).json({ error: 'Unable to update tenant access.' });
+  }
+});
+
+app.patch('/api/admin/tenant-requests/:id', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const rawStatus = normalizeText(req.body?.status, 40);
+    const status = rawStatus ? (rawStatus as TenantRequestStatus) : undefined;
+    if (status && !TENANT_REQUEST_STATUSES.has(status)) {
+      return res.status(400).json({ error: 'Invalid tenant request status.' });
+    }
+
+    const request = await updateTenantRequestAdmin(req.params.id, {
+      status,
+      adminNotes:
+        req.body?.adminNotes === undefined
+          ? undefined
+          : normalizeText(req.body.adminNotes, 3000),
+    });
+
+    if (!request) return res.status(404).json({ error: 'Tenant request not found.' });
+
+    if (status) {
+      const tenant = await getTenantUserById(request.tenantUserId);
+      if (tenant?.active) {
+        sendTenantRequestStatusEmail({
+          tenant,
+          request,
+          portalUrl: `${publicBaseUrl(req)}/tenant`,
+        }).catch((emailError) => {
+          console.error('Tenant request status email failed:', emailError);
+        });
+      }
+    }
+
+    return res.json({ success: true, request });
+  } catch (error) {
+    console.error('Admin tenant request update failed:', error);
+    return res.status(500).json({ error: 'Unable to update the tenant request.' });
+  }
+});
+
+app.post(
+  '/api/admin/property-documents/:propertyId',
+  requireAdmin,
+  requireAdminWritePermission('documents'),
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const propertyDoc = await adminDb.collection('properties').doc(req.params.propertyId).get();
+      if (!propertyDoc.exists) return res.status(404).json({ error: 'Property not found.' });
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const title = normalizeText(req.headers['x-document-title'], 180);
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      const category = normalizeText(req.headers['x-document-category'], 64) as TenantDocumentCategory;
+      const tenancyId = normalizeText(req.headers['x-tenancy-id'], 128) || undefined;
+      const audiences = normalizeText(req.headers['x-document-audiences'], 100)
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value): value is PortalAudience => PORTAL_AUDIENCES.has(value as PortalAudience));
+      const clientIds = normalizeText(req.headers['x-client-ids'], 1000)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      if (!title || !fileName || !TENANT_DOCUMENT_CATEGORIES.has(category)) {
+        return res.status(400).json({ error: 'Document title, category and file name are required.' });
+      }
+
+      if (audiences.length === 0) {
+        return res.status(400).json({ error: 'Select at least one document audience.' });
+      }
+
+      const stored = await saveTenantDocumentFile({
+        propertyId: req.params.propertyId,
+        tenancyId,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const document = await createTenantDocumentRecord({
+        propertyId: req.params.propertyId,
+        tenancyId,
+        clientIds,
+        audiences,
+        title,
+        category,
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        storagePath: stored.storagePath,
+        uploadedBy: res.locals.admin.email,
+      });
+
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANCY_PROPERTY_MISMATCH') {
+        return res.status(400).json({ error: 'The selected tenancy does not belong to this property.' });
+      }
+      if (error instanceof Error && error.message === 'CLIENT_PROPERTY_MISMATCH') {
+        return res.status(400).json({ error: 'One or more selected clients are not linked to this property.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Property document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Admin property document upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the property document.' });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/tenant-documents/:tenancyId',
+  requireAdmin,
+  requireAdminWritePermission('documents'),
+  tenantFileBody,
+  async (req, res) => {
+    let savedPath: string | null = null;
+    try {
+      const tenancy = await getTenancyById(req.params.tenancyId);
+      if (!tenancy) return res.status(404).json({ error: 'Tenancy not found.' });
+
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: 'Choose a file to upload.' });
+      }
+
+      const title = normalizeText(req.headers['x-document-title'], 180);
+      const fileName = normalizeText(req.headers['x-file-name'], 160);
+      const category = normalizeText(req.headers['x-document-category'], 64) as TenantDocumentCategory;
+
+      if (!title || !fileName || !TENANT_DOCUMENT_CATEGORIES.has(category)) {
+        return res.status(400).json({ error: 'Document title, category and file name are required.' });
+      }
+
+      const stored = await saveTenantDocumentFile({
+        propertyId: tenancy.propertyId,
+        tenancyId: tenancy.id,
+        fileName,
+        contentType: req.headers['content-type'] || 'application/octet-stream',
+        bytes: req.body,
+      });
+      savedPath = stored.storagePath;
+
+      const document = await createTenantDocumentRecord({
+        tenancyId: tenancy.id,
+        propertyId: tenancy.propertyId,
+        audiences: ['tenant'],
+        title,
+        category,
+        fileName: stored.fileName,
+        contentType: stored.contentType,
+        size: stored.size,
+        storagePath: stored.storagePath,
+        uploadedBy: res.locals.admin.email,
+      });
+
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      if (savedPath) await deleteTenantFile(savedPath).catch(() => undefined);
+      if (error instanceof Error && error.message === 'TENANT_STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({ error: 'Tenant document storage is not configured.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_TYPE_NOT_ALLOWED') {
+        return res.status(400).json({ error: 'That file type is not supported.' });
+      }
+      if (error instanceof Error && error.message === 'TENANT_FILE_SIZE_INVALID') {
+        return res.status(400).json({ error: 'Files must be no larger than 20 MB.' });
+      }
+      console.error('Admin tenant document upload failed:', error);
+      return res.status(500).json({ error: 'Unable to upload the tenant document.' });
+    }
+  }
+);
+
+app.post('/api/admin/tenant-inspections', requireAdmin, requireAdminWritePermission('tenants'), async (req, res) => {
+  try {
+    const tenancyId = normalizeText(req.body?.tenancyId, 128);
+    const propertyId = normalizeText(req.body?.propertyId, 128);
+    const type = normalizeText(req.body?.type, 40) as TenantInspection['type'];
+    const scheduledStart = normalizeText(req.body?.scheduledStart, 80);
+    const scheduledEnd = normalizeText(req.body?.scheduledEnd, 80);
+
+    if (
+      !tenancyId ||
+      !propertyId ||
+      !TENANT_INSPECTION_TYPES.has(type) ||
+      !scheduledStart ||
+      Number.isNaN(Date.parse(scheduledStart)) ||
+      (scheduledEnd && Number.isNaN(Date.parse(scheduledEnd)))
+    ) {
+      return res.status(400).json({ error: 'Valid tenancy, property, inspection type and schedule are required.' });
+    }
+
+    const inspection = await createTenantInspection({
+      tenancyId,
+      propertyId,
+      type,
+      scheduledStart,
+      scheduledEnd: scheduledEnd || undefined,
+      noticeDocumentId: normalizeText(req.body?.noticeDocumentId, 128) || undefined,
+      notes: normalizeText(req.body?.notes, 2000) || undefined,
+    });
+
+    return res.status(201).json({ success: true, inspection });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'TENANCY_PROPERTY_MISMATCH') {
+      return res.status(400).json({ error: 'The selected property does not belong to that tenancy.' });
+    }
+    console.error('Admin tenant inspection creation failed:', error);
+    return res.status(500).json({ error: 'Unable to create the inspection.' });
+  }
+});
+
 async function startServer() {
-  await ensureSeedData();
+  if (!process.env.PRODUCTION_RELEASE_ID) await ensureSeedData();
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

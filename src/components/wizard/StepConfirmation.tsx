@@ -69,6 +69,7 @@ export const StepConfirmation: React.FC<StepConfirmationProps> = ({ booking, onR
         </p>
       </div>
 
+      {booking.managementToken && <a className="block text-center font-bold text-teal-800 underline" href={`/api/bookings/manage/${encodeURIComponent(booking.managementToken)}/calendar`}>Add this appointment to your calendar</a>}
       {/* Booking Reference Box */}
       <div className="bg-[#1A2B4A] text-white rounded-xl p-5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>

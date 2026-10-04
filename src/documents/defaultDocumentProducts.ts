@@ -1,7 +1,11 @@
-import type { DocumentProduct } from '../types/documentRequest';
+import type { DocumentProduct } from '../types/platform';
 
 const standardResidentialDescription =
   'Preparation of the prescribed residential tenancy form for client review before distribution, with digital sending, signing and storage.';
+const standardCommercial =
+  'Preparation of a commercial property document from supplied instructions, subject to ProInspect review before issue.';
+const standardStrata =
+  'Preparation or collation of a strata / building document from supplied property and scheme information, subject to review before issue.';
 
 export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
   {
@@ -10,6 +14,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 1AA',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 250,
     active: true,
     publiclyRequestable: true,
@@ -21,6 +26,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     name: 'Lodgement of Security Bond Money Form Preparation',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -31,6 +37,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     name: 'Variation of Security Bond Money Form',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -41,6 +48,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     name: 'Joint Application for Disposal of Security Bond',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -52,6 +60,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 10',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -63,6 +72,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 11',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -74,6 +84,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 19',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -85,6 +96,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 20',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -96,6 +108,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 21',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -107,6 +120,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 2',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -118,6 +132,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 1A',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -129,6 +144,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 1B',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -140,6 +156,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 1C',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -151,6 +168,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form CP2',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -162,6 +180,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 3',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -173,6 +192,7 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 12',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
@@ -184,9 +204,22 @@ export const DEFAULT_DOCUMENT_PRODUCTS: DocumentProduct[] = [
     formCode: 'Form 13',
     publicDescription: standardResidentialDescription,
     categories: ['residential'],
+    pricingMode: 'fixed',
     priceExGst: 100,
     active: true,
     publiclyRequestable: true,
     order: 17,
   },
+
+{ id:'commercial-lease', name:'Commercial Lease', publicDescription:standardCommercial, categories:['commercial'], pricingMode:'quote', active:true, publiclyRequestable:true, order:100, badge:'Commercial' },
+  { id:'commercial-lease-variation', name:'Commercial Lease Variation', publicDescription:standardCommercial, categories:['commercial'], pricingMode:'quote', active:true, publiclyRequestable:true, order:101 },
+  { id:'commercial-lease-renewal', name:'Commercial Lease Renewal / Extension', publicDescription:standardCommercial, categories:['commercial'], pricingMode:'quote', active:true, publiclyRequestable:true, order:102 },
+  { id:'commercial-notice-letter', name:'Commercial Notice / Formal Letter', publicDescription:standardCommercial, categories:['commercial'], pricingMode:'quote', active:true, publiclyRequestable:true, order:103 },
+  { id:'commercial-authority-agreement', name:'Commercial Authority / Agreement', publicDescription:standardCommercial, categories:['commercial'], pricingMode:'quote', active:true, publiclyRequestable:true, order:104 },
+
+  { id:'strata-owner-notice', name:'Strata Owner / Occupier Notice', publicDescription:standardStrata, categories:['strata-building'], pricingMode:'quote', active:true, publiclyRequestable:true, order:200, badge:'Strata / Building' },
+  { id:'strata-bylaw-document', name:'By-law / Building Rule Document', publicDescription:standardStrata, categories:['strata-building'], pricingMode:'quote', active:true, publiclyRequestable:true, order:201 },
+  { id:'strata-meeting-document', name:'Meeting / Resolution Document', publicDescription:standardStrata, categories:['strata-building'], pricingMode:'quote', active:true, publiclyRequestable:true, order:202 },
+  { id:'strata-compliance-document', name:'Compliance / Contractor Document', publicDescription:standardStrata, categories:['strata-building'], pricingMode:'quote', active:true, publiclyRequestable:true, order:203 },
+  { id:'strata-correspondence', name:'Strata / Building Correspondence', publicDescription:standardStrata, categories:['strata-building'], pricingMode:'quote', active:true, publiclyRequestable:true, order:204 },
 ];

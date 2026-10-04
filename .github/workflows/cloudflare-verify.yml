@@ -1,0 +1,53 @@
+name: Verify Cloudflare platform
+on:
+  push:
+    branches: [main, release/cloudflare-platform]
+  pull_request:
+    branches: [main, release/cloudflare-platform]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cloudflare-verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Require committed browser migration and exact schema
+        run: |
+          python3 scripts/cloudflare/adapt-browser.py
+          git diff --exit-code -- src
+          npm run cloudflare:schema
+          find scripts/cloudflare -name '*.mjs' -exec node --check {} \;
+      - name: Verify security, transactional persistence and deterministic migration
+        run: npm run cloudflare:test
+      - name: Type check preserved application and Cloudflare boundaries
+        run: npm run lint
+      - name: Build actual portals and Google-free Worker
+        run: npm run cloudflare:build
+      - name: Exercise actual booking and portal business APIs against isolated SQLite
+        run: node --experimental-strip-types --test tests/cloudflare-api/run.mjs
+      - name: Validate Worker upload without an account deployment
+        run: npx --yes wrangler@4.147.0 deploy --dry-run --outdir .cloudflare/dry-run
+      - name: Execute local Worker security and persistent API checks
+        run: node scripts/cloudflare/local-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloudflare-build-evidence
+          path: |
+            .cloudflare/bundle-audit.json
+            .cloudflare/local-smoke.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

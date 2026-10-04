@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "action": "disabled",
+  "releaseId": "production-unification",
+  "sourceSha": "9c7e7297bfe3ce09338ee06a868b0244940c65e6",
+  "approve": "",
+  "note": "Cloudflare is the active production completion target. Legacy GCP Stage 4 is frozen as rollback/reference machinery only; no Google Cloud production operation may run from this request."
+}

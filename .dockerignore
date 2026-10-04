@@ -9,3 +9,12 @@ coverage
 .env.*
 Dockerfile*
 README.md
+
+**/__pycache__/
+*.pyc
+private-evidence
+**/.terraform
+**/*.tfstate*
+**/*.tfplan
+infrastructure
+scripts/stage3

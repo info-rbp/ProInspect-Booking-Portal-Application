@@ -140,7 +140,7 @@ export interface AppointmentSlot {
 
 export type BookingStatus = 'confirmed' | 'completed' | 'cancelled';
 export type BookingReadinessStatus = 'ready' | 'pending_notice' | 'access_action_required';
-export type ConfirmationEmailStatus = 'sent' | 'failed' | 'not_configured';
+export type ConfirmationEmailStatus = 'queued' | 'sent' | 'failed' | 'not_configured';
 
 export interface BookingRecord {
   id: string;
@@ -149,6 +149,8 @@ export interface BookingRecord {
   serviceId: string;
   serviceName: string;
   serviceCategory?: ServiceCategory; // New bookings retain the customer-selected category; older records may not have it.
+  propertyId?: string; // Canonical shared property when the booking address matches a known property.
+  clientId?: string; // Canonical client inherited from the linked property where available.
   calendarId?: string;
   calendarEventId?: string;
   calendarHtmlLink?: string;
@@ -168,6 +170,7 @@ export interface BookingRecord {
   };
   status: BookingStatus;
   adminNotes?: string;
+  assignedStaffId?: string;
   confirmationEmail?: {
     status: ConfirmationEmailStatus;
     attemptedAt?: string;
