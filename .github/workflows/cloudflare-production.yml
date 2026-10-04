@@ -45,43 +45,39 @@ jobs:
           export ACTION SOURCE
           git cat-file -e "$SOURCE^{commit}"
           git merge-base --is-ancestor "$SOURCE" HEAD
-          changed="$(git diff --name-only "$SOURCE" HEAD)"
-          if [ "$ACTION" = accept ] || [ "$ACTION" = cutover ] || [ "$ACTION" = live-accept ] || [ "$ACTION" = close ]; then
-            unexpected="$(printf '%s\n' "$changed" | grep -Ev '^ops/cloudflare-production-(request|acceptance)\.json$' || true)"
-          else
-            unexpected="$(printf '%s\n' "$changed" | grep -v '^ops/cloudflare-production-request\.json$' || true)"
-          fi
-          test -z "$unexpected" || { echo "Production control commits contain source changes: $unexpected"; exit 1; }
-          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/actions/workflows/cloudflare-verify.yml/runs?head_sha=$SOURCE&status=completed&per_page=20" > /tmp/runs.json
+          python3 - <<'PY'
+          import json,os,subprocess
+          source=os.environ['SOURCE']; action=os.environ['ACTION']
+          changed=subprocess.check_output(['git','diff','--name-only',source,'HEAD'],text=True).splitlines()
+          allowed={'ops/cloudflare-production-request.json','ops/cloudflare-staging-request.json'}
+          if action in {'accept','cutover','live-accept','close'}:
+              allowed.add('ops/cloudflare-production-acceptance.json')
+          unexpected=set(changed)-allowed
+          if unexpected: raise SystemExit('Frozen source changed: '+', '.join(sorted(unexpected)))
+          if 'ops/cloudflare-staging-request.json' in changed:
+              staging=json.load(open('ops/cloudflare-staging-request.json'))
+              if staging.get('schemaVersion')!=1 or staging.get('action')!='rehearse' or staging.get('sourceSha')!=source:
+                  raise SystemExit('Staging control metadata is not bound to the same exact source.')
+          PY
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/actions/workflows/cloudflare-verify.yml/runs?head_sha=$SOURCE&status=completed&per_page=20" > /tmp/runs.json
           python3 - <<'PY'
           import json,os
           runs=json.load(open('/tmp/runs.json')).get('workflow_runs',[])
           if not any(r.get('head_sha')==os.environ['SOURCE'] and r.get('conclusion')=='success' for r in runs):
               raise SystemExit('Exact Cloudflare source SHA has not passed the permanent verification workflow.')
           PY
-          if [ "$ACTION" != "readiness" ]; then
-            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json"               "https://api.github.com/repos/$REPO/commits/$SOURCE/status" > /tmp/source-status.json
-            ACTION="$ACTION" python3 - <<'PY'
-          import json, os
-          statuses=json.load(open('/tmp/source-status.json')).get('statuses',[])
+          if [ "$ACTION" != readiness ]; then
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/commits/$SOURCE/status" > /tmp/source-status.json
+            python3 - <<'PY'
+          import json,os
           latest={}
-          for row in statuses:
+          for row in json.load(open('/tmp/source-status.json')).get('statuses',[]):
               latest.setdefault(row.get('context'),row.get('state'))
-          def require(context,message):
-              if latest.get(context)!='success':
-                  raise SystemExit(message)
-          require('cloudflare/staging-rehearsal','Exact source SHA has not passed isolated Cloudflare staging rehearsal.')
-          action=os.environ['ACTION']
-          previous={
-              'bootstrap':('cloudflare/production-readiness','Production readiness has not passed for this exact source.'),
-              'migrate':('cloudflare/production-bootstrap','Production bootstrap has not passed for this exact source.'),
-              'promote':('cloudflare/production-migration','Production migration has not passed for this exact source.'),
-              'accept':('cloudflare/production-pretraffic','Pre-traffic production deployment has not passed for this exact source.'),
-              'cutover':('cloudflare/production-pretraffic-acceptance','Pre-traffic human acceptance has not passed for this exact source.'),
-              'live-accept':('cloudflare/production-domain-cutover','Custom-domain cutover has not passed for this exact source.'),
-              'close':('cloudflare/production-live-acceptance','Controlled live acceptance has not passed for this exact source.'),
-          }.get(action)
-          if previous: require(*previous)
+          def require(context):
+              if latest.get(context)!='success': raise SystemExit('Required exact-source gate has not passed: '+context)
+          require('cloudflare/staging-rehearsal')
+          previous={'bootstrap':'cloudflare/production-readiness','migrate':'cloudflare/production-bootstrap','promote':'cloudflare/production-migration','accept':'cloudflare/production-pretraffic','cutover':'cloudflare/production-pretraffic-acceptance','live-accept':'cloudflare/production-domain-cutover','close':'cloudflare/production-live-acceptance'}
+          require(previous[os.environ['ACTION']])
           PY
           fi
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
@@ -113,7 +109,7 @@ jobs:
         run: node scripts/cloudflare/production-readiness.mjs
       - name: Record exact-source production readiness
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-readiness","description":"Cloudflare production capability readiness passed"}' >/dev/null
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-readiness","description":"Cloudflare production capability readiness passed"}' >/dev/null
 
   production:
     if: needs.request.outputs.action != 'readiness'
@@ -139,6 +135,16 @@ jobs:
         with:
           ref: ${{ needs.request.outputs.source }}
           persist-credentials: false
+      - name: Read acceptance receipt from the validated control commit
+        if: needs.request.outputs.action == 'accept' || needs.request.outputs.action == 'live-accept'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .control
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /ops/cloudflare-production-acceptance.json
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -146,6 +152,19 @@ jobs:
       - run: npm ci
       - name: Re-run complete Cloudflare source verification before mutation
         run: npm run cloudflare:check
+      # The candidate must exist before an operator can sign in. Authentication
+      # and real booking/email checks gate acceptance and domain cutover, not
+      # the earlier maintenance or workers.dev candidate deployment.
+      - name: Require real authenticated operator input for production acceptance
+        if: needs.request.outputs.action == 'accept'
+        env:
+          SMOKE_COOKIE: ${{ secrets.CLOUDFLARE_SMOKE_SESSION_COOKIE }}
+          SMOKE_CSRF: ${{ secrets.CLOUDFLARE_SMOKE_CSRF }}
+          SMOKE_TURNSTILE: ${{ secrets.CLOUDFLARE_SMOKE_TURNSTILE_TOKEN }}
+        run: |
+          node - <<'NODE'
+          if(!(process.env.SMOKE_COOKIE&&process.env.SMOKE_CSRF)&&!process.env.SMOKE_TURNSTILE)throw new Error('Production acceptance needs a real operator session or Turnstile proof; no production test identity is manufactured.');
+          NODE
       - name: Provision or discover production Cloudflare resources
         env:
           CLOUDFLARE_NEED_TURNSTILE_SECRET: ${{ needs.request.outputs.action == 'bootstrap' && '1' || '0' }}
@@ -173,8 +192,7 @@ jobs:
           create_credentials_file: true
       - uses: google-github-actions/setup-gcloud@v3
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate' || needs.request.outputs.action == 'close'
-
-      - name: Transfer existing production cryptographic/integration secrets to Worker
+      - name: Transfer existing production cryptographic and integration secrets to Worker
         if: needs.request.outputs.action == 'bootstrap'
         run: |
           set -euo pipefail
@@ -197,7 +215,7 @@ jobs:
       - name: Deploy full Worker in maintenance mode
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
         run: npx --yes wrangler@4.147.0 deploy --config .cloudflare/wrangler.production.json
-      - name: Verify maintenance runtime is backend-backed, not a static SPA
+      - name: Verify maintenance runtime is backend-backed
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
         env:
           CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
@@ -206,8 +224,7 @@ jobs:
       - name: Record production bootstrap
         if: needs.request.outputs.action == 'bootstrap'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-bootstrap","description":"Production Cloudflare resources and maintenance Worker verified"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-bootstrap","description":"Production Cloudflare resources and maintenance Worker verified"}' >/dev/null
       - name: Freeze legacy Cloud Run public writer
         if: needs.request.outputs.action == 'migrate'
         run: |
@@ -222,7 +239,7 @@ jobs:
             gcloud run services remove-iam-policy-binding proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --member=allUsers --role=roles/run.invoker --quiet
             touch /tmp/legacy-public-removed
           fi
-          echo "Legacy public writer is frozen."
+          echo 'Legacy public invocation disabled; external writers require separate review.'
       - name: Capture pre-migration D1 rollback bookmark
         if: needs.request.outputs.action == 'migrate'
         run: node scripts/cloudflare/capture-d1-bookmark.mjs pre-migration
@@ -236,40 +253,17 @@ jobs:
           BACKUP_PREFIX="cloudflare-cutover/$SOURCE_SHA/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           FIRESTORE_URI="gs://$GCP_BACKUP_BUCKET/$BACKUP_PREFIX/firestore"
           STORAGE_URI="gs://$GCP_BACKUP_BUCKET/$BACKUP_PREFIX/firebase-storage"
-          gcloud firestore export "$FIRESTORE_URI" \
-            --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a \
-            --project="$GCP_PROJECT_ID" \
-            --impersonate-service-account="$GCP_MIGRATION_SA" \
-            --quiet
-          gcloud storage ls "$FIRESTORE_URI/**" \
-            --impersonate-service-account="$GCP_MIGRATION_SA" > /tmp/firestore-backup-files.txt
+          gcloud firestore export "$FIRESTORE_URI" --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a --project="$GCP_PROJECT_ID" --impersonate-service-account="$GCP_MIGRATION_SA" --quiet
+          gcloud storage ls "$FIRESTORE_URI/**" --impersonate-service-account="$GCP_MIGRATION_SA" > /tmp/firestore-backup-files.txt
           test -s /tmp/firestore-backup-files.txt
-          gcloud storage rsync "gs://$GCP_FIREBASE_STORAGE_BUCKET" "$STORAGE_URI" \
-            --recursive \
-            --checksums-only \
-            --impersonate-service-account="$GCP_MIGRATION_SA"
+          gcloud storage rsync "gs://$GCP_FIREBASE_STORAGE_BUCKET" "$STORAGE_URI" --recursive --checksums-only --impersonate-service-account="$GCP_MIGRATION_SA"
           MIGRATION_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_MIGRATION_SA")"
-          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" node scripts/cloudflare/verify-gcs-backup.mjs \
-            --source-bucket="$GCP_FIREBASE_STORAGE_BUCKET" \
-            --backup-bucket="$GCP_BACKUP_BUCKET" \
-            --backup-prefix="$BACKUP_PREFIX/firebase-storage" \
-            --output=.cloudflare/storage-backup-evidence.json
+          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" node scripts/cloudflare/verify-gcs-backup.mjs --source-bucket="$GCP_FIREBASE_STORAGE_BUCKET" --backup-bucket="$GCP_BACKUP_BUCKET" --backup-prefix="$BACKUP_PREFIX/firebase-storage" --output=.cloudflare/storage-backup-evidence.json
           export FIRESTORE_URI STORAGE_URI BACKUP_PREFIX
           node - <<'NODE'
           const fs=require('fs');
           const storage=JSON.parse(fs.readFileSync('.cloudflare/storage-backup-evidence.json','utf8'));
-          const evidence={
-            schemaVersion:1,
-            sourceSha:process.env.SOURCE_SHA,
-            firestoreExportUri:process.env.FIRESTORE_URI,
-            firebaseStorageBackupUri:process.env.STORAGE_URI,
-            storageObjectCount:storage.objectCount,
-            storageTotalBytes:storage.totalBytes,
-            storageManifestSha256:storage.sourceManifestSha256,
-            storageBackupManifestSha256:storage.backupManifestSha256,
-            reconciled:storage.reconciled===true,
-            completedAt:new Date().toISOString()
-          };
+          const evidence={schemaVersion:1,sourceSha:process.env.SOURCE_SHA,firestoreExportUri:process.env.FIRESTORE_URI,firebaseStorageBackupUri:process.env.STORAGE_URI,storageObjectCount:storage.objectCount,storageTotalBytes:storage.totalBytes,storageManifestSha256:storage.sourceManifestSha256,storageBackupManifestSha256:storage.backupManifestSha256,reconciled:storage.reconciled===true,completedAt:new Date().toISOString()};
           if(!evidence.reconciled)throw new Error('Final Firebase Storage backup did not reconcile.');
           fs.writeFileSync('.cloudflare/gcp-backup-evidence.json',JSON.stringify(evidence,null,2)+'\n',{mode:0o600});
           console.log(JSON.stringify({...evidence,firestoreExportUri:'[recorded]',firebaseStorageBackupUri:'[recorded]'},null,2));
@@ -281,20 +275,18 @@ jobs:
           set -euo pipefail
           umask 077
           MIGRATION_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_MIGRATION_SA")"
-          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" npx tsx scripts/cloudflare/export-source.ts             --project="$GCP_PROJECT_ID"             --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a             --out=private-migration
-          RUNTIME_TOKEN="$(gcloud auth print-access-token --impersonate-service-account="$GCP_RUNTIME_SA")"
-          GOOGLE_OAUTH_ACCESS_TOKEN="$RUNTIME_TOKEN" GOOGLE_CALENDAR_ID="$GOOGLE_CALENDAR_ID"             node scripts/cloudflare/import-legacy-calendar-busy.mjs private-migration
-          unset MIGRATION_TOKEN RUNTIME_TOKEN
+          GOOGLE_OAUTH_ACCESS_TOKEN="$MIGRATION_TOKEN" npx tsx scripts/cloudflare/export-source.ts --project="$GCP_PROJECT_ID" --database=ai-studio-7242850f-c156-4268-aeb7-c8d47ff6931a --out=private-migration
+          node scripts/cloudflare/import-legacy-calendar-busy.mjs private-migration
+          unset MIGRATION_TOKEN
       - name: Apply and reconcile frozen Firestore to production D1
         if: needs.request.outputs.action == 'migrate'
         run: |
           set -euo pipefail
           DIGEST="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('private-migration/d1-import-plan.json')).digest)")"
-          echo "CLOUDFLARE_MIGRATION_DIGEST=$DIGEST"
           CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs | tee /tmp/d1-first.json
           CLOUDFLARE_MIGRATION_DIGEST="$DIGEST" node scripts/cloudflare/apply-production-migration.mjs > /tmp/d1-second.json
           node - <<'NODE'
-          const fs=require('fs'),r=JSON.parse(fs.readFileSync('/tmp/d1-second.json','utf8'));
+          const r=JSON.parse(require('fs').readFileSync('/tmp/d1-second.json','utf8'));
           if(r.inserted!==0)throw new Error('Second production D1 migration pass was not zero-write.');
           console.log('D1_ZERO_WRITE_REPEAT=success');
           NODE
@@ -310,20 +302,21 @@ jobs:
         if: needs.request.outputs.action == 'migrate'
         run: |
           node - <<'NODE'
-          const fs=require('fs'),crypto=require('crypto');
+          const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('private-migration/d1-import-plan.json'));
           const s=JSON.parse(fs.readFileSync('private-migration/storage-migration.json'));
           const pre=JSON.parse(fs.readFileSync('.cloudflare/d1-pre-migration-bookmark.json'));
           const post=JSON.parse(fs.readFileSync('.cloudflare/d1-post-migration-bookmark.json'));
           const backup=JSON.parse(fs.readFileSync('.cloudflare/gcp-backup-evidence.json'));
           const evidence={sourceSha:process.env.SOURCE_SHA,migrationDigest:p.digest,sourceSha256:p.sourceSha256,counts:p.counts,storageObjects:s.objects.length,storageBytes:s.bytes,gcpBackupReconciled:backup.reconciled===true,d1PreMigrationBookmarkCaptured:Boolean(pre.bookmark),d1PostMigrationBookmarkCaptured:Boolean(post.bookmark),completedAt:new Date().toISOString()};
+          if(!evidence.gcpBackupReconciled||!evidence.d1PreMigrationBookmarkCaptured||!evidence.d1PostMigrationBookmarkCaptured)throw new Error('Migration recovery evidence is incomplete.');
           fs.writeFileSync('.cloudflare/migration-evidence.json',JSON.stringify(evidence,null,2)+'\n');
           console.log(JSON.stringify(evidence,null,2));
           NODE
       - name: Record production migration reconciliation
         if: needs.request.outputs.action == 'migrate'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-migration","description":"Final backup, D1/R2 migration and reconciliation passed"}' >/dev/null
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-migration","description":"Final backup, D1/R2 migration and reconciliation passed"}' >/dev/null
       - uses: actions/upload-artifact@v4
         if: needs.request.outputs.action == 'bootstrap' || needs.request.outputs.action == 'migrate'
         with:
@@ -338,7 +331,6 @@ jobs:
           if-no-files-found: ignore
           include-hidden-files: true
           retention-days: 30
-
       - name: Build and deploy accepted Worker live on workers.dev
         if: needs.request.outputs.action == 'promote'
         env:
@@ -355,24 +347,25 @@ jobs:
           CLOUDFLARE_EXPECT_MODE: live
         run: node scripts/cloudflare/remote-smoke.mjs
       - name: Verify production booking and email through deployed Worker
-        if: needs.request.outputs.action == 'promote'
+        if: needs.request.outputs.action == 'accept'
         env:
           CLOUDFLARE_SMOKE_URL: https://proinspect-platform.delicate-dream-e4c9.workers.dev
           CLOUDFLARE_SMOKE_EMAIL: info@proinspect.systems
+          CLOUDFLARE_SMOKE_SESSION_COOKIE: ${{ secrets.CLOUDFLARE_SMOKE_SESSION_COOKIE }}
+          CLOUDFLARE_SMOKE_CSRF: ${{ secrets.CLOUDFLARE_SMOKE_CSRF }}
+          CLOUDFLARE_SMOKE_TURNSTILE_TOKEN: ${{ secrets.CLOUDFLARE_SMOKE_TURNSTILE_TOKEN }}
         run: node scripts/cloudflare/remote-booking-email-smoke.mjs
       - name: Record pre-traffic production deployment
         if: needs.request.outputs.action == 'promote'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-pretraffic","description":"Migrated production Worker passed workers.dev pre-traffic checks"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-pretraffic","description":"Migrated production Worker passed workers.dev pre-traffic checks"}' >/dev/null
       - name: Validate pre-traffic human acceptance receipt
         if: needs.request.outputs.action == 'accept'
-        run: node scripts/cloudflare/validate-acceptance.mjs pretraffic ops/cloudflare-production-acceptance.json "$SOURCE_SHA"
+        run: node scripts/cloudflare/validate-acceptance.mjs pretraffic .control/ops/cloudflare-production-acceptance.json "$SOURCE_SHA"
       - name: Record pre-traffic human acceptance
         if: needs.request.outputs.action == 'accept'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-pretraffic-acceptance","description":"Production-resource human acceptance passed"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-pretraffic-acceptance","description":"Production-resource human acceptance passed"}' >/dev/null
       - name: Reconcile production WAF baseline before custom-domain cutover
         if: needs.request.outputs.action == 'cutover'
         env:
@@ -399,16 +392,14 @@ jobs:
       - name: Record custom-domain cutover
         if: needs.request.outputs.action == 'cutover'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-domain-cutover","description":"bookings.proinspect.systems cut over to accepted Worker"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-domain-cutover","description":"bookings.proinspect.systems cut over to accepted Worker"}' >/dev/null
       - name: Validate controlled live production acceptance receipt
         if: needs.request.outputs.action == 'live-accept'
-        run: node scripts/cloudflare/validate-acceptance.mjs live ops/cloudflare-production-acceptance.json "$SOURCE_SHA"
+        run: node scripts/cloudflare/validate-acceptance.mjs live .control/ops/cloudflare-production-acceptance.json "$SOURCE_SHA"
       - name: Record controlled live acceptance
         if: needs.request.outputs.action == 'live-accept'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-live-acceptance","description":"Controlled live production acceptance passed"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-live-acceptance","description":"Controlled live production acceptance passed"}' >/dev/null
       - name: Verify closure state
         if: needs.request.outputs.action == 'close'
         run: |
@@ -424,27 +415,19 @@ jobs:
       - name: Record Cloudflare production closure
         if: needs.request.outputs.action == 'close'
         run: |
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data '{"state":"success","context":"cloudflare/production-closed","description":"Cloudflare production release closed with legacy GCP read-only"}' >/dev/null
-
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data '{"state":"success","context":"cloudflare/production-closed","description":"Cloudflare production release closed with legacy public invocation disabled"}' >/dev/null
       - name: Mark failed production phase on exact source
         if: failure()
         run: |
-          case "$ACTION" in
-            bootstrap) CONTEXT=cloudflare/production-bootstrap ;;
-            migrate) CONTEXT=cloudflare/production-migration ;;
-            promote) CONTEXT=cloudflare/production-pretraffic ;;
-            accept) CONTEXT=cloudflare/production-pretraffic-acceptance ;;
-            cutover) CONTEXT=cloudflare/production-domain-cutover ;;
-            live-accept) CONTEXT=cloudflare/production-live-acceptance ;;
-            close) CONTEXT=cloudflare/production-closed ;;
-            *) CONTEXT=cloudflare/production ;;
-          esac
-          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA"             --data "{"state":"failure","context":"$CONTEXT","description":"Cloudflare production phase failed"}" >/dev/null || true
-
+          node - <<'NODE' > /tmp/phase-failure.json
+          const contexts={bootstrap:'production-bootstrap',migrate:'production-migration',promote:'production-pretraffic',accept:'production-pretraffic-acceptance',cutover:'production-domain-cutover','live-accept':'production-live-acceptance',close:'production-closed'};
+          console.log(JSON.stringify({state:'failure',context:'cloudflare/'+(contexts[process.env.ACTION]||'production'),description:'Cloudflare production phase failed'}));
+          NODE
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/statuses/$SOURCE_SHA" --data-binary @/tmp/phase-failure.json >/dev/null || true
       - name: Restore legacy public application if final migration fails
         if: failure() && needs.request.outputs.action == 'migrate'
         run: |
           if [ -f /tmp/legacy-public-removed ]; then
             gcloud run services add-iam-policy-binding proinspect-booking-portal-application --region=europe-west1 --project="$GCP_PROJECT_ID" --member=allUsers --role=roles/run.invoker --quiet
-            echo "Legacy Cloud Run public access restored after migration failure."
+            echo 'Legacy Cloud Run public access restored after migration failure.'
           fi

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 export const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 export const checksum=v=>createHash('sha256').update(typeof v==='string'||Buffer.isBuffer(v)?v:JSON.stringify(canonical(v))).digest('hex');
 const source=readFileSync(new URL('../../src/cloudflare/collections.ts',import.meta.url),'utf8');
@@ -49,7 +50,7 @@ export function validateObjectManifest(objects){
  }
  return {objects:objects.length,bytes:objects.reduce((n,x)=>n+x.size,0),sha256:checksum(objects)};
 }
-if(process.argv[1]?.endsWith('migration.mjs')){
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const [input,out]=process.argv.slice(2);if(!input||!out)throw new Error('Usage: node scripts/cloudflare/migration.mjs canonical-export.json private-output-directory');
  const plan=createImportPlan(JSON.parse(readFileSync(input,'utf8')));mkdirSync(out,{recursive:true,mode:0o700});
  writeFileSync(path.join(out,'d1-import-plan.json'),JSON.stringify(plan,null,2)+'\n',{mode:0o600});

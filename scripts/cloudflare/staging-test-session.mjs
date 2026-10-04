@@ -1,9 +1,7 @@
 import {readFileSync} from 'node:fs';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
-
 const hash=value=>createHash('sha256').update(value).digest('hex');
-/** Test fixtures are allowed only on the isolated staging database. This does
- * not certify inbox login or public Turnstile acceptance and never runs on production. */
+/** Isolated, unprivileged staging fixture. Never production login or inbox evidence. */
 export async function createStagingTestSession(base){
  const resources=JSON.parse(readFileSync('.cloudflare/staging-resources.json','utf8'));
  if(resources.environment!=='staging'||resources.appUrl!==base||resources.workerName!=='proinspect-platform-staging'||!String(resources.database?.name).startsWith('proinspect-platform-staging-'))throw new Error('Isolated staging fixture target required');
@@ -30,12 +28,19 @@ export async function createStagingTestSession(base){
   await query('DELETE FROM login_challenges WHERE token_hash=?',[challengeHash]);
   if(userId)await query('DELETE FROM auth_identities WHERE id=? AND email=?',[userId,email]);
  };
+ const mailStatus=async(reference)=>{
+  if(!/^PI-[A-Za-z0-9-]+$/.test(reference))throw new Error('Controlled booking reference required');
+  const rows=await query("SELECT json_extract(b.data,'$.confirmationEmail.status') AS bookingStatus,o.state,o.attempts,o.error_code FROM bookings b LEFT JOIN email_outbox o ON json_extract(b.data,'$.confirmationEmail.providerMessageId')='outbox:'||o.id WHERE json_extract(b.data,'$.bookingReference')=? AND json_extract(b.data,'$.property.customerName')='ProInspect Cloudflare Acceptance'",[reference]);
+  if(rows.length!==1)throw new Error('Controlled staging booking not uniquely available');
+  const row=rows[0];
+  return {bookingStatus:String(row.bookingStatus||''),state:String(row.state||''),attempts:Number(row.attempts||0),code:/^[A-Z_]{1,64}$/.test(row.error_code||'')?row.error_code:null};
+ };
  try{
   await query('INSERT INTO login_challenges(token_hash,email,audience,expires_at,created_at) VALUES(?,?,?,?,?)',[challengeHash,email,'client',Date.now()+120000,Date.now()]);
   const response=await fetch(base+'/api/auth/consume',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({email,audience:'client',token:challenge})});
   const body=await response.json();
   cookie=(response.headers.get('set-cookie')||'').split(';')[0];userId=body.user?.uid||'';
   if(!response.ok||!cookie.startsWith('__Host-proinspect-session=')||!userId||!body.user?.csrf)throw new Error('Staging fixture session could not be established');
-  return {headers:{Cookie:cookie,'X-CSRF-Token':body.user.csrf},cleanup};
+  return {headers:{Cookie:cookie,'X-CSRF-Token':body.user.csrf},cleanup,mailStatus};
  }catch(error){await cleanup();throw error;}
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "54aad8f3e139fd0ee6c3d6f84cd897d09bf003f1",
-  "note": "Rehearse the verified source with explicit OAuth transport, read-only source diagnostics, deterministic migration, and an isolated unprivileged staging session fixture. Production Turnstile, permissions, migration reconciliation, and acceptance gates remain unchanged."
+  "sourceSha": "0631d743e44ec38ac989724cf81344f5cf8271fe",
+  "note": "Repeat the verified migration and live staging checks with native email attachment mapping, private provider error diagnostics, and rate-safe mail verification. This request does not alter production data, DNS or acceptance flags."
 }
