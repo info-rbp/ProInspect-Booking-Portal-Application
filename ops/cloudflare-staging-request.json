@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "e1df6c23ee233ff43cf8ea5eecc9baae5b420cf5",
-  "note": "Rehearse the verified candidate with corrected migration CLI detection, timed and all-day Calendar availability, environment-bound storage, and exact deployed-source verification. Production changes remain separately gated."
+  "sourceSha": "0631d743e44ec38ac989724cf81344f5cf8271fe",
+  "note": "Repeat the verified migration and live staging checks with native email attachment mapping, private provider error diagnostics, and rate-safe mail verification. This request does not alter production data, DNS or acceptance flags."
 }
