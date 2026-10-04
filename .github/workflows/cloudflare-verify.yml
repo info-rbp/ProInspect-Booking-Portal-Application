@@ -1,9 +1,10 @@
 name: Verify Cloudflare platform
 on:
   push:
-    branches: [release/cloudflare-platform]
+    branches: [main, release/cloudflare-platform]
   pull_request:
-    branches: [release/cloudflare-platform]
+    branches: [main, release/cloudflare-platform]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -27,6 +28,7 @@ jobs:
           python3 scripts/cloudflare/adapt-browser.py
           git diff --exit-code -- src
           npm run cloudflare:schema
+          find scripts/cloudflare -name '*.mjs' -exec node --check {} \;
       - name: Verify security, transactional persistence and deterministic migration
         run: npm run cloudflare:test
       - name: Type check preserved application and Cloudflare boundaries
