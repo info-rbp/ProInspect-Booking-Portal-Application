@@ -1,37 +1,48 @@
 import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import {createImportPlan} from './migration.mjs';
 
 const directory=process.argv[2]||'private-migration';
-const token=(process.env.GOOGLE_OAUTH_ACCESS_TOKEN||'').trim();
 const defaultCalendar=(process.env.GOOGLE_CALENDAR_ID||'').trim();
-if(!token||!defaultCalendar)throw new Error('One-time Google Calendar migration token and default calendar ID are required');
+if(!defaultCalendar)throw new Error('The reviewed legacy calendar ID is required');
 const exportPath=directory+'/canonical-export.json';
 const planPath=directory+'/d1-import-plan.json';
 const data=JSON.parse(readFileSync(exportPath,'utf8'));
+if(data.source?.projectId!=='business-plan-applicatio-17047')throw new Error('Reviewed source project required for Calendar import');
+// A cloud-platform token does not authorize Google Calendar. Mint a narrow,
+// short-lived Calendar token through the already-authorized Terraform identity.
+const principal='proinspect-booking-runtime@business-plan-applicatio-17047.iam.gserviceaccount.com';
+let token=(process.env.GOOGLE_CALENDAR_ACCESS_TOKEN||'').trim();
+if(!token){
+ let baseToken;
+ try{baseToken=execFileSync('gcloud',['auth','print-access-token','--project=business-plan-applicatio-17047'],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:30000}).trim();}
+ catch{throw new Error('Unable to obtain the authorized migration-controller token');}
+ const response=await fetch('https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/'+principal+':generateAccessToken',{method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:'Bearer '+baseToken,'Content-Type':'application/json'},body:JSON.stringify({scope:['https://www.googleapis.com/auth/calendar.readonly'],lifetime:'900s'})});
+ const result=await response.json().catch(()=>({}));
+ if(!response.ok||!result.accessToken)throw new Error('Read-only Calendar token mint failed (HTTP '+response.status+')');
+ token=result.accessToken;baseToken='';
+}
 const collections=data.collections||{};
 const services=collections.services||{},bookings=collections.bookings||{};
-const resources=new Map();
-resources.set('proinspect-primary',defaultCalendar);
+const resources=new Map();resources.set('proinspect-primary',defaultCalendar);
 for(const service of Object.values(services))if(service?.calendarId)resources.set(service.calendarId,service.calendarId);
-
 const known=new Set();
-for(const booking of Object.values(bookings)){
- if(booking?.calendarEventId)known.add(String(booking.calendarEventId));
-}
-const start=new Date();
-start.setUTCDate(start.getUTCDate()-2);
-const end=new Date();
-end.setUTCFullYear(end.getUTCFullYear()+2);
-
+for(const booking of Object.values(bookings))if(booking?.calendarEventId)known.add(String(booking.calendarEventId));
+const start=new Date();start.setUTCDate(start.getUTCDate()-2);
+const end=new Date();end.setUTCFullYear(end.getUTCFullYear()+2);
 async function events(calendarId,pageToken){
  const url=new URL('https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calendarId)+'/events');
  url.searchParams.set('timeMin',start.toISOString());url.searchParams.set('timeMax',end.toISOString());
  url.searchParams.set('singleEvents','true');url.searchParams.set('orderBy','startTime');url.searchParams.set('maxResults','2500');
  if(pageToken)url.searchParams.set('pageToken',pageToken);
- const response=await fetch(url,{headers:{Authorization:'Bearer '+token}});
- if(!response.ok)throw new Error('Legacy calendar read failed for a reviewed resource ('+response.status+')');
- return response.json();
+ const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:'Bearer '+token}});
+ const payload=await response.json().catch(()=>({}));
+ if(!response.ok){
+  const reason=String(payload.error?.errors?.[0]?.reason||'unknown').replace(/[^A-Za-z_]/g,'').slice(0,80);
+  throw new Error('Legacy calendar read failed (HTTP '+response.status+', reason '+reason+'); source event access remains required');
+ }
+ return payload;
 }
 let imported=0,skippedKnown=0,skippedInvalid=0;
 for(const [resourceId,calendarId] of resources){
@@ -47,8 +58,7 @@ for(const [resourceId,calendarId] of resources){
    if(!(s<e)){skippedInvalid++;continue;}
    const hash=createHash('sha256').update(resourceId+'\0'+String(event.id||'')+'\0'+s+'\0'+e).digest('hex').slice(0,32);
    const id='legacy_busy_'+hash;
-   collections.nativeCalendarEvents[id]={id,resourceId,start:s,end:e,source:'legacy-google-busy',legacyEventId:String(event.id||''),createdAt:data.capturedAt};
-   imported++;
+   collections.nativeCalendarEvents[id]={id,resourceId,start:s,end:e,source:'legacy-google-busy',legacyEventId:String(event.id||''),createdAt:data.capturedAt};imported++;
   }
   pageToken=page.nextPageToken;
  }while(pageToken);
