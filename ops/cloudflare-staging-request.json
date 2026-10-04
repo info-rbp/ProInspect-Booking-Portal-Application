@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "b19c436e6202ec03c2674535693dab1c3257e43b",
-  "note": "Rehearse the exact verified Cloudflare release in isolated staging. Recycle only stale staging D1 databases if required by account limits, then prove migration, Worker deployment, queue processing and transactional email. Production Cloudflare resources, DNS and legacy writer state remain untouched."
+  "sourceSha": "9069514c0026b9c8b4f3b87f93c0d78550e05496",
+  "note": "Rehearse the exact verified Cloudflare release in isolated staging. Recycle only stale staging D1 databases and wait for quota release before creating a fresh rehearsal database, then prove migration, Worker deployment, queue processing and transactional email. Production resources, DNS and legacy writer state remain untouched."
 }
