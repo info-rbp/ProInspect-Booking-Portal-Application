@@ -38,7 +38,16 @@ async function ensureD1(account,name){
   if(attempt===19)throw new Error('Timed out waiting for stale staging D1 quota to be released');
   await new Promise(resolve=>setTimeout(resolve,3000));
  }
- return api('/accounts/'+account+'/d1/database',{method:'POST',body:{name,primary_location_hint:'oc'}});
+ for(let attempt=0;attempt<20;attempt++){
+  try{
+   return await api('/accounts/'+account+'/d1/database',{method:'POST',body:{name,primary_location_hint:'oc'}});
+  }catch(error){
+   const message=String(error?.message||error);
+   if(!message.includes('System limit reached: databases per account')||attempt===19)throw error;
+   await new Promise(resolve=>setTimeout(resolve,5000));
+  }
+ }
+ throw new Error('Unable to provision staging D1 after quota propagation retries');
 }
 async function ensureBucket(account,name){
  const listed=await api('/accounts/'+account+'/r2/buckets?name='+encodeURIComponent(name));
