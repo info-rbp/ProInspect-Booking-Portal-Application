@@ -61,7 +61,7 @@ async function ensureTurnstile(account,host){
  if(!widget){widget=await api('/accounts/'+account+'/challenges/widgets',{method:'POST',body:{name,domains:[host],mode:'managed'}});secret=widget.secret||'';}
  else {
   if((widget.domains||[]).slice().sort().join(',')!==host)widget=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey,{method:'PUT',body:{name,domains:[host],mode:'managed'}});
-  const rotated=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey+'/rotate_secret',{method:'POST'});secret=rotated.secret||'';
+  const rotated=await api('/accounts/'+account+'/challenges/widgets/'+widget.sitekey+'/rotate_secret',{method:'POST',body:{invalidate_immediately:true}});secret=rotated.secret||'';
  }
  if(!widget?.sitekey||!secret)throw new Error('Staging Turnstile widget/secret could not be established');
  return {sitekey:widget.sitekey,secret};
