@@ -21,10 +21,10 @@ A release cannot be called complete because it builds or because the landing pag
 - [ ] Staff RBAC role matrix passes.
 - [ ] Work order/contractor/approval lifecycle passes.
 - [ ] Report Tool round-trip passes.
-- [ ] Queue/email delivery to staging sink passes.
+- [ ] Queue/email delivery through the native Worker `send_email` binding reaches `sent` and the controlled staging sink receives the message.
 
 ## Production pre-traffic
-- [ ] Cloudflare readiness passes D1/R2/Queues/Turnstile/Email/Worker capability gates.
+- [ ] Cloudflare readiness passes D1/R2/Queues/Turnstile/Worker route/WAF capability gates, and exact-source staging has already proven Worker-bound email delivery.
 - [ ] Production bootstrap deploys full Worker in maintenance mode.
 - [ ] Legacy writer is frozen only after Cloudflare maintenance is verified.
 - [ ] Final Firestore backup/export evidence exists.
