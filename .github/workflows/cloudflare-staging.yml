@@ -191,12 +191,12 @@ jobs:
           STAGING_URL="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).appUrl)")"
           CLOUDFLARE_SMOKE_URL="$STAGING_URL" CLOUDFLARE_EXPECT_MODE=live node scripts/cloudflare/remote-smoke.mjs
 
-      - name: Verify Cloudflare Email Service to controlled staging sink
+      - name: Verify transactional email through deployed Worker
+        env:
+          CLOUDFLARE_SMOKE_EMAIL: info@proinspect.systems
         run: |
-          set -euo pipefail
-          ACCOUNT="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).accountId)")"
-          curl -fsS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/email/sending/send"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             -H "Content-Type: application/json"             --data '{"to":"info@proinspect.systems","from":"bookings@proinspect.systems","subject":"ProInspect staging rehearsal verification","text":"The isolated ProInspect Cloudflare staging rehearsal completed its deployment and migration checks."}'             > /tmp/staging-email.json
-          node -e "const r=require('/tmp/staging-email.json');if(r.success!==true)process.exit(1);console.log('STAGING_EMAIL_SEND=success')"
+          STAGING_URL="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('.cloudflare/staging-resources.json')).appUrl)")"
+          CLOUDFLARE_SMOKE_URL="$STAGING_URL" node scripts/cloudflare/remote-booking-email-smoke.mjs
 
       - name: Write sanitized staging rehearsal evidence
         run: |
