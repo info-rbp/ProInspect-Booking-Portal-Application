@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "action": "rehearse",
-  "sourceSha": "bf200b353ceceff661f03f91d540ff05ff3ce239",
-  "note": "Provision isolated Cloudflare staging resources and rehearse the exact verified release source against the current legacy production snapshot. No production Cloudflare resources, DNS, or legacy writer state may be mutated."
+  "sourceSha": "ad45a1bfa63522cce33b81177c2618b1c9a8f199",
+  "note": "Rehearse the exact verified Cloudflare release in isolated staging. Prove D1 and R2 migration, maintenance/live Worker deployment, queue processing, and transactional email through the native Worker binding. No production Cloudflare resources, DNS, or legacy writer state may be mutated."
 }
