@@ -22,10 +22,15 @@ async function accountId(){
  return accounts[0].id;
 }
 async function ensureD1(account,name){
- const list=await api('/accounts/'+account+'/d1/database?name='+encodeURIComponent(name)+'&per_page=100');
+ const list=await api('/accounts/'+account+'/d1/database?per_page=100');
  const exact=(list||[]).filter(x=>x.name===name);
  if(exact.length>1)throw new Error('Multiple staging D1 databases use the reviewed name');
  if(exact.length===1)return exact[0];
+ const stale=(list||[]).filter(x=>String(x.name||'').startsWith('proinspect-platform-staging-')&&x.name!==name);
+ for(const database of stale){
+  if(!database.uuid)throw new Error('Stale staging D1 database is missing its identifier');
+  await api('/accounts/'+account+'/d1/database/'+database.uuid,{method:'DELETE'});
+ }
  return api('/accounts/'+account+'/d1/database',{method:'POST',body:{name,primary_location_hint:'oc'}});
 }
 async function ensureBucket(account,name){
